@@ -140,7 +140,9 @@ export async function parseDocumentUltraFast(
   };
 
   if (!geminiKey) {
-    console.warn('[UltraFast] Gemini API key not configured, falling back to OCR pipeline');
+    console.warn('[UltraFast] ⚠️ GEMINI_API_KEY not configured - falling back to slower Reducto OCR pipeline');
+    console.warn('[UltraFast] Set GEMINI_API_KEY env var for 5-15 second parsing instead of 30-60+ seconds');
+    await log('initializing', 'Gemini not configured, using OCR pipeline (slower)...', 5);
     return parseDocumentFast(fileBase64, fileType, documentType, onStep);
   }
 
@@ -159,7 +161,9 @@ export async function parseDocumentUltraFast(
     const MAX_GEMINI_SIZE = 20 * 1024 * 1024; // 20MB - Gemini 2.0 handles this well
 
     if (fileSizeBytes > MAX_GEMINI_SIZE) {
-      await log('initializing', 'File too large for direct extraction, using OCR pipeline...', 10);
+      const sizeMB = (fileSizeBytes / 1024 / 1024).toFixed(1);
+      console.warn(`[UltraFast] ⚠️ File too large (${sizeMB}MB > ${MAX_GEMINI_SIZE / 1024 / 1024}MB) - falling back to Reducto OCR`);
+      await log('initializing', `File too large (${sizeMB}MB) for direct extraction, using OCR pipeline...`, 10);
       return parseDocumentFast(fileBase64, fileType, documentType, onStep);
     }
 
@@ -438,11 +442,13 @@ export async function parseDocumentUltraFast(
     };
 
   } catch (error) {
-    console.error('[UltraFast] Error:', error);
-    await log('error', `Direct extraction failed: ${(error as Error).message}`, 0);
+    const errorMsg = (error as Error).message || 'Unknown error';
+    console.error('[UltraFast] ❌ Gemini extraction failed:', errorMsg);
+    console.error('[UltraFast] Full error:', error);
+    await log('error', `Gemini extraction failed: ${errorMsg}. Falling back to OCR...`, 10);
 
     // Fall back to the OCR-based method
-    console.log('[UltraFast] Falling back to OCR pipeline...');
+    console.log('[UltraFast] Falling back to Reducto OCR pipeline...');
     return parseDocumentFast(fileBase64, fileType, documentType, onStep);
   }
 }
@@ -566,14 +572,23 @@ export async function parseDocumentFast(
   }
 
   try {
-    await log('initializing', 'Initializing fast OCR pipeline...', 5, { documentType, fileType, mode: 'hybrid' });
+    const fileSizeBytes = Math.ceil((fileBase64.length * 3) / 4);
+    const fileSizeMB = (fileSizeBytes / 1024 / 1024).toFixed(1);
+
+    console.log(`[FastParse] Starting Reducto OCR pipeline for ${fileSizeMB}MB ${documentType} document`);
+    await log('initializing', `Initializing OCR pipeline (${fileSizeMB}MB ${documentType})...`, 5, {
+      documentType,
+      fileType,
+      mode: 'hybrid',
+      fileSizeMB: parseFloat(fileSizeMB)
+    });
 
     const client = new Reducto({ apiKey });
     const genAI = new GoogleGenerativeAI(geminiKey);
     const model = genAI.getGenerativeModel({ model: GEMINI_FLASH_MODEL });
 
     await log('preparing', 'Preparing document for OCR...', 10, {
-      sizeKB: Math.round(fileBase64.length * 0.75 / 1024),
+      sizeKB: Math.round(fileSizeBytes / 1024),
       format: fileType
     });
 
@@ -616,9 +631,13 @@ export async function parseDocumentFast(
           chunking: {
             chunk_mode: 'disabled',    // Get all content in one chunk
           }
+        },
+        settings: {
+          timeout: Math.floor(REDUCTO_PARSE_TIMEOUT / 1000),  // Server-side timeout in seconds
+          ocr_system: 'standard',      // Use standard OCR (faster than legacy)
         }
       }),
-      REDUCTO_PARSE_TIMEOUT,
+      REDUCTO_PARSE_TIMEOUT + 5000,  // Client timeout slightly longer than server
       'Reducto OCR parse'
     );
 
@@ -1085,7 +1104,7 @@ export async function parseDocument(
           system_prompt: prompt,
         },
         settings: {
-          optimize_for_latency: true
+          optimize_for_latency: true,  // Use faster processing at higher cost
         }
       }),
       REDUCTO_EXTRACT_TIMEOUT,

@@ -82,6 +82,32 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 // Gemini Flash for fast structured extraction
 const GEMINI_FLASH_MODEL = 'gemini-2.0-flash';
 
+// Timeout constants for API calls
+const REDUCTO_UPLOAD_TIMEOUT = 30000;  // 30 seconds for upload
+const REDUCTO_PARSE_TIMEOUT = 45000;   // 45 seconds for parse (OCR)
+const REDUCTO_EXTRACT_TIMEOUT = 90000; // 90 seconds for extract (LLM)
+
+/**
+ * Wraps a promise with a timeout. Rejects if the promise doesn't resolve within the specified time.
+ */
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operationName: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error(`${operationName} timed out after ${timeoutMs / 1000}s`));
+    }, timeoutMs);
+
+    promise
+      .then((result) => {
+        clearTimeout(timeoutId);
+        resolve(result);
+      })
+      .catch((error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+  });
+}
+
 /**
  * ULTRA-FAST: Direct Gemini Vision extraction (no OCR step)
  * Uses Gemini's native PDF/image understanding to extract data directly.
@@ -128,9 +154,9 @@ export async function parseDocumentUltraFast(
     const genAI = new GoogleGenerativeAI(geminiKey);
     const model = genAI.getGenerativeModel({ model: GEMINI_FLASH_MODEL });
 
-    // Check file size - Gemini can handle up to ~20MB inline
+    // Check file size - Gemini 2.0 can handle larger files inline
     const fileSizeBytes = Math.ceil((fileBase64.length * 3) / 4);
-    const MAX_GEMINI_SIZE = 15 * 1024 * 1024; // 15MB to be safe
+    const MAX_GEMINI_SIZE = 20 * 1024 * 1024; // 20MB - Gemini 2.0 handles this well
 
     if (fileSizeBytes > MAX_GEMINI_SIZE) {
       await log('initializing', 'File too large for direct extraction, using OCR pipeline...', 10);
@@ -560,30 +586,41 @@ export async function parseDocumentFast(
       sizeBytes: fileBuffer.length
     });
 
-    const upload = await client.upload({
-      file: await toFile(fileBuffer, filename),
-      extension: fileType === 'image' ? 'png' : 'pdf',
-    });
+    const uploadStart = Date.now();
+    const upload = await withTimeout(
+      client.upload({
+        file: await toFile(fileBuffer, filename),
+        extension: fileType === 'image' ? 'png' : 'pdf',
+      }),
+      REDUCTO_UPLOAD_TIMEOUT,
+      'Reducto upload'
+    );
 
-    await log('uploading', 'Document uploaded', 25);
+    await log('uploading', `Document uploaded in ${((Date.now() - uploadStart) / 1000).toFixed(1)}s`, 25);
 
     // 2. Use parse endpoint (fast OCR) instead of extract (slow LLM)
     await log('extracting', 'Running fast OCR (Reducto Parse)...', 30, {
       model: 'reducto-parse',
-      mode: 'ocr-only'
+      mode: 'ocr-only',
+      timeout: `${REDUCTO_PARSE_TIMEOUT / 1000}s`
     });
 
-    const parseResult = await client.parse.run({
-      input: upload,
-      enhance: {
-        summarize_figures: false,    // Disable figure summaries (adds latency)
-      },
-      retrieval: {
-        chunking: {
-          chunk_mode: 'disabled',    // Get all content in one chunk
+    const parseStart = Date.now();
+    const parseResult = await withTimeout(
+      client.parse.run({
+        input: upload,
+        enhance: {
+          summarize_figures: false,    // Disable figure summaries (adds latency)
+        },
+        retrieval: {
+          chunking: {
+            chunk_mode: 'disabled',    // Get all content in one chunk
+          }
         }
-      }
-    });
+      }),
+      REDUCTO_PARSE_TIMEOUT,
+      'Reducto OCR parse'
+    );
 
     const ocrDuration = Date.now() - startTime;
     await log('parsing', `OCR complete in ${(ocrDuration / 1000).toFixed(1)}s`, 50, {
@@ -1002,13 +1039,18 @@ export async function parseDocument(
 
     await log('uploading', `Uploading ${filename} to Reducto servers...`, 20, {
       filename,
-      sizeBytes: fileBuffer.length
+      sizeBytes: fileBuffer.length,
+      timeout: `${REDUCTO_UPLOAD_TIMEOUT / 1000}s`
     });
 
-    const upload = await client.upload({
-      file: await toFile(fileBuffer, filename),
-      extension: fileType === 'image' ? 'png' : 'pdf',
-    });
+    const upload = await withTimeout(
+      client.upload({
+        file: await toFile(fileBuffer, filename),
+        extension: fileType === 'image' ? 'png' : 'pdf',
+      }),
+      REDUCTO_UPLOAD_TIMEOUT,
+      'Reducto upload'
+    );
 
     await log('uploading', 'Document uploaded successfully', 35, {
       uploadId: typeof upload === 'string' ? upload : 'completed'
@@ -1029,21 +1071,26 @@ export async function parseDocument(
 
     await log('extracting', 'Sending document to Reducto AI for extraction...', 45, {
       model: 'reducto-extract',
-      optimizeForLatency: true
+      optimizeForLatency: true,
+      timeout: `${REDUCTO_EXTRACT_TIMEOUT / 1000}s`
     });
 
     // 3. Extract Structured Data
     await log('parsing', 'AI is analyzing document structure...', 55);
 
-    const extraction = await client.extract.run({
-      input: upload,
-      instructions: {
-        system_prompt: prompt,
-      },
-      settings: {
-        optimize_for_latency: true
-      }
-    });
+    const extraction = await withTimeout(
+      client.extract.run({
+        input: upload,
+        instructions: {
+          system_prompt: prompt,
+        },
+        settings: {
+          optimize_for_latency: true
+        }
+      }),
+      REDUCTO_EXTRACT_TIMEOUT,
+      'Reducto AI extraction'
+    );
 
     await log('parsing', 'Document structure analyzed', 70);
 
@@ -1451,21 +1498,29 @@ export async function parsePOHFromUrl(pohUrl: string, onStep?: StepCallback): Pr
 
     // 2. Upload
     await log('uploading', 'Uploading to Reducto...', 35);
-    const upload = await client.upload({
-      file: await toFile(buffer, 'poh.pdf'),
-      extension: 'pdf'
-    });
+    const upload = await withTimeout(
+      client.upload({
+        file: await toFile(buffer, 'poh.pdf'),
+        extension: 'pdf'
+      }),
+      REDUCTO_UPLOAD_TIMEOUT,
+      'Reducto upload'
+    );
 
     await log('uploading', 'Upload complete', 45);
 
     // 3. Extract
     await log('extracting', 'Extracting V-speeds and weight limits...', 55);
-    const extraction = await client.extract.run({
-      input: upload,
-      instructions: {
-        system_prompt: POH_EXTRACTION_PROMPT
-      }
-    });
+    const extraction = await withTimeout(
+      client.extract.run({
+        input: upload,
+        instructions: {
+          system_prompt: POH_EXTRACTION_PROMPT
+        }
+      }),
+      REDUCTO_EXTRACT_TIMEOUT,
+      'Reducto POH extraction'
+    );
 
     await log('parsing', 'Parsing extraction results...', 75);
 
@@ -1650,25 +1705,33 @@ export async function analyzeDocument(
       sizeKB: Math.round(fileBuffer.length / 1024)
     });
 
-    const upload = await client.upload({
-      file: await toFile(fileBuffer, fileType === 'image' ? 'document.png' : 'document.pdf'),
-      extension: fileType === 'image' ? 'png' : 'pdf',
-    });
+    const upload = await withTimeout(
+      client.upload({
+        file: await toFile(fileBuffer, fileType === 'image' ? 'document.png' : 'document.pdf'),
+        extension: fileType === 'image' ? 'png' : 'pdf',
+      }),
+      REDUCTO_UPLOAD_TIMEOUT,
+      'Reducto upload'
+    );
 
     await log('uploading', 'Document uploaded successfully', 35);
 
     // Run analysis extraction
     await log('classifying', 'AI is classifying document type...', 45);
 
-    const extraction = await client.extract.run({
-      input: upload,
-      instructions: {
-        system_prompt: DOCUMENT_ANALYSIS_PROMPT,
-      },
-      settings: {
-        optimize_for_latency: true
-      }
-    });
+    const extraction = await withTimeout(
+      client.extract.run({
+        input: upload,
+        instructions: {
+          system_prompt: DOCUMENT_ANALYSIS_PROMPT,
+        },
+        settings: {
+          optimize_for_latency: true
+        }
+      }),
+      REDUCTO_EXTRACT_TIMEOUT,
+      'Reducto document analysis'
+    );
 
     await log('analyzing', 'Processing classification results...', 70);
 

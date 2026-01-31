@@ -1,5 +1,7 @@
 import mongoose, { Schema, Document, Model } from 'mongoose';
 
+export type ProgressStep = 'pending' | 'queued' | 'uploading' | 'processing' | 'extracting' | 'complete' | 'failed';
+
 export interface IParsedDocument extends Document {
     filename: string;
     documentType: 'logbook' | 'maintenance' | 'poh' | 'other';
@@ -7,6 +9,11 @@ export interface IParsedDocument extends Document {
     uploadedAt: Date;
     parsedAt?: Date;
     status: 'pending' | 'parsing' | 'completed' | 'failed';
+
+    // Progress tracking
+    progress: number;           // 0-100 percentage
+    progressStep: ProgressStep; // Current step in the process
+    retryCount: number;         // Number of retry attempts
 
     // The raw Reducto output
     rawOutput?: Record<string, any>;
@@ -49,6 +56,13 @@ const ParsedDocumentSchema = new Schema<IParsedDocument>({
         enum: ['pending', 'parsing', 'completed', 'failed'],
         default: 'pending'
     },
+    progress: { type: Number, default: 0, min: 0, max: 100 },
+    progressStep: {
+        type: String,
+        enum: ['pending', 'queued', 'uploading', 'processing', 'extracting', 'complete', 'failed'],
+        default: 'pending'
+    },
+    retryCount: { type: Number, default: 0 },
     rawOutput: { type: Schema.Types.Mixed },
     entries: [{ type: Schema.Types.Mixed }],
     summary: {

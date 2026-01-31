@@ -36,6 +36,18 @@ export default function AircraftPage() {
         setLogbookYear('All');
     }, [selectedAircraft?._id]);
 
+    // Auto-refresh when documents are being parsed
+    const parsingDocsCount = parsedDocs?.filter((d: any) => d.status === 'parsing').length || 0;
+    useEffect(() => {
+        if (parsingDocsCount > 0) {
+            const interval = setInterval(() => {
+                refetch();
+                refetchDocs();
+            }, 3000);
+            return () => clearInterval(interval);
+        }
+    }, [parsingDocsCount, refetch, refetchDocs]);
+
     // Get logs from the categorized logbooks or fallback to legacy logs array
     const getCategoryLogs = (category: LogbookCategory) => {
         if (selectedAircraft?.logbooks?.[category]?.length) {

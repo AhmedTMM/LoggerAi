@@ -1,7 +1,12 @@
 {
-  "/files/page": "app/files/page.js",
   "/page": "app/page.js",
-  "/aircraft/page": "app/aircraft/page.js",
   "/pilots/page": "app/pilots/page.js",
-  "/flights/page": "app/flights/page.js"
+  "/files/page": "app/files/page.js",
+  "/aircraft/page": "app/aircraft/page.js",
+  "/flights/page": "app/flights/page.js",
+  "/api/aircraft/route": "app/api/aircraft/route.js",
+  "/api/parse-document/route": "app/api/parse-document/route.js",
+  "/api/pilots/route": "app/api/pilots/route.js",
+  "/api/pilots/[id]/ai-safety/route": "app/api/pilots/[id]/ai-safety/route.js",
+  "/api/pilots/[id]/route": "app/api/pilots/[id]/route.js"
 }

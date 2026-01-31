@@ -1,10 +1,12 @@
 // Legality Service - Core compliance engine for flight audits
 // Determines Go/Caution/No-Go based on FAA regulations
+// Now integrates with comprehensive safety analysis for enhanced auditing
 
 import Flight, { IFlight, ILegalityCheck, IWeatherData } from '@/lib/models/Flight';
 import { IAircraft } from '@/lib/models/Aircraft';
 import { IPilot } from '@/lib/models/Pilot';
-import { fetchWeatherData } from './weatherService';
+import { fetchWeatherData, fetchEnhancedWeatherData, fetchRouteWeather } from './weatherService';
+import { runComprehensiveSafetyAnalysis } from './comprehensiveSafetyService';
 
 export interface IRiskScenario {
     title: string;
@@ -347,7 +349,32 @@ function generateSummary(checks: ILegalityCheck[], overallStatus: string): strin
 // MAIN AUDIT FUNCTION
 // ============================================
 
-export async function runLegalityAudit(flightId: string): Promise<AuditResult> {
+export async function runLegalityAudit(flightId: string, useComprehensive: boolean = true): Promise<AuditResult> {
+    // Use comprehensive safety analysis for enhanced auditing
+    if (useComprehensive) {
+        try {
+            const comprehensiveAnalysis = await runComprehensiveSafetyAnalysis(flightId);
+
+            // Fetch updated flight
+            const flight = await Flight.findById(flightId);
+
+            return {
+                overallStatus: comprehensiveAnalysis.goNoGoRecommendation,
+                checks: flight?.legalityChecks || [],
+                summary: comprehensiveAnalysis.reasoning,
+                riskScenarios: comprehensiveAnalysis.combinedRiskScenarios.map(s => ({
+                    title: s.title,
+                    probability: s.probability,
+                    severity: s.severity,
+                    description: s.description,
+                })),
+            };
+        } catch (err) {
+            console.warn('Comprehensive analysis failed, falling back to basic audit:', err);
+        }
+    }
+
+    // Fallback to basic audit
     // 1. Fetch flight with populated pilot & aircraft
     const flight = await Flight.findById(flightId)
         .populate('pilot')
@@ -360,16 +387,16 @@ export async function runLegalityAudit(flightId: string): Promise<AuditResult> {
 
     const pilot = flight.pilot as unknown as IPilot;
     const aircraft = flight.aircraft as unknown as IAircraft;
-    const scheduledDate = new Date(flight.scheduledDate);
+    const scheduledDate = new Date(flight.scheduledDateTime || flight.scheduledDate);
 
     if (!pilot || !aircraft) {
         throw new Error('Flight missing pilot or aircraft reference');
     }
 
-    // 2. Fetch live weather
+    // 2. Fetch live weather (use enhanced weather service)
     let weather = flight.weather;
     try {
-        const fetchedWeather = await fetchWeatherData(flight.departureAirport);
+        const fetchedWeather = await fetchEnhancedWeatherData(flight.departureAirport);
         if (fetchedWeather) {
             weather = fetchedWeather;
         }
@@ -410,8 +437,8 @@ export async function runLegalityAudit(flightId: string): Promise<AuditResult> {
     flight.overallStatus = overallStatus;
     if (weather) flight.weather = weather;
 
-    // SAVE SNAPSHOT
-    flight.safetyAnalysisSnapshot = {
+    // SAVE LEGACY SNAPSHOT for backwards compatibility
+    flight.legacySafetySnapshot = {
         checks,
         overallStatus,
         weather,

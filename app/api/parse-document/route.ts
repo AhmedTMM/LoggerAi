@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { parseDocumentFast } from '@/lib/services/reductoService';
+import { parseDocumentUltraFast } from '@/lib/services/reductoService';
 import dbConnect from '@/lib/db';
 import Aircraft from '@/lib/models/Aircraft';
 import Pilot from '@/lib/models/Pilot';
@@ -45,8 +45,8 @@ export async function POST(request: NextRequest) {
     doc.status = 'parsing';
     await doc.save();
 
-    // Use fast hybrid OCR + Gemini pipeline
-    const result = await parseDocumentFast(fileBase64, fileType, documentType);
+    // Use ultra-fast direct Gemini vision extraction
+    const result = await parseDocumentUltraFast(fileBase64, fileType, documentType);
 
     if (!result.success) {
       doc.status = 'failed';
@@ -145,8 +145,8 @@ async function processDocumentInBackground(
     doc.status = 'parsing';
     await doc.save();
 
-    // Use fast hybrid OCR + Gemini pipeline
-    const result = await parseDocumentFast(fileBase64, fileType, documentType as 'logbook' | 'maintenance');
+    // Use ultra-fast direct Gemini vision extraction
+    const result = await parseDocumentUltraFast(fileBase64, fileType, documentType as 'logbook' | 'maintenance');
 
     if (!result.success) {
       doc.status = 'failed';

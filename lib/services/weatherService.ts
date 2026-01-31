@@ -52,6 +52,60 @@ export interface IWeatherHazard {
   affectedAltitudes?: { low: number; high: number };
 }
 
+// Helper to safely parse JSON from response
+async function safeJsonParse<T>(response: Response): Promise<T | null> {
+  try {
+    const text = await response.text();
+    if (!text || text.trim() === '') {
+      return null;
+    }
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
+
+// Helper to sanitize visibility value (handles "10+", strings, etc.)
+function sanitizeVisibility(value: unknown): number {
+  if (typeof value === 'number') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    // Handle "10+" or similar strings
+    const numericPart = parseFloat(value.replace(/[^0-9.]/g, ''));
+    return isNaN(numericPart) ? 10 : numericPart;
+  }
+  return 10; // Default to 10SM (good visibility)
+}
+
+// Helper to sanitize wind direction (handles "VRB" for variable winds)
+function sanitizeWindDirection(value: unknown): number {
+  if (typeof value === 'number') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    // "VRB" means variable - use 0 as convention
+    if (value.toUpperCase() === 'VRB') {
+      return 0;
+    }
+    const numericPart = parseFloat(value);
+    return isNaN(numericPart) ? 0 : numericPart;
+  }
+  return 0;
+}
+
+// Helper to sanitize wind speed
+function sanitizeWindSpeed(value: unknown): number {
+  if (typeof value === 'number') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const numericPart = parseFloat(value);
+    return isNaN(numericPart) ? 0 : numericPart;
+  }
+  return 0;
+}
+
 // Main METAR fetching function with enhanced parsing
 export async function fetchWeatherData(airportCode: string): Promise<IWeatherData | null> {
   try {
@@ -67,7 +121,7 @@ export async function fetchWeatherData(airportCode: string): Promise<IWeatherDat
       return null;
     }
 
-    const data = await response.json();
+    const data = await safeJsonParse<any[]>(response);
 
     if (!data || data.length === 0) {
       return null;
@@ -81,12 +135,12 @@ export async function fetchWeatherData(airportCode: string): Promise<IWeatherDat
       station: stationCode,
       metar: metar.rawOb || '',
       flightCategory,
-      visibility: metar.visib ?? 10,
+      visibility: sanitizeVisibility(metar.visib),
       ceiling,
       wind: {
-        direction: metar.wdir || 0,
-        speed: metar.wspd || 0,
-        gust: metar.wgst || undefined,
+        direction: sanitizeWindDirection(metar.wdir),
+        speed: sanitizeWindSpeed(metar.wspd),
+        gust: metar.wgst ? sanitizeWindSpeed(metar.wgst) : undefined,
       },
       fetchedAt: new Date(),
     };
@@ -111,7 +165,7 @@ export async function fetchEnhancedWeatherData(airportCode: string): Promise<IEn
       return null;
     }
 
-    const data = await response.json();
+    const data = await safeJsonParse<any[]>(response);
 
     if (!data || data.length === 0) {
       return null;
@@ -157,12 +211,12 @@ export async function fetchEnhancedWeatherData(airportCode: string): Promise<IEn
       metar: metar.rawOb || '',
       rawMetar: metar.rawOb,
       flightCategory,
-      visibility: metar.visib ?? 10,
+      visibility: sanitizeVisibility(metar.visib),
       ceiling,
       wind: {
-        direction: metar.wdir || 0,
-        speed: metar.wspd || 0,
-        gust: metar.wgst || undefined,
+        direction: sanitizeWindDirection(metar.wdir),
+        speed: sanitizeWindSpeed(metar.wspd),
+        gust: metar.wgst ? sanitizeWindSpeed(metar.wgst) : undefined,
       },
       temperature: metar.temp,
       dewpoint: metar.dewp,
@@ -193,7 +247,7 @@ export async function fetchTAFData(airportCode: string): Promise<string | null> 
       return null;
     }
 
-    const data = await response.json();
+    const data = await safeJsonParse<any[]>(response);
 
     if (!data || data.length === 0) {
       return null;
@@ -219,7 +273,7 @@ export async function fetchParsedTAF(airportCode: string): Promise<{ raw: string
       return null;
     }
 
-    const data = await response.json();
+    const data = await safeJsonParse<any[]>(response);
 
     if (!data || data.length === 0) {
       return null;
@@ -342,7 +396,7 @@ async function fetchEnrouteHazards(
     const hazards: IWeatherHazard[] = [];
 
     if (sigmetRes?.ok) {
-      const sigmets = await sigmetRes.json();
+      const sigmets = await safeJsonParse<any[]>(sigmetRes);
       for (const sigmet of sigmets || []) {
         hazards.push({
           type: 'SIGMET',
@@ -355,7 +409,7 @@ async function fetchEnrouteHazards(
     }
 
     if (airmetRes?.ok) {
-      const airmets = await airmetRes.json();
+      const airmets = await safeJsonParse<any[]>(airmetRes);
       for (const airmet of airmets || []) {
         hazards.push({
           type: 'AIRMET',
@@ -390,12 +444,12 @@ function parseTAFPeriods(tafData: any): ITAFPeriod[] {
         startTime,
         endTime,
         flightCategory: determineFlightCategory(fcst.visib, fcst.clouds),
-        visibility: fcst.visib,
+        visibility: fcst.visib !== undefined ? sanitizeVisibility(fcst.visib) : undefined,
         ceiling: findCeiling(fcst.clouds),
         wind: fcst.wdir !== undefined ? {
-          direction: fcst.wdir,
-          speed: fcst.wspd || 0,
-          gust: fcst.wgst,
+          direction: sanitizeWindDirection(fcst.wdir),
+          speed: sanitizeWindSpeed(fcst.wspd),
+          gust: fcst.wgst ? sanitizeWindSpeed(fcst.wgst) : undefined,
         } : undefined,
         weather: fcst.wxString ? [fcst.wxString] : undefined,
       };
@@ -458,10 +512,10 @@ function parseWeatherHazards(metar: any): IWeatherHazard[] {
 
 // Determine flight category from visibility and clouds
 function determineFlightCategory(
-  visibility: number | undefined,
+  visibility: number | string | undefined,
   clouds: Array<{ cover: string; base: number }> | undefined
 ): 'VFR' | 'MVFR' | 'IFR' | 'LIFR' {
-  const vis = visibility ?? 10;
+  const vis = sanitizeVisibility(visibility);
   const ceiling = findCeiling(clouds);
 
   // LIFR: Ceiling < 500 feet and/or visibility < 1 mile

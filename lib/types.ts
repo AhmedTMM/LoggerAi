@@ -210,6 +210,7 @@ export interface Flight {
   legalityChecks: LegalityCheck[];
   overallStatus: 'go' | 'caution' | 'no-go';
   weather?: WeatherData;
+  arrivalWeather?: WeatherData;
   safetyAnalysisSnapshot?: any;
   notes?: string;
   emailSent: boolean;

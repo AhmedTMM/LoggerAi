@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { parseDocumentUltraFast } from '@/lib/services/reductoService';
+import { parseDocumentFast } from '@/lib/services/reductoService';
 import dbConnect from '@/lib/db';
 import Aircraft from '@/lib/models/Aircraft';
 import Pilot from '@/lib/models/Pilot';
@@ -90,8 +90,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       // Progress: 50% - Processing document
       await updateProgress(docId, 50, 'processing');
 
-      // Use ultra-fast direct Gemini vision extraction
-      const result = await parseDocumentUltraFast(fileBase64, doc.fileType, doc.documentType as 'logbook' | 'maintenance');
+      // Use Reducto OCR + Gemini extraction
+      const result = await parseDocumentFast(fileBase64, doc.fileType, doc.documentType as 'logbook' | 'maintenance');
 
       // Progress: 80% - Extracting entries
       await updateProgress(docId, 80, 'extracting');

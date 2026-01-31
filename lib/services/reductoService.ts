@@ -498,17 +498,54 @@ export async function parseDocumentFast(
 
     await log('structuring', 'AI extraction complete', 80);
 
-    // 5. Parse the AI response
+    // 5. Parse the AI response with robust recovery
     let items: any[] = [];
+    let rawData: any = {};
     try {
-      const jsonString = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
+      // Clean up JSON - handle markdown code blocks and extra whitespace
+      let jsonString = aiText
+        .replace(/```json\s*/gi, '')
+        .replace(/```\s*/g, '')
+        .trim();
+
+      // Try to find JSON in the response if it's wrapped in other text
+      const jsonMatch = jsonString.match(/\[[\s\S]*\]|\{[\s\S]*\}/);
+      if (jsonMatch) {
+        jsonString = jsonMatch[0];
+      }
+
       const parsed = JSON.parse(jsonString);
-      items = Array.isArray(parsed) ? parsed : (parsed.entries || [parsed]);
+
+      if (Array.isArray(parsed)) {
+        items = parsed;
+      } else if (parsed.entries && Array.isArray(parsed.entries)) {
+        items = parsed.entries;
+        rawData = parsed;
+      } else if (parsed.flights && Array.isArray(parsed.flights)) {
+        items = parsed.flights;
+        rawData = parsed;
+      } else {
+        items = [parsed];
+        rawData = parsed;
+      }
     } catch (parseError) {
-      console.error('Failed to parse Gemini response:', aiText);
-      await log('error', 'Failed to parse AI extraction response', 80);
-      // Try to salvage partial data
-      items = [];
+      console.error('[FastParse] JSON parse failed, attempting recovery...', parseError);
+      console.error('[FastParse] Raw AI response:', aiText.substring(0, 500));
+
+      // Try to extract any array from the response
+      const arrayMatch = aiText.match(/\[\s*\{[\s\S]*?\}\s*(?:,\s*\{[\s\S]*?\}\s*)*\]/);
+      if (arrayMatch) {
+        try {
+          items = JSON.parse(arrayMatch[0]);
+          await log('structuring', 'Recovered partial data from response', 85);
+        } catch {
+          await log('error', 'Failed to parse AI extraction response', 80);
+          items = [];
+        }
+      } else {
+        await log('error', 'Failed to parse AI extraction response', 80);
+        items = [];
+      }
     }
 
     await log('validating_output', 'Validating extracted data...', 90, {
@@ -538,7 +575,7 @@ export async function parseDocumentFast(
       success: true,
       data: {
         documentType: documentType,
-        extractedData: { entries: items },
+        extractedData: { entries: items, ...rawData },
         confidence: 1.0,
         rawText: extractedText,
       },

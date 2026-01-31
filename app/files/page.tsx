@@ -34,14 +34,29 @@ import {
   CheckCircle2,
   XCircle,
   ArrowRight,
-  Terminal
+  Terminal,
+  Shield,
+  FileCheck,
+  Scale,
+  BadgeCheck,
+  GraduationCap,
+  ClipboardCheck,
+  Wrench,
+  ScrollText,
+  FileBadge,
+  HeartPulse,
+  Award,
+  BookOpen,
+  FileWarning
 } from 'lucide-react';
-import { useParsedDocuments, useDeleteParsedDocument, useLinkDocToAircraft, useAircraft, usePilots, useStartParsing } from '@/lib/hooks';
+import { useParsedDocuments, useDeleteParsedDocument, useLinkDocToAircraft, useLinkDocToPilot, useAircraft, usePilots, useStartParsing } from '@/lib/hooks';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { cn } from '@/lib/utils';
+import { DocumentType, DOCUMENT_TYPE_META } from '@/lib/models/ParsedDocument';
 
-type DocumentType = 'logbook' | 'maintenance' | 'poh' | 'other';
+// Category filter type
+type CategoryFilter = 'all' | 'pilot' | 'aircraft' | 'general';
 
 interface ProcessingLog {
   id: string;
@@ -86,12 +101,33 @@ const stepColors: Record<string, string> = {
   error: 'text-red-500'
 };
 
+// Icon mapping for document types
+const typeIcons: Record<string, any> = {
+  pilot_logbook: BookOpen,
+  aircraft_logbook: ScrollText,
+  maintenance: Wrench,
+  inspection: FileCheck,
+  poh: FileText,
+  weight_balance: Scale,
+  insurance: Shield,
+  registration: FileBadge,
+  medical: HeartPulse,
+  certificate: Award,
+  endorsement: GraduationCap,
+  checkout: ClipboardCheck,
+  ad_compliance: FileWarning,
+  service_bulletin: BadgeCheck,
+  logbook: BookOpen,
+  other: FileText
+};
+
 export default function FilesPage() {
   const { data: documents = [], isLoading, refetch } = useParsedDocuments();
   const { data: aircraft = [] } = useAircraft();
   const { data: pilots = [] } = usePilots();
   const deleteDocument = useDeleteParsedDocument();
-  const linkDoc = useLinkDocToAircraft();
+  const linkDocToAircraft = useLinkDocToAircraft();
+  const linkDocToPilot = useLinkDocToPilot();
   const startParsing = useStartParsing();
 
   const [isDragging, setIsDragging] = useState(false);
@@ -101,9 +137,10 @@ export default function FilesPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadResult, setUploadResult] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [showLinkModal, setShowLinkModal] = useState<string | null>(null);
+  const [showLinkModal, setShowLinkModal] = useState<{docId: string; mode: 'aircraft' | 'pilot'} | null>(null);
   const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
   const [selectedDoc, setSelectedDoc] = useState<any>(null);
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const logContainerRef = useRef<HTMLDivElement>(null);
 
@@ -319,9 +356,20 @@ export default function FilesPage() {
 
   const filteredDocs = documents.filter((doc: any) => {
     if (searchQuery && !doc.filename?.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+
+    // Category filter
+    if (categoryFilter !== 'all') {
+      const meta = DOCUMENT_TYPE_META[doc.documentType as DocumentType];
+      if (meta && meta.category !== categoryFilter) return false;
+    }
+
+    // Type filter
     if (typeFilter !== 'all' && doc.documentType !== typeFilter) return false;
     return true;
   });
+
+  // Get unique document types for filter dropdown
+  const availableTypes = Array.from(new Set(documents.map((d: any) => d.documentType))).filter(Boolean);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -339,16 +387,56 @@ export default function FilesPage() {
   };
 
   const getTypeBadge = (type: string) => {
-    switch (type) {
-      case 'logbook':
-        return <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">Pilot Logbook</Badge>;
-      case 'maintenance':
-        return <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">Maintenance</Badge>;
-      case 'poh':
-        return <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">POH</Badge>;
-      default:
-        return <Badge variant="outline">Other</Badge>;
-    }
+    const meta = DOCUMENT_TYPE_META[type as DocumentType];
+    const Icon = typeIcons[type] || FileText;
+
+    // Color mappings for each document type
+    const colorClasses: Record<string, string> = {
+      pilot_logbook: 'bg-blue-50 text-blue-700 border-blue-200',
+      aircraft_logbook: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+      maintenance: 'bg-amber-50 text-amber-700 border-amber-200',
+      inspection: 'bg-orange-50 text-orange-700 border-orange-200',
+      poh: 'bg-purple-50 text-purple-700 border-purple-200',
+      weight_balance: 'bg-cyan-50 text-cyan-700 border-cyan-200',
+      insurance: 'bg-slate-50 text-slate-700 border-slate-200',
+      registration: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      medical: 'bg-rose-50 text-rose-700 border-rose-200',
+      certificate: 'bg-violet-50 text-violet-700 border-violet-200',
+      endorsement: 'bg-teal-50 text-teal-700 border-teal-200',
+      checkout: 'bg-lime-50 text-lime-700 border-lime-200',
+      ad_compliance: 'bg-red-50 text-red-700 border-red-200',
+      service_bulletin: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+      logbook: 'bg-blue-50 text-blue-700 border-blue-200',
+      other: 'bg-gray-50 text-gray-700 border-gray-200'
+    };
+
+    const colorClass = colorClasses[type] || colorClasses.other;
+    const label = meta?.label || type.charAt(0).toUpperCase() + type.slice(1).replace(/_/g, ' ');
+
+    return (
+      <Badge variant="outline" className={cn("gap-1", colorClass)}>
+        <Icon className="w-3 h-3" />
+        {label}
+      </Badge>
+    );
+  };
+
+  // Get category badge
+  const getCategoryBadge = (type: string) => {
+    const meta = DOCUMENT_TYPE_META[type as DocumentType];
+    if (!meta) return null;
+
+    const categoryColors: Record<string, string> = {
+      pilot: 'bg-blue-100 text-blue-800',
+      aircraft: 'bg-indigo-100 text-indigo-800',
+      general: 'bg-gray-100 text-gray-800'
+    };
+
+    return (
+      <span className={cn("text-[10px] px-1.5 py-0.5 rounded", categoryColors[meta.category])}>
+        {meta.category}
+      </span>
+    );
   };
 
   return (
@@ -558,32 +646,79 @@ export default function FilesPage() {
         </div>
 
         {/* Filters */}
-        <div className="flex items-center gap-4 bg-white rounded-xl p-3 shadow-sm border border-slate-100">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search documents..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
-            />
+        <div className="flex flex-col gap-3 bg-white rounded-xl p-4 shadow-sm border border-slate-100">
+          {/* Search and Category filters */}
+          <div className="flex items-center gap-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search documents..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
+              />
+            </div>
+
+            {/* Category filter buttons */}
+            <div className="flex gap-1 border-l border-slate-200 pl-4">
+              {[
+                { key: 'all', label: 'All', icon: FileText },
+                { key: 'pilot', label: 'Pilot', icon: User },
+                { key: 'aircraft', label: 'Aircraft', icon: Plane }
+              ].map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  onClick={() => { setCategoryFilter(key as CategoryFilter); setTypeFilter('all'); }}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5",
+                    categoryFilter === key
+                      ? "bg-indigo-100 text-indigo-700"
+                      : "text-slate-500 hover:bg-slate-100"
+                  )}
+                >
+                  <Icon className="w-4 h-4" />
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="flex gap-1">
-            {['all', 'logbook', 'maintenance', 'poh'].map((f) => (
-              <button
-                key={f}
-                onClick={() => setTypeFilter(f)}
-                className={cn(
-                  "px-3 py-1.5 rounded-lg text-sm font-medium transition-all",
-                  typeFilter === f
-                    ? "bg-indigo-100 text-indigo-700"
-                    : "text-slate-500 hover:bg-slate-100"
-                )}
-              >
-                {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}
-              </button>
-            ))}
+
+          {/* Document type filter chips */}
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setTypeFilter('all')}
+              className={cn(
+                "px-2.5 py-1 rounded-full text-xs font-medium transition-all",
+                typeFilter === 'all'
+                  ? "bg-indigo-600 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              )}
+            >
+              All Types
+            </button>
+            {availableTypes.map((type: string) => {
+              const meta = DOCUMENT_TYPE_META[type as DocumentType];
+              // Filter by category if one is selected
+              if (categoryFilter !== 'all' && meta?.category !== categoryFilter) return null;
+
+              const TypeIcon = typeIcons[type] || FileText;
+              return (
+                <button
+                  key={type}
+                  onClick={() => setTypeFilter(type)}
+                  className={cn(
+                    "px-2.5 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1",
+                    typeFilter === type
+                      ? "bg-indigo-600 text-white"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  )}
+                >
+                  <TypeIcon className="w-3 h-3" />
+                  {meta?.label || type}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -753,16 +888,27 @@ export default function FilesPage() {
                               variant="ghost"
                               onClick={() => setSelectedDoc(doc)}
                               className="text-slate-400 hover:text-indigo-600"
+                              title="View entries"
                             >
                               <Eye className="w-4 h-4" />
                             </Button>
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => setShowLinkModal(doc._id)}
-                              className="text-slate-400 hover:text-indigo-600"
+                              onClick={() => setShowLinkModal({ docId: doc._id, mode: 'pilot' })}
+                              className="text-slate-400 hover:text-blue-600"
+                              title="Link to pilot"
                             >
-                              <Link2 className="w-4 h-4" />
+                              <User className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setShowLinkModal({ docId: doc._id, mode: 'aircraft' })}
+                              className="text-slate-400 hover:text-indigo-600"
+                              title="Link to aircraft"
+                            >
+                              <Plane className="w-4 h-4" />
                             </Button>
                           </>
                         )}
@@ -881,43 +1027,133 @@ export default function FilesPage() {
           </div>
         )}
 
-        {/* Link Modal */}
+        {/* Link Modal - supports both pilot and aircraft */}
         {showLinkModal && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
-              <h3 className="text-lg font-bold text-slate-900 mb-4">Link to Aircraft</h3>
+              <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+                {showLinkModal.mode === 'pilot' ? (
+                  <>
+                    <User className="w-5 h-5 text-blue-600" />
+                    Link to Pilot
+                  </>
+                ) : (
+                  <>
+                    <Plane className="w-5 h-5 text-indigo-600" />
+                    Link to Aircraft
+                  </>
+                )}
+              </h3>
               <div className="space-y-2 max-h-64 overflow-y-auto">
+                {/* Unlink option */}
                 <button
                   onClick={() => {
-                    linkDoc.mutate({ docId: showLinkModal, aircraftId: null }, {
-                      onSuccess: () => { refetch(); setShowLinkModal(null); }
-                    });
+                    if (showLinkModal.mode === 'pilot') {
+                      linkDocToPilot.mutate({ docId: showLinkModal.docId, pilotId: null }, {
+                        onSuccess: () => { refetch(); setShowLinkModal(null); }
+                      });
+                    } else {
+                      linkDocToAircraft.mutate({ docId: showLinkModal.docId, aircraftId: null }, {
+                        onSuccess: () => { refetch(); setShowLinkModal(null); }
+                      });
+                    }
                   }}
                   className="w-full p-3 text-left rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors"
                 >
                   <span className="text-slate-500">Unlink</span>
                 </button>
-                {aircraft.map((ac: any) => (
-                  <button
-                    key={ac._id}
-                    onClick={() => {
-                      linkDoc.mutate({ docId: showLinkModal, aircraftId: ac._id }, {
-                        onSuccess: () => { refetch(); setShowLinkModal(null); }
-                      });
-                    }}
-                    className="w-full p-3 text-left rounded-xl border border-slate-200 hover:bg-indigo-50 hover:border-indigo-200 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="bg-indigo-100 p-2 rounded-lg">
-                        <Plane className="w-5 h-5 text-indigo-600" />
+
+                {/* Pilot list */}
+                {showLinkModal.mode === 'pilot' && pilots.map((pilot: any) => {
+                  // Check if this is a suggested pilot from auto-attachment
+                  const doc = documents.find((d: any) => d._id === showLinkModal.docId);
+                  const isSuggested = doc?.analysis?.suggestedPilotId === pilot._id;
+
+                  return (
+                    <button
+                      key={pilot._id}
+                      onClick={() => {
+                        linkDocToPilot.mutate({ docId: showLinkModal.docId, pilotId: pilot._id }, {
+                          onSuccess: () => { refetch(); setShowLinkModal(null); }
+                        });
+                      }}
+                      className={cn(
+                        "w-full p-3 text-left rounded-xl border transition-colors",
+                        isSuggested
+                          ? "border-blue-300 bg-blue-50 hover:bg-blue-100"
+                          : "border-slate-200 hover:bg-blue-50 hover:border-blue-200"
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={cn(
+                          "p-2 rounded-lg",
+                          isSuggested ? "bg-blue-200" : "bg-blue-100"
+                        )}>
+                          <User className="w-5 h-5 text-blue-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-slate-900">{pilot.name}</p>
+                          <p className="text-sm text-slate-500">{pilot.email}</p>
+                        </div>
+                        {isSuggested && (
+                          <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200 text-xs">
+                            <Sparkles className="w-3 h-3 mr-1" /> Suggested
+                          </Badge>
+                        )}
                       </div>
-                      <div>
-                        <p className="font-medium text-slate-900">{ac.tailNumber}</p>
-                        <p className="text-sm text-slate-500">{ac.model}</p>
+                    </button>
+                  );
+                })}
+
+                {/* Aircraft list */}
+                {showLinkModal.mode === 'aircraft' && aircraft.map((ac: any) => {
+                  // Check if this is a suggested aircraft from auto-attachment
+                  const doc = documents.find((d: any) => d._id === showLinkModal.docId);
+                  const isSuggested = doc?.analysis?.suggestedAircraftId === ac._id;
+
+                  return (
+                    <button
+                      key={ac._id}
+                      onClick={() => {
+                        linkDocToAircraft.mutate({ docId: showLinkModal.docId, aircraftId: ac._id }, {
+                          onSuccess: () => { refetch(); setShowLinkModal(null); }
+                        });
+                      }}
+                      className={cn(
+                        "w-full p-3 text-left rounded-xl border transition-colors",
+                        isSuggested
+                          ? "border-indigo-300 bg-indigo-50 hover:bg-indigo-100"
+                          : "border-slate-200 hover:bg-indigo-50 hover:border-indigo-200"
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={cn(
+                          "p-2 rounded-lg",
+                          isSuggested ? "bg-indigo-200" : "bg-indigo-100"
+                        )}>
+                          <Plane className="w-5 h-5 text-indigo-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-slate-900">{ac.tailNumber}</p>
+                          <p className="text-sm text-slate-500">{ac.model}</p>
+                        </div>
+                        {isSuggested && (
+                          <Badge variant="outline" className="bg-indigo-100 text-indigo-700 border-indigo-200 text-xs">
+                            <Sparkles className="w-3 h-3 mr-1" /> Suggested
+                          </Badge>
+                        )}
                       </div>
-                    </div>
-                  </button>
-                ))}
+                    </button>
+                  );
+                })}
+
+                {/* Empty state */}
+                {showLinkModal.mode === 'pilot' && pilots.length === 0 && (
+                  <p className="text-center text-slate-500 py-4">No pilots found. Add a pilot first.</p>
+                )}
+                {showLinkModal.mode === 'aircraft' && aircraft.length === 0 && (
+                  <p className="text-center text-slate-500 py-4">No aircraft found. Add an aircraft first.</p>
+                )}
               </div>
               <div className="mt-4">
                 <Button variant="outline" onClick={() => setShowLinkModal(null)} className="w-full">

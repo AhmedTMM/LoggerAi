@@ -134,8 +134,24 @@ export async function POST(request: NextRequest) {
 
             if (classificationResult.success && classificationResult.classification) {
               analysis = classificationResult.classification;
+
+              // Lower confidence threshold for logbook types (they're harder to classify from scans)
+              const logbookTypes = ['pilot_logbook', 'aircraft_logbook', 'logbook'];
+              const isLogbookType = logbookTypes.includes(analysis.detectedType);
+              const confidenceThreshold = isLogbookType ? 0.5 : 0.7;
+
+              // Map legacy 'logbook' type to 'pilot_logbook' if it looks like pilot logbook
+              if (analysis.detectedType === 'logbook') {
+                // If there are multiple tail numbers or pilot name, it's likely a pilot logbook
+                const hasMultipleTails = analysis.aircraftTailNumbers && analysis.aircraftTailNumbers.length > 1;
+                const hasPilotName = !!analysis.pilotName || !!analysis.matchedPilotName;
+                if (hasMultipleTails || hasPilotName || analysis.estimatedEntryCount > 5) {
+                  analysis.detectedType = 'pilot_logbook';
+                }
+              }
+
               // Use detected type if confidence is high enough
-              if (analysis.confidence >= 0.7 && analysis.detectedType !== 'unknown') {
+              if (analysis.confidence >= confidenceThreshold && analysis.detectedType !== 'unknown') {
                 // Map detected type to storage type
                 documentType = mapDetectedTypeToStorageType(analysis.detectedType);
                 sendLog({
@@ -349,10 +365,12 @@ export async function POST(request: NextRequest) {
             });
 
             // Parse with step logging (using ultra-fast direct Gemini vision)
+            // POH documents are treated as logbooks for extraction purposes
+            const parseType = documentType === 'poh' ? 'logbook' : documentType;
             const result = await parseDocumentUltraFast(
               fileBase64,
               fileType,
-              documentType === 'poh' ? 'logbook' : (documentType as 'logbook' | 'maintenance'),
+              parseType,
               (log) => {
                 // Remap progress to 50-95 range
                 const mappedProgress = 50 + Math.round((log.progress / 100) * 45);

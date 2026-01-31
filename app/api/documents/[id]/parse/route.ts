@@ -91,7 +91,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
       await updateProgress(docId, 50, 'processing');
 
       // Use ultra-fast direct Gemini vision extraction
-      const result = await parseDocumentUltraFast(fileBase64, doc.fileType, doc.documentType as 'logbook' | 'maintenance');
+      // POH documents are treated as logbooks for extraction purposes
+      const parseType = doc.documentType === 'poh' ? 'logbook' : doc.documentType;
+      const result = await parseDocumentUltraFast(fileBase64, doc.fileType, parseType);
 
       // Progress: 80% - Extracting entries
       await updateProgress(docId, 80, 'extracting');

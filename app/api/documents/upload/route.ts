@@ -66,8 +66,23 @@ export async function POST(request: NextRequest) {
         const classificationResult = await classifyDocumentFast(fileBase64, fileType);
         if (classificationResult.success && classificationResult.classification) {
           analysis = classificationResult.classification;
+
+          // Lower confidence threshold for logbook types (they're harder to classify from scans)
+          const logbookTypes = ['pilot_logbook', 'aircraft_logbook', 'logbook'];
+          const isLogbookType = logbookTypes.includes(analysis.detectedType);
+          const confidenceThreshold = isLogbookType ? 0.5 : 0.7;
+
+          // Map legacy 'logbook' type to 'pilot_logbook' if it looks like pilot logbook
+          if (analysis.detectedType === 'logbook') {
+            const hasMultipleTails = analysis.aircraftTailNumbers && analysis.aircraftTailNumbers.length > 1;
+            const hasPilotName = !!analysis.pilotName || !!analysis.matchedPilotName;
+            if (hasMultipleTails || hasPilotName || analysis.estimatedEntryCount > 5) {
+              analysis.detectedType = 'pilot_logbook';
+            }
+          }
+
           // Use detected type if confidence is high enough
-          if (analysis.confidence >= 0.7 && analysis.detectedType !== 'unknown') {
+          if (analysis.confidence >= confidenceThreshold && analysis.detectedType !== 'unknown') {
             documentType = analysis.detectedType;
           }
           if (analysis.suggestedName) {
@@ -123,7 +138,9 @@ export async function POST(request: NextRequest) {
           progressStep: 'processing',
         });
 
-        const result = await parseDocument(fileBase64, fileType, documentType as 'logbook' | 'maintenance');
+        // POH documents are treated as logbooks for extraction purposes
+        const parseType = documentType === 'poh' ? 'logbook' : documentType;
+        const result = await parseDocument(fileBase64, fileType, parseType);
 
         // Update progress: extracting
         await ParsedDocument.findByIdAndUpdate(doc._id, {

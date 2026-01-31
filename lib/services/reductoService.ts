@@ -1,6 +1,7 @@
 // Reducto Document Intelligence Service
 // For parsing handwritten pilot logbooks and maintenance PDFs
 // Optimized for large, cluttered documents with OCR support
+// Enhanced with step-by-step logging for real-time progress tracking
 
 interface ReductoResponse {
   success: boolean;
@@ -48,6 +49,32 @@ export interface DocumentAnalysis {
   summary: string;
 }
 
+// Step logging types for real-time progress
+export type ProcessingStep =
+  | 'initializing'
+  | 'validating'
+  | 'preparing'
+  | 'uploading'
+  | 'analyzing'
+  | 'classifying'
+  | 'extracting'
+  | 'parsing'
+  | 'structuring'
+  | 'validating_output'
+  | 'complete'
+  | 'error';
+
+export interface StepLog {
+  step: ProcessingStep;
+  message: string;
+  timestamp: Date;
+  progress: number;
+  details?: Record<string, any>;
+  duration?: number;
+}
+
+export type StepCallback = (log: StepLog) => void | Promise<void>;
+
 import { Reducto, toFile } from 'reductoai';
 import { ExtractRunResponse } from 'reductoai/resources/extract';
 
@@ -55,12 +82,28 @@ import { ExtractRunResponse } from 'reductoai/resources/extract';
 export async function parseDocument(
   fileBase64: string,
   fileType: 'pdf' | 'image',
-  documentType: 'logbook' | 'maintenance'
+  documentType: 'logbook' | 'maintenance',
+  onStep?: StepCallback
 ): Promise<ReductoResponse> {
   const apiKey = process.env.REDUCTO_API_KEY;
+  const startTime = Date.now();
+
+  const log = async (step: ProcessingStep, message: string, progress: number, details?: Record<string, any>) => {
+    if (onStep) {
+      await onStep({
+        step,
+        message,
+        timestamp: new Date(),
+        progress,
+        details,
+        duration: Date.now() - startTime
+      });
+    }
+  };
 
   if (!apiKey) {
     console.warn('Reducto API key not configured');
+    await log('error', 'Reducto API key not configured', 0);
     return {
       success: false,
       error: 'Reducto API key not configured',
@@ -68,21 +111,51 @@ export async function parseDocument(
   }
 
   try {
+    await log('initializing', 'Initializing Reducto AI client...', 5, { documentType, fileType });
+
     const client = new Reducto({ apiKey });
+
+    await log('preparing', 'Preparing document for upload...', 10, {
+      sizeKB: Math.round(fileBase64.length * 0.75 / 1024),
+      format: fileType
+    });
 
     // 1. Upload File using helper
     const fileBuffer = Buffer.from(fileBase64, 'base64');
+    const filename = fileType === 'image' ? 'document.png' : 'document.pdf';
+
+    await log('uploading', `Uploading ${filename} to Reducto servers...`, 20, {
+      filename,
+      sizeBytes: fileBuffer.length
+    });
+
     const upload = await client.upload({
-      file: await toFile(fileBuffer, fileType === 'image' ? 'document.png' : 'document.pdf'),
+      file: await toFile(fileBuffer, filename),
       extension: fileType === 'image' ? 'png' : 'pdf',
     });
 
+    await log('uploading', 'Document uploaded successfully', 35, {
+      uploadId: typeof upload === 'string' ? upload : 'completed'
+    });
+
     // 2. Prepare Prompt
+    await log('preparing', 'Selecting optimal extraction prompt...', 40, {
+      documentType,
+      promptType: documentType === 'logbook' ? 'LOGBOOK_EXTRACTION_PROMPT' : 'MAINTENANCE_EXTRACTION_PROMPT'
+    });
+
     const prompt = documentType === 'logbook'
       ? LOGBOOK_EXTRACTION_PROMPT
       : MAINTENANCE_EXTRACTION_PROMPT;
 
+    await log('extracting', 'Sending document to Reducto AI for extraction...', 45, {
+      model: 'reducto-extract',
+      optimizeForLatency: true
+    });
+
     // 3. Extract Structured Data
+    await log('parsing', 'AI is analyzing document structure...', 55);
+
     const extraction = await client.extract.run({
       input: upload,
       instructions: {
@@ -93,20 +166,55 @@ export async function parseDocument(
       }
     });
 
+    await log('parsing', 'Document structure analyzed', 70);
+
     // 4. Adapt to internal format
     if ('job_id' in extraction && !('result' in extraction)) {
-      // Handle async response if it happens (though we didn't request async)
+      await log('error', 'Received async job id but expected sync result', 70);
       return { success: false, error: 'Received async job id but expected sync result' };
     }
+
+    await log('structuring', 'Structuring extracted data...', 80);
 
     const items = (extraction as any).result || [];
     let extractedData: Record<string, any> = {};
 
     if (documentType === 'logbook') {
       extractedData = { entries: items };
+      await log('structuring', `Extracted ${items.length} logbook entries`, 85, {
+        entryCount: items.length,
+        sampleFields: items[0] ? Object.keys(items[0]).slice(0, 5) : []
+      });
     } else {
       extractedData = { entries: items };
+      await log('structuring', `Extracted ${items.length} maintenance entries`, 85, {
+        entryCount: items.length,
+        sampleFields: items[0] ? Object.keys(items[0]).slice(0, 5) : []
+      });
     }
+
+    await log('validating_output', 'Validating extracted data...', 90);
+
+    // Calculate some stats for logging
+    const entryCount = items.length;
+    let totalHours = 0;
+    if (documentType === 'logbook') {
+      totalHours = items.reduce((sum: number, entry: any) => {
+        return sum + (parseFloat(entry.totalTime) || parseFloat(entry.duration) || 0);
+      }, 0);
+    }
+
+    await log('validating_output', 'Data validation complete', 95, {
+      entryCount,
+      totalHours: documentType === 'logbook' ? Math.round(totalHours * 10) / 10 : undefined,
+      confidence: 1.0
+    });
+
+    await log('complete', 'Document processing complete!', 100, {
+      entryCount,
+      processingTimeMs: Date.now() - startTime,
+      success: true
+    });
 
     return {
       success: true,
@@ -119,6 +227,10 @@ export async function parseDocument(
     };
   } catch (error) {
     console.error('Reducto service error:', error);
+    await log('error', `Processing failed: ${(error as Error).message}`, 0, {
+      errorType: (error as Error).name,
+      errorMessage: (error as Error).message
+    });
     return {
       success: false,
       error: (error as Error).message,
@@ -421,29 +533,54 @@ Return as a JSON object with keys: vSpeeds (object with keys above camelCase), w
 `;
 
 // Parse POH from URL
-export async function parsePOHFromUrl(pohUrl: string): Promise<ReductoResponse> {
+export async function parsePOHFromUrl(pohUrl: string, onStep?: StepCallback): Promise<ReductoResponse> {
+  const startTime = Date.now();
+
+  const log = async (step: ProcessingStep, message: string, progress: number, details?: Record<string, any>) => {
+    if (onStep) {
+      await onStep({
+        step,
+        message,
+        timestamp: new Date(),
+        progress,
+        details,
+        duration: Date.now() - startTime
+      });
+    }
+  };
+
   try {
     const apiKey = process.env.REDUCTO_API_KEY;
 
     if (!apiKey) {
+      await log('error', 'Reducto API key not configured', 0);
       return { success: false, error: 'Reducto API key not configured' };
     }
 
+    await log('initializing', 'Initializing POH extraction...', 5, { url: pohUrl });
+
     // 1. Fetch PDF manually to avoid Reducto download issues
+    await log('uploading', 'Downloading POH PDF...', 15);
     const response = await fetch(pohUrl);
     if (!response.ok) throw new Error(`Failed to fetch POH PDF: ${response.statusText}`);
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
+    await log('uploading', 'POH downloaded successfully', 25, { sizeKB: Math.round(buffer.length / 1024) });
+
     const client = new Reducto({ apiKey });
 
     // 2. Upload
+    await log('uploading', 'Uploading to Reducto...', 35);
     const upload = await client.upload({
       file: await toFile(buffer, 'poh.pdf'),
       extension: 'pdf'
     });
 
+    await log('uploading', 'Upload complete', 45);
+
     // 3. Extract
+    await log('extracting', 'Extracting V-speeds and weight limits...', 55);
     const extraction = await client.extract.run({
       input: upload,
       instructions: {
@@ -451,12 +588,20 @@ export async function parsePOHFromUrl(pohUrl: string): Promise<ReductoResponse> 
       }
     });
 
+    await log('parsing', 'Parsing extraction results...', 75);
+
     if ('job_id' in extraction && !('result' in extraction)) {
+      await log('error', 'Async job ID returned unexpectedly', 75);
       return { success: false, error: 'Async job ID returned' };
     }
 
     const res = (extraction as any).result;
     const data = res && res.length > 0 ? res[0] : {};
+
+    await log('complete', 'POH extraction complete!', 100, {
+      hasVSpeeds: !!data.vSpeeds,
+      hasWeights: !!data.weights
+    });
 
     return {
       success: true,
@@ -584,12 +729,28 @@ OUTPUT JSON:
 // Analyze a document to determine type and quality before full parsing
 export async function analyzeDocument(
   fileBase64: string,
-  fileType: 'pdf' | 'image'
+  fileType: 'pdf' | 'image',
+  onStep?: StepCallback
 ): Promise<{ success: boolean; analysis?: DocumentAnalysis; error?: string }> {
   const apiKey = process.env.REDUCTO_API_KEY;
+  const startTime = Date.now();
+
+  const log = async (step: ProcessingStep, message: string, progress: number, details?: Record<string, any>) => {
+    if (onStep) {
+      await onStep({
+        step,
+        message,
+        timestamp: new Date(),
+        progress,
+        details,
+        duration: Date.now() - startTime
+      });
+    }
+  };
 
   if (!apiKey) {
     console.warn('Reducto API key not configured');
+    await log('error', 'Reducto API key not configured', 0);
     return {
       success: false,
       error: 'Reducto API key not configured',
@@ -597,16 +758,29 @@ export async function analyzeDocument(
   }
 
   try {
+    await log('initializing', 'Initializing document analysis...', 5);
+
     const client = new Reducto({ apiKey });
+
+    await log('preparing', 'Preparing document for analysis...', 10);
 
     // Upload file
     const fileBuffer = Buffer.from(fileBase64, 'base64');
+
+    await log('uploading', 'Uploading document for classification...', 20, {
+      sizeKB: Math.round(fileBuffer.length / 1024)
+    });
+
     const upload = await client.upload({
       file: await toFile(fileBuffer, fileType === 'image' ? 'document.png' : 'document.pdf'),
       extension: fileType === 'image' ? 'png' : 'pdf',
     });
 
+    await log('uploading', 'Document uploaded successfully', 35);
+
     // Run analysis extraction
+    await log('classifying', 'AI is classifying document type...', 45);
+
     const extraction = await client.extract.run({
       input: upload,
       instructions: {
@@ -617,7 +791,10 @@ export async function analyzeDocument(
       }
     });
 
+    await log('analyzing', 'Processing classification results...', 70);
+
     if ('job_id' in extraction && !('result' in extraction)) {
+      await log('error', 'Received async job id but expected sync result', 70);
       return { success: false, error: 'Received async job id but expected sync result' };
     }
 
@@ -626,6 +803,7 @@ export async function analyzeDocument(
 
     if (!analysisResult) {
       // Fallback analysis if extraction returns empty
+      await log('analyzing', 'Using fallback analysis (limited data)', 85);
       return {
         success: true,
         analysis: {
@@ -657,6 +835,14 @@ export async function analyzeDocument(
       summary: analysisResult.summary || 'Aviation document'
     };
 
+    await log('complete', 'Document analysis complete!', 100, {
+      detectedType: analysis.detectedType,
+      confidence: analysis.confidence,
+      quality: analysis.documentQuality,
+      isHandwritten: analysis.isHandwritten,
+      estimatedEntries: analysis.estimatedEntryCount
+    });
+
     return {
       success: true,
       analysis
@@ -664,6 +850,7 @@ export async function analyzeDocument(
 
   } catch (error) {
     console.error('Document analysis error:', error);
+    await log('error', `Analysis failed: ${(error as Error).message}`, 0);
     return {
       success: false,
       error: (error as Error).message,

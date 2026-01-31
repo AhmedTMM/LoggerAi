@@ -1,6 +1,5 @@
 'use client';
 
-<<<<<<< Updated upstream
 import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   FileText,
@@ -51,11 +50,6 @@ import {
   FileWarning
 } from 'lucide-react';
 import { useParsedDocuments, useDeleteParsedDocument, useLinkDocToAircraft, useLinkDocToPilot, useAircraft, usePilots, useStartParsing } from '@/lib/hooks';
-=======
-import { useState, useCallback, useEffect } from 'react';
-import { FileText, Upload, Loader2, CheckCircle, AlertTriangle, X, Plane, Trash2, RefreshCw, Search, Clock, ChevronDown, ChevronUp, Link2, Eye } from 'lucide-react';
-import { useParsedDocuments, useDeleteParsedDocument, useLinkDocToAircraft, useAircraft, useUploadDocument, useStartParsing } from '@/lib/hooks';
->>>>>>> Stashed changes
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { cn } from '@/lib/utils';
@@ -128,13 +122,6 @@ const typeIcons: Record<string, any> = {
   other: FileText
 };
 
-interface UploadProgress {
-  stage: 'idle' | 'reading' | 'detecting' | 'analyzing' | 'uploading' | 'parsing';
-  percent: number;
-  message: string;
-  filename?: string;
-}
-
 export default function FilesPage() {
   const { data: documents = [], isLoading, refetch } = useParsedDocuments();
   const { data: aircraft = [] } = useAircraft();
@@ -145,20 +132,15 @@ export default function FilesPage() {
   const startParsing = useStartParsing();
 
   const [isDragging, setIsDragging] = useState(false);
-<<<<<<< Updated upstream
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [processingLogs, setProcessingLogs] = useState<ProcessingLog[]>([]);
-=======
-  const [uploadProgress, setUploadProgress] = useState<UploadProgress>({ stage: 'idle', percent: 0, message: '' });
->>>>>>> Stashed changes
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadResult, setUploadResult] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showLinkModal, setShowLinkModal] = useState<{ docId: string; mode: 'aircraft' | 'pilot' } | null>(null);
   const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
   const [selectedDoc, setSelectedDoc] = useState<any>(null);
-<<<<<<< Updated upstream
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const logContainerRef = useRef<HTMLDivElement>(null);
@@ -169,8 +151,6 @@ export default function FilesPage() {
       logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
     }
   }, [processingLogs]);
-=======
->>>>>>> Stashed changes
 
   // Toggle document expansion
   const toggleExpanded = (docId: string) => {
@@ -194,11 +174,9 @@ export default function FilesPage() {
     }
   }, [parsingCount, refetch]);
 
-<<<<<<< Updated upstream
   // Add a log entry
   const addLog = useCallback((log: Omit<ProcessingLog, 'id'>) => {
     setProcessingLogs(prev => {
-      // Update existing log with same step if active, or add new
       const existing = prev.find(l => l.step === log.step && l.status === 'active');
       if (existing) {
         return prev.map(l =>
@@ -218,11 +196,6 @@ export default function FilesPage() {
     setProcessingLogs([]);
     setIsUploading(true);
     setUploadProgress(0);
-=======
-  const handleUpload = useCallback(async (file: File) => {
-    setUploadError(null);
-    setDetectedType(null);
->>>>>>> Stashed changes
 
     if (file.size > 50 * 1024 * 1024) {
       setUploadError('File too large. Maximum size is 50MB.');
@@ -230,7 +203,6 @@ export default function FilesPage() {
       return;
     }
 
-    // Add initial log
     addLog({
       step: 'initializing',
       message: 'Starting file upload...',
@@ -239,7 +211,6 @@ export default function FilesPage() {
       status: 'active'
     });
 
-<<<<<<< Updated upstream
     try {
       // Read file as base64
       const fileBase64 = await new Promise<string>((resolve, reject) => {
@@ -250,68 +221,6 @@ export default function FilesPage() {
         };
         reader.onerror = reject;
         reader.readAsDataURL(file);
-=======
-    const reader = new FileReader();
-    reader.onprogress = (event) => {
-      if (event.lengthComputable) {
-        const readPercent = Math.round((event.loaded / event.total) * 10);
-        setUploadProgress({ stage: 'reading', percent: 5 + readPercent, message: 'Reading file...', filename: file.name });
-      }
-    };
-    reader.onerror = () => {
-      setUploadError('Failed to read file.');
-      setUploadProgress({ stage: 'idle', percent: 0, message: '' });
-    };
-    reader.onload = async (event) => {
-      const base64 = (event.target?.result as string).split(',')[1];
-
-      // Stage 2: Uploading & Analyzing (server-side)
-      setUploadProgress({ stage: 'analyzing', percent: 20, message: 'Analyzing document with AI...', filename: file.name });
-
-      uploadDocument.mutate({
-        fileBase64: base64,
-        fileType: file.type.includes('pdf') ? 'pdf' : 'image',
-        documentType: 'other', // Server will auto-detect
-        filename: file.name,
-      }, {
-        onSuccess: async (data) => {
-          // Update detected type from server analysis
-          if (data?.documentType) {
-            setDetectedType(data.documentType);
-          }
-          if (data?.analysis) {
-            setDetectedType(data.analysis.detectedType || data.documentType);
-          }
-
-          // For large files parsed inline
-          if (data?.status === 'completed') {
-            setUploadProgress({ stage: 'idle', percent: 0, message: '' });
-            refetch();
-            return;
-          }
-
-          // Stage 3: Parsing
-          setUploadProgress({ stage: 'parsing', percent: 50, message: 'Extracting data from document...', filename: file.name });
-
-          if (data?.documentId) {
-            startParsing.mutate(data.documentId, {
-              onSuccess: () => {
-                setUploadProgress({ stage: 'idle', percent: 0, message: '' });
-                refetch();
-              },
-              onError: () => {
-                setUploadError('Failed to parse document.');
-                setUploadProgress({ stage: 'idle', percent: 0, message: '' });
-                refetch();
-              },
-            });
-          }
-        },
-        onError: () => {
-          setUploadError('Upload failed.');
-          setUploadProgress({ stage: 'idle', percent: 0, message: '' });
-        },
->>>>>>> Stashed changes
       });
 
       addLog({
@@ -477,11 +386,9 @@ export default function FilesPage() {
   };
 
   const getTypeBadge = (type: string) => {
-<<<<<<< Updated upstream
     const meta = DOCUMENT_TYPE_META[type as DocumentType];
     const Icon = typeIcons[type] || FileText;
 
-    // Color mappings for each document type
     const colorClasses: Record<string, string> = {
       pilot_logbook: 'bg-blue-50 text-blue-700 border-blue-200',
       aircraft_logbook: 'bg-indigo-50 text-indigo-700 border-indigo-200',
@@ -509,24 +416,6 @@ export default function FilesPage() {
         <Icon className="w-3 h-3" />
         {label}
       </Badge>
-    );
-  };
-
-  // Get category badge
-  const getCategoryBadge = (type: string) => {
-    const meta = DOCUMENT_TYPE_META[type as DocumentType];
-    if (!meta) return null;
-
-    const categoryColors: Record<string, string> = {
-      pilot: 'bg-blue-100 text-blue-800',
-      aircraft: 'bg-indigo-100 text-indigo-800',
-      general: 'bg-gray-100 text-gray-800'
-    };
-
-    return (
-      <span className={cn("text-[10px] px-1.5 py-0.5 rounded", categoryColors[meta.category])}>
-        {meta.category}
-      </span>
     );
   };
 
@@ -613,7 +502,7 @@ export default function FilesPage() {
               </div>
             ) : (
               <div className="flex flex-col items-center">
-                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-slate-100 to-slate-50 flex items-center justify-center mb-4 group-hover:from-indigo-100 group-hover:to-purple-100 transition-colors">
+                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-slate-100 to-slate-50 flex items-center justify-center mb-4">
                   <Upload className="w-10 h-10 text-slate-400" />
                 </div>
                 <p className="font-semibold text-slate-800 text-lg">Drop files here or click to upload</p>
@@ -649,7 +538,7 @@ export default function FilesPage() {
 
             <div
               ref={logContainerRef}
-              className="h-64 overflow-y-auto font-mono text-xs space-y-1 pr-2 custom-scrollbar"
+              className="h-64 overflow-y-auto font-mono text-xs space-y-1 pr-2"
             >
               {processingLogs.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-slate-500">
@@ -678,18 +567,6 @@ export default function FilesPage() {
                           <span className={cn("font-medium", color)}>[{log.step}]</span>
                           <span className="text-slate-300 truncate">{log.message}</span>
                         </div>
-                        {log.details && Object.keys(log.details).length > 0 && (
-                          <div className="text-slate-500 mt-0.5 text-[10px]">
-                            {Object.entries(log.details).slice(0, 3).map(([key, value]) => (
-                              <span key={key} className="mr-3">
-                                <span className="text-slate-600">{key}:</span>{' '}
-                                <span className="text-emerald-400/80">
-                                  {typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                                </span>
-                              </span>
-                            ))}
-                          </div>
-                        )}
                       </div>
                       <span className="text-slate-600 text-[10px] flex-shrink-0">
                         {log.duration ? `${(log.duration / 1000).toFixed(1)}s` : ''}
@@ -716,12 +593,6 @@ export default function FilesPage() {
                     <span className="text-slate-500">Entries:</span>{' '}
                     <span className="text-emerald-400">{uploadResult.entryCount || uploadResult.summary?.totalEntries || 0}</span>
                   </div>
-                  {uploadResult.summary?.totalHours > 0 && (
-                    <div className="bg-slate-800 rounded px-2 py-1 col-span-2">
-                      <span className="text-slate-500">Total Hours:</span>{' '}
-                      <span className="text-amber-400">{uploadResult.summary.totalHours}</span>
-                    </div>
-                  )}
                 </div>
               </div>
             )}
@@ -736,106 +607,11 @@ export default function FilesPage() {
                 <p className="text-red-300 text-xs mt-1">{uploadError}</p>
               </div>
             )}
-=======
-    switch (type) {
-      case 'logbook':
-        return <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800">Pilot Logbook</Badge>;
-      case 'maintenance':
-        return <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800">Maintenance</Badge>;
-      case 'poh':
-        return <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800">POH</Badge>;
-      default:
-        return <Badge variant="outline">Other</Badge>;
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Document Intelligence</h1>
-          <p className="text-zinc-500 dark:text-zinc-400 mt-1">Upload, parse, and manage all your aviation documents</p>
-        </div>
-        <Button onClick={() => refetch()} variant="outline" size="sm">
-          <RefreshCw className={cn("w-4 h-4 mr-2", isLoading && "animate-spin")} />
-          Refresh
-        </Button>
-      </div>
-
-      {/* Upload Zone */}
-      <div
-        onDrop={handleDrop}
-        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-        onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
-        className={cn(
-          "relative border-2 border-dashed rounded-xl p-8 transition-all bg-white dark:bg-zinc-800",
-          isDragging
-            ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
-            : uploadProgress.stage !== 'idle'
-              ? "border-blue-300 dark:border-blue-700"
-              : "border-zinc-300 dark:border-zinc-600 hover:border-blue-400 dark:hover:border-blue-500 cursor-pointer"
-        )}
-      >
-        <input
-          type="file"
-          accept="application/pdf,image/*"
-          onChange={handleFileInput}
-          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-          disabled={uploadProgress.stage !== 'idle'}
-        />
-
-        {uploadProgress.stage !== 'idle' ? (
-          <div className="flex flex-col items-center">
-            <Loader2 className="w-12 h-12 text-blue-500 animate-spin mb-4" />
-            <p className="font-medium text-blue-700 dark:text-blue-300">{uploadProgress.message}</p>
-            {uploadProgress.filename && (
-              <p className="text-sm text-blue-600 dark:text-blue-400 mt-1">{uploadProgress.filename}</p>
-            )}
-            {detectedType && (
-              <div className="mt-2">
-                {getTypeBadge(detectedType)}
-              </div>
-            )}
-            {/* Progress Bar */}
-            <div className="w-full max-w-md mt-4">
-              <div className="flex justify-between text-xs text-zinc-500 mb-1">
-                <span>{uploadProgress.stage}</span>
-                <span>{uploadProgress.percent}%</span>
-              </div>
-              <div className="h-2 bg-zinc-200 dark:bg-zinc-700 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-blue-500 rounded-full transition-all duration-500"
-                  style={{ width: `${uploadProgress.percent}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        ) : isDragging ? (
-          <div className="flex flex-col items-center">
-            <Upload className="w-12 h-12 text-blue-500 mb-4" />
-            <p className="font-medium text-blue-700 dark:text-blue-300">Drop your file here</p>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center">
-            <Upload className="w-12 h-12 text-zinc-400 dark:text-zinc-500 mb-4" />
-            <p className="font-medium text-zinc-700 dark:text-zinc-300">Drop files here or click to upload</p>
-            <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-2">PDF or Image (max 50MB)</p>
-            <div className="flex gap-2 mt-4">
-              <Badge variant="outline" className="bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800">
-                Auto-detects type
-              </Badge>
-              <Badge variant="outline" className="bg-purple-50 text-purple-600 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800">
-                AI-powered parsing
-              </Badge>
-            </div>
->>>>>>> Stashed changes
           </div>
         </div>
 
         {/* Filters */}
         <div className="flex flex-col gap-3 bg-white rounded-xl p-4 shadow-sm border border-slate-100">
-          {/* Search and Category filters */}
           <div className="flex items-center gap-4">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -848,7 +624,6 @@ export default function FilesPage() {
               />
             </div>
 
-<<<<<<< Updated upstream
             {/* Category filter buttons */}
             <div className="flex gap-1 border-l border-slate-200 pl-4">
               {[
@@ -888,7 +663,6 @@ export default function FilesPage() {
             </button>
             {availableTypes.map((type: string) => {
               const meta = DOCUMENT_TYPE_META[type as DocumentType];
-              // Filter by category if one is selected
               if (categoryFilter !== 'all' && meta?.category !== categoryFilter) return null;
 
               const TypeIcon = typeIcons[type] || FileText;
@@ -973,12 +747,7 @@ export default function FilesPage() {
 
                         {/* Document Info */}
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="font-semibold text-slate-900 truncate">{doc.filename}</p>
-                            {doc.originalFilename && doc.originalFilename !== doc.filename && (
-                              <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">renamed</span>
-                            )}
-                          </div>
+                          <p className="font-semibold text-slate-900 truncate">{doc.filename}</p>
 
                           {/* Badges */}
                           <div className="flex flex-wrap gap-2 mt-2">
@@ -1005,11 +774,6 @@ export default function FilesPage() {
                             )}
                           </div>
 
-                          {/* Summary */}
-                          {doc.analysis?.summary && (
-                            <p className="text-sm text-slate-600 mt-2 line-clamp-2">{doc.analysis.summary}</p>
-                          )}
-
                           {/* Stats */}
                           {doc.status === 'completed' && doc.summary && (
                             <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-slate-500">
@@ -1023,21 +787,7 @@ export default function FilesPage() {
                                   {doc.summary.totalHours.toFixed(1)} hours
                                 </span>
                               )}
-                              {doc.summary.dateRange && (
-                                <span className="flex items-center gap-1">
-                                  <Calendar className="w-3 h-3" />
-                                  {doc.summary.dateRange.from} <ArrowRight className="w-3 h-3" /> {doc.summary.dateRange.to}
-                                </span>
-                              )}
                             </div>
-                          )}
-
-                          {/* Error */}
-                          {doc.status === 'failed' && doc.error && (
-                            <p className="text-sm text-red-600 mt-2 flex items-center gap-1">
-                              <AlertCircle className="w-3 h-3" />
-                              {doc.error}
-                            </p>
                           )}
 
                           {/* Linked Resources */}
@@ -1110,285 +860,85 @@ export default function FilesPage() {
                           >
                             <RefreshCw className="w-4 h-4 mr-1" /> Retry
                           </Button>
-=======
-      {/* Documents List */}
-      {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
-        </div>
-      ) : filteredDocs.length === 0 ? (
-        <div className="text-center py-12 bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700">
-          <FileText className="w-12 h-12 text-zinc-300 dark:text-zinc-600 mx-auto mb-4" />
-          <p className="text-zinc-500 dark:text-zinc-400">
-            {documents.length === 0 ? 'No documents yet. Upload your first file above.' : 'No matching documents found.'}
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {filteredDocs.map((doc: any) => {
-            const linkedAircraft = aircraft.find((a: any) => a._id === doc.aircraft);
-            const isExpanded = expandedDocs.has(doc._id);
-
-            return (
-              <div
-                key={doc._id}
-                className={cn(
-                  "bg-white dark:bg-zinc-800 rounded-xl border transition-all",
-                  doc.status === 'parsing' && "border-amber-200 dark:border-amber-800",
-                  doc.status === 'failed' && "border-red-200 dark:border-red-800",
-                  doc.status === 'completed' && "border-zinc-200 dark:border-zinc-700",
-                  !['parsing', 'failed', 'completed'].includes(doc.status) && "border-zinc-200 dark:border-zinc-700"
-                )}
-              >
-                {/* Main Content */}
-                <div className="p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-start gap-4 flex-1 min-w-0">
-                      {/* Icon */}
-                      <div
-                        className={cn(
-                          "p-3 rounded-lg flex-shrink-0",
-                          doc.status === 'parsing' ? "bg-amber-100 dark:bg-amber-900/30" :
-                          doc.status === 'failed' ? "bg-red-100 dark:bg-red-900/30" :
-                          "bg-zinc-100 dark:bg-zinc-700"
                         )}
-                      >
-                        {doc.status === 'parsing' ? (
-                          <Loader2 className="w-6 h-6 text-amber-600 dark:text-amber-400 animate-spin" />
-                        ) : doc.status === 'failed' ? (
-                          <AlertTriangle className="w-6 h-6 text-red-600 dark:text-red-400" />
-                        ) : (
-                          <FileText className="w-6 h-6 text-zinc-600 dark:text-zinc-400" />
-                        )}
-                      </div>
-
-                      {/* Info */}
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-zinc-900 dark:text-zinc-100 truncate">{doc.filename}</p>
-                        <div className="flex flex-wrap gap-2 mt-2">
-                          {getTypeBadge(doc.documentType)}
-                          {getStatusBadge(doc.status)}
-                        </div>
-
-                        {/* Stats for completed documents */}
-                        {doc.status === 'completed' && doc.summary && (
-                          <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-                            <span>{doc.summary.totalEntries || 0} entries</span>
-                            {doc.summary.totalHours > 0 && (
-                              <span>{doc.summary.totalHours.toFixed(1)} hours</span>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Error message */}
-                        {doc.status === 'failed' && doc.error && (
-                          <p className="text-sm text-red-600 dark:text-red-400 mt-2">{doc.error}</p>
-                        )}
-
-                        {/* Linked Aircraft */}
-                        {linkedAircraft && (
-                          <div className="flex items-center gap-2 mt-2">
-                            <span className="inline-flex items-center gap-1 text-xs bg-zinc-100 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-400 px-2 py-1 rounded">
-                              <Plane className="w-3 h-3" /> {linkedAircraft.tailNumber}
-                            </span>
-                          </div>
->>>>>>> Stashed changes
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {doc.entries?.length > 0 && (
                         <Button
                           size="sm"
                           variant="ghost"
-<<<<<<< Updated upstream
                           onClick={() => handleDelete(doc._id)}
                           className="text-slate-400 hover:text-red-600 hover:bg-red-50"
-=======
-                          onClick={() => toggleExpanded(doc._id)}
-                          title={isExpanded ? "Collapse" : "Expand"}
->>>>>>> Stashed changes
                         >
-                          {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          <Trash2 className="w-4 h-4" />
                         </Button>
-                      )}
-                      {doc.status === 'completed' && (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setSelectedDoc(doc)}
-                            title="View entries"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setShowLinkModal(doc._id)}
-                            title="Link to aircraft"
-                          >
-                            <Link2 className="w-4 h-4" />
-                          </Button>
-                        </>
-                      )}
-                      {doc.status === 'failed' && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => startParsing.mutate(doc._id, { onSuccess: () => refetch() })}
-                        >
-                          <RefreshCw className="w-4 h-4 mr-1" /> Retry
-                        </Button>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handleDelete(doc._id)}
-                        className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-<<<<<<< Updated upstream
-
-                  {/* Expanded Section */}
-                  {isExpanded && (
-                    <div className="border-t border-slate-100 p-4 bg-slate-50/50">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* Analysis Details */}
-                        {hasAnalysis && (
-                          <div>
-                            <h4 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
-                              <Brain className="w-4 h-4 text-purple-500" />
-                              AI Analysis
-                            </h4>
-                            <div className="space-y-2 text-sm">
-                              {doc.analysis.pilotName && (
-                                <div className="flex items-center gap-2">
-                                  <User className="w-4 h-4 text-slate-400" />
-                                  <span className="text-slate-600">Pilot:</span>
-                                  <span className="font-medium text-slate-800">{doc.analysis.pilotName}</span>
-                                </div>
-                              )}
-                              {doc.analysis.dateRange?.from && (
-                                <div className="flex items-center gap-2">
-                                  <Calendar className="w-4 h-4 text-slate-400" />
-                                  <span className="text-slate-600">Period:</span>
-                                  <span className="font-medium text-slate-800">
-                                    {doc.analysis.dateRange.from} - {doc.analysis.dateRange.to || 'present'}
-                                  </span>
-                                </div>
-                              )}
-                              {doc.analysis.estimatedEntryCount > 0 && (
-                                <div className="flex items-center gap-2">
-                                  <Hash className="w-4 h-4 text-slate-400" />
-                                  <span className="text-slate-600">Est. Entries:</span>
-                                  <span className="font-medium text-slate-800">{doc.analysis.estimatedEntryCount}</span>
-                                </div>
-                              )}
-                              {doc.analysis.qualityNotes?.length > 0 && (
-                                <div className="mt-3">
-                                  <p className="text-slate-600 mb-1 text-xs">Quality Notes:</p>
-                                  <ul className="list-disc list-inside text-slate-500 text-xs space-y-0.5">
-                                    {doc.analysis.qualityNotes.map((note: string, idx: number) => (
-                                      <li key={idx}>{note}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Preview Entries */}
-                        {doc.entries?.length > 0 && (
-                          <div>
-                            <h4 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
-                              <FileText className="w-4 h-4 text-indigo-500" />
-                              Sample Entries ({doc.entries.length} total)
-                            </h4>
-                            <div className="space-y-2 max-h-48 overflow-y-auto">
-                              {doc.entries.slice(0, 5).map((entry: any, idx: number) => (
-                                <div key={idx} className="text-xs p-2.5 bg-white rounded-lg border border-slate-100">
-                                  <div className="flex justify-between">
-                                    <span className="font-medium text-slate-700">{entry.date || 'No date'}</span>
-                                    {(entry.totalTime || entry.duration) && (
-                                      <span className="text-indigo-600 font-semibold">{entry.totalTime || entry.duration} hrs</span>
-                                    )}
-                                  </div>
-                                  {(entry.from || entry.to) && (
-                                    <p className="text-slate-500 mt-0.5">{entry.from} → {entry.to}</p>
-                                  )}
-                                  {entry.aircraftIdent && (
-                                    <p className="text-slate-400 mt-0.5">{entry.aircraftIdent} {entry.aircraftType && `(${entry.aircraftType})`}</p>
-                                  )}
-                                </div>
-                              ))}
-                              {doc.entries.length > 5 && (
-                                <button
-                                  onClick={() => setSelectedDoc(doc)}
-                                  className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
-                                >
-                                  View all {doc.entries.length} entries →
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        )}
                       </div>
                     </div>
-                  )}
+
+                    {/* Expanded Section */}
+                    {isExpanded && (
+                      <div className="border-t border-slate-100 p-4 bg-slate-50/50 mt-4 -mx-4 -mb-4 rounded-b-xl">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {/* Analysis Details */}
+                          {hasAnalysis && (
+                            <div>
+                              <h4 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                                <Brain className="w-4 h-4 text-purple-500" />
+                                AI Analysis
+                              </h4>
+                              <div className="space-y-2 text-sm">
+                                {doc.analysis.pilotName && (
+                                  <div className="flex items-center gap-2">
+                                    <User className="w-4 h-4 text-slate-400" />
+                                    <span className="text-slate-600">Pilot:</span>
+                                    <span className="font-medium text-slate-800">{doc.analysis.pilotName}</span>
+                                  </div>
+                                )}
+                                {doc.analysis.dateRange?.from && (
+                                  <div className="flex items-center gap-2">
+                                    <Calendar className="w-4 h-4 text-slate-400" />
+                                    <span className="text-slate-600">Period:</span>
+                                    <span className="font-medium text-slate-800">
+                                      {doc.analysis.dateRange.from} - {doc.analysis.dateRange.to || 'present'}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Preview Entries */}
+                          {doc.entries?.length > 0 && (
+                            <div>
+                              <h4 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                                <FileText className="w-4 h-4 text-indigo-500" />
+                                Sample Entries ({doc.entries.length} total)
+                              </h4>
+                              <div className="space-y-2 max-h-48 overflow-y-auto">
+                                {doc.entries.slice(0, 5).map((entry: any, idx: number) => (
+                                  <div key={idx} className="text-xs p-2.5 bg-white rounded-lg border border-slate-100">
+                                    <div className="flex justify-between">
+                                      <span className="font-medium text-slate-700">{entry.date || 'No date'}</span>
+                                      {(entry.totalTime || entry.duration) && (
+                                        <span className="text-indigo-600 font-semibold">{entry.totalTime || entry.duration} hrs</span>
+                                      )}
+                                    </div>
+                                    {(entry.from || entry.to) && (
+                                      <p className="text-slate-500 mt-0.5">{entry.from} → {entry.to}</p>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             })}
           </div>
         )}
-=======
-                </div>
 
-                {/* Expanded Entries */}
-                {isExpanded && doc.entries?.length > 0 && (
-                  <div className="border-t border-zinc-100 dark:border-zinc-700 p-4 bg-zinc-50 dark:bg-zinc-900/50">
-                    <h4 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 mb-3">
-                      Entries ({doc.entries.length} total)
-                    </h4>
-                    <div className="space-y-2 max-h-64 overflow-y-auto">
-                      {doc.entries.slice(0, 10).map((entry: any, idx: number) => (
-                        <div key={idx} className="text-sm p-3 bg-white dark:bg-zinc-800 rounded-lg border border-zinc-200 dark:border-zinc-700">
-                          <div className="flex justify-between">
-                            <span className="font-medium text-zinc-700 dark:text-zinc-300">{entry.date || 'No date'}</span>
-                            {(entry.totalTime || entry.duration) && (
-                              <span className="text-blue-600 dark:text-blue-400 font-medium">{entry.totalTime || entry.duration} hrs</span>
-                            )}
-                          </div>
-                          {(entry.from || entry.to) && (
-                            <p className="text-zinc-500 dark:text-zinc-400 mt-1">{entry.from} → {entry.to}</p>
-                          )}
-                          {entry.description && (
-                            <p className="text-zinc-500 dark:text-zinc-400 mt-1 line-clamp-2">{entry.description}</p>
-                          )}
-                        </div>
-                      ))}
-                      {doc.entries.length > 10 && (
-                        <p className="text-sm text-zinc-500 dark:text-zinc-400 text-center py-2">
-                          ... and {doc.entries.length - 10} more entries
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
->>>>>>> Stashed changes
-
-        {/* Link Modal - supports both pilot and aircraft */}
+        {/* Link Modal */}
         {showLinkModal && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
@@ -1425,96 +975,50 @@ export default function FilesPage() {
                 </button>
 
                 {/* Pilot list */}
-                {showLinkModal.mode === 'pilot' && pilots.map((pilot: any) => {
-                  // Check if this is a suggested pilot from auto-attachment
-                  const doc = documents.find((d: any) => d._id === showLinkModal.docId);
-                  const isSuggested = doc?.analysis?.suggestedPilotId === pilot._id;
-
-                  return (
-                    <button
-                      key={pilot._id}
-                      onClick={() => {
-                        linkDocToPilot.mutate({ docId: showLinkModal.docId, pilotId: pilot._id }, {
-                          onSuccess: () => { refetch(); setShowLinkModal(null); }
-                        });
-                      }}
-                      className={cn(
-                        "w-full p-3 text-left rounded-xl border transition-colors",
-                        isSuggested
-                          ? "border-blue-300 bg-blue-50 hover:bg-blue-100"
-                          : "border-slate-200 hover:bg-blue-50 hover:border-blue-200"
-                      )}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className={cn(
-                          "p-2 rounded-lg",
-                          isSuggested ? "bg-blue-200" : "bg-blue-100"
-                        )}>
-                          <User className="w-5 h-5 text-blue-600" />
-                        </div>
-                        <div className="flex-1">
-                          <p className="font-medium text-slate-900">{pilot.name}</p>
-                          <p className="text-sm text-slate-500">{pilot.email}</p>
-                        </div>
-                        {isSuggested && (
-                          <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200 text-xs">
-                            <Sparkles className="w-3 h-3 mr-1" /> Suggested
-                          </Badge>
-                        )}
+                {showLinkModal.mode === 'pilot' && pilots.map((pilot: any) => (
+                  <button
+                    key={pilot._id}
+                    onClick={() => {
+                      linkDocToPilot.mutate({ docId: showLinkModal.docId, pilotId: pilot._id }, {
+                        onSuccess: () => { refetch(); setShowLinkModal(null); }
+                      });
+                    }}
+                    className="w-full p-3 text-left rounded-xl border border-slate-200 hover:bg-blue-50 hover:border-blue-200 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-blue-100">
+                        <User className="w-5 h-5 text-blue-600" />
                       </div>
-                    </button>
-                  );
-                })}
+                      <div className="flex-1">
+                        <p className="font-medium text-slate-900">{pilot.name}</p>
+                        <p className="text-sm text-slate-500">{pilot.email}</p>
+                      </div>
+                    </div>
+                  </button>
+                ))}
 
                 {/* Aircraft list */}
-                {showLinkModal.mode === 'aircraft' && aircraft.map((ac: any) => {
-                  // Check if this is a suggested aircraft from auto-attachment
-                  const doc = documents.find((d: any) => d._id === showLinkModal.docId);
-                  const isSuggested = doc?.analysis?.suggestedAircraftId === ac._id;
-
-                  return (
-                    <button
-                      key={ac._id}
-                      onClick={() => {
-                        linkDocToAircraft.mutate({ docId: showLinkModal.docId, aircraftId: ac._id }, {
-                          onSuccess: () => { refetch(); setShowLinkModal(null); }
-                        });
-                      }}
-                      className={cn(
-                        "w-full p-3 text-left rounded-xl border transition-colors",
-                        isSuggested
-                          ? "border-indigo-300 bg-indigo-50 hover:bg-indigo-100"
-                          : "border-slate-200 hover:bg-indigo-50 hover:border-indigo-200"
-                      )}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className={cn(
-                          "p-2 rounded-lg",
-                          isSuggested ? "bg-indigo-200" : "bg-indigo-100"
-                        )}>
-                          <Plane className="w-5 h-5 text-indigo-600" />
-                        </div>
-                        <div className="flex-1">
-                          <p className="font-medium text-slate-900">{ac.tailNumber}</p>
-                          <p className="text-sm text-slate-500">{ac.model}</p>
-                        </div>
-                        {isSuggested && (
-                          <Badge variant="outline" className="bg-indigo-100 text-indigo-700 border-indigo-200 text-xs">
-                            <Sparkles className="w-3 h-3 mr-1" /> Suggested
-                          </Badge>
-                        )}
+                {showLinkModal.mode === 'aircraft' && aircraft.map((ac: any) => (
+                  <button
+                    key={ac._id}
+                    onClick={() => {
+                      linkDocToAircraft.mutate({ docId: showLinkModal.docId, aircraftId: ac._id }, {
+                        onSuccess: () => { refetch(); setShowLinkModal(null); }
+                      });
+                    }}
+                    className="w-full p-3 text-left rounded-xl border border-slate-200 hover:bg-indigo-50 hover:border-indigo-200 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-indigo-100">
+                        <Plane className="w-5 h-5 text-indigo-600" />
                       </div>
-                    </button>
-                  );
-                })}
-
-                {/* Empty state */}
-                {showLinkModal.mode === 'pilot' && pilots.length === 0 && (
-                  <p className="text-center text-slate-500 py-4">No pilots found. Add a pilot first.</p>
-                )}
-                {showLinkModal.mode === 'aircraft' && aircraft.length === 0 && (
-                  <p className="text-center text-slate-500 py-4">No aircraft found. Add an aircraft first.</p>
-                )}
+                      <div className="flex-1">
+                        <p className="font-medium text-slate-900">{ac.tailNumber}</p>
+                        <p className="text-sm text-slate-500">{ac.model}</p>
+                      </div>
+                    </div>
+                  </button>
+                ))}
               </div>
               <div className="mt-4">
                 <Button variant="outline" onClick={() => setShowLinkModal(null)} className="w-full">
@@ -1523,7 +1027,6 @@ export default function FilesPage() {
               </div>
             </div>
           </div>
-<<<<<<< Updated upstream
         )}
 
         {/* Document Detail Modal */}
@@ -1568,55 +1071,6 @@ export default function FilesPage() {
           </div>
         )}
       </div>
-
-=======
-        </div>
-      )}
-
-      {/* View Entries Modal */}
-      {selectedDoc && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-zinc-800 rounded-xl w-full max-w-4xl max-h-[80vh] shadow-xl flex flex-col">
-            <div className="p-6 border-b border-zinc-200 dark:border-zinc-700 flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{selectedDoc.filename}</h3>
-                <p className="text-sm text-zinc-500 dark:text-zinc-400">{selectedDoc.entries?.length || 0} entries</p>
-              </div>
-              <Button variant="ghost" onClick={() => setSelectedDoc(null)}>
-                <X className="w-5 h-5" />
-              </Button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-6">
-              <div className="space-y-3">
-                {selectedDoc.entries?.map((entry: any, idx: number) => (
-                  <div key={idx} className="p-4 bg-zinc-50 dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <p className="font-medium text-zinc-900 dark:text-zinc-100">{entry.date || 'No date'}</p>
-                        {(entry.from || entry.to) && (
-                          <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-1">{entry.from} → {entry.to}</p>
-                        )}
-                        {entry.aircraftIdent && (
-                          <p className="text-sm text-zinc-500 dark:text-zinc-500 mt-1">{entry.aircraftIdent}</p>
-                        )}
-                      </div>
-                      <div className="text-right">
-                        {(entry.totalTime || entry.duration) && (
-                          <p className="font-bold text-blue-600 dark:text-blue-400">{entry.totalTime || entry.duration} hrs</p>
-                        )}
-                      </div>
-                    </div>
-                    {entry.description && (
-                      <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-2 border-t border-zinc-200 dark:border-zinc-700 pt-2">{entry.description}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
->>>>>>> Stashed changes
     </div>
   );
 }

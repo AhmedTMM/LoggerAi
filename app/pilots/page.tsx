@@ -35,23 +35,33 @@ export default function PilotsPage() {
   const [safetyData, setSafetyData] = useState<{ reports: any[] } | null>(null);
   const [loadingSafety, setLoadingSafety] = useState(false);
 
-  // AI Analysis State
   type AnalysisResult = {
-    risk_factors: { category: string; risk_level: 'high' | 'medium' | 'low'; description: string }[];
+    risk_factors: { category: string; riskLevel: 'high' | 'medium' | 'low'; message: string }[];
     overall_assessment: { score: number; summary: string };
   };
   const [aiAnalysis, setAiAnalysis] = useState<AnalysisResult | null>(null);
   const [analyzingAI, setAnalyzingAI] = useState(false);
   const [lastAnalyzedPilotId, setLastAnalyzedPilotId] = useState<string | null>(null);
 
-  // Auto-run AI Analysis when opening Safety tab or selecting a new pilot
+  // Initialize AI analysis from persistent storage
   useEffect(() => {
     if (selectedPilot?._id && selectedPilot._id !== lastAnalyzedPilotId) {
-      setAiAnalysis(null); // Reset when switching pilots
       setLastAnalyzedPilotId(selectedPilot._id as string);
 
-      // Auto-run
-      handleRunAIAnalysis(selectedPilot._id as string);
+      if (selectedPilot.safetyAnalysis) {
+        // Load existing analysis
+        setAiAnalysis({
+          risk_factors: selectedPilot.safetyAnalysis.findings,
+          overall_assessment: {
+            score: selectedPilot.safetyAnalysis.score,
+            summary: "Loaded from database." // Summary isn't currently saved in findings, just score/factors
+          }
+        });
+      } else {
+        // Auto-run only if missing
+        setAiAnalysis(null);
+        handleRunAIAnalysis(selectedPilot._id as string);
+      }
     }
   }, [selectedPilot]);
 
@@ -158,20 +168,20 @@ export default function PilotsPage() {
     return gaps;
   };
 
-  const renderRiskCard = (factor: { category: string; risk_level: 'high' | 'medium' | 'low'; description: string }, index: number) => {
+  const renderRiskCard = (factor: { category: string; riskLevel: 'high' | 'medium' | 'low'; message: string }, index: number) => {
     const colors = {
       high: { bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-900', icon: 'text-red-600' },
       medium: { bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-900', icon: 'text-amber-600' },
       low: { bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-900', icon: 'text-emerald-600' }
     };
-    const style = colors[factor.risk_level] || colors.low;
+    const style = colors[factor.riskLevel] || colors.low;
 
     return (
       <div key={index} className={cn("p-4 rounded-xl border flex gap-3 transition-all hover:shadow-md", style.bg, style.border)}>
         <AlertTriangle className={cn("h-5 w-5 flex-shrink-0 mt-0.5", style.icon)} />
         <div>
           <h4 className={cn("font-bold text-sm", style.text)}>{factor.category}</h4>
-          <p className={cn("text-sm mt-1 opacity-90 leading-relaxed", style.text)}>{factor.description}</p>
+          <p className={cn("text-sm mt-1 opacity-90 leading-relaxed", style.text)}>{factor.message}</p>
         </div>
       </div>
     );

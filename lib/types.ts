@@ -128,6 +128,15 @@ export interface Pilot {
   linkedDocuments?: string[];
   medicalExpiration: Date | string;
   flightReviewExpiration: Date | string;
+  safetyAnalysis?: {
+    lastAnalyzed: Date | string;
+    score: number;
+    findings: {
+      category: string;
+      riskLevel: 'low' | 'medium' | 'high';
+      message: string;
+    }[];
+  };
   createdAt: Date | string;
   updatedAt: Date | string;
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { ClipboardCheck, Play, Mail, AlertTriangle, CheckCircle, XCircle, Plane, User, Cloud, RefreshCw, Calendar, MapPin, Search, ArrowRight, Zap, Shield, Upload, Clock, TrendingUp, TrendingDown, Minus, Plus, Thermometer, Wind, Eye } from 'lucide-react';
+import { ClipboardCheck, Play, Mail, AlertTriangle, CheckCircle, XCircle, Plane, User, Cloud, RefreshCw, Calendar, MapPin, Search, ArrowRight, Zap, Shield, Upload, Clock, TrendingUp, TrendingDown, Minus, Plus, Thermometer, Wind, Eye, FileText, Loader2 } from 'lucide-react';
 import { useFlights, useRunFlightAudit, useSendAuditEmail, useWeather, usePilots, useAircraft } from '@/lib/hooks';
 import type { Flight, LegalityCheck } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
@@ -838,6 +838,14 @@ function NewFlightModal({
   );
 }
 
+// Parsing step descriptions
+const PARSING_STEPS = [
+  { id: 'upload', label: 'Uploading file...', icon: Upload },
+  { id: 'ocr', label: 'Reading document text...', icon: Eye },
+  { id: 'extract', label: 'Extracting flight data...', icon: Zap },
+  { id: 'match', label: 'Matching pilot & aircraft...', icon: Search },
+];
+
 // Flight Plan Upload Modal
 function FlightPlanUploadModal({
   pilots,
@@ -852,7 +860,9 @@ function FlightPlanUploadModal({
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [parsingStep, setParsingStep] = useState<number>(-1);
   const [parsedData, setParsedData] = useState<any>(null);
   const [overrides, setOverrides] = useState({ pilotId: '', aircraftId: '' });
 
@@ -861,12 +871,20 @@ function FlightPlanUploadModal({
     if (file) {
       setSelectedFile(file);
       setParsedData(null);
+      setParsingStep(-1);
+      // Create preview URL for images
+      if (file.type.startsWith('image/')) {
+        setPreviewUrl(URL.createObjectURL(file));
+      } else {
+        setPreviewUrl(null);
+      }
     }
   };
 
   const handleUpload = async () => {
     if (!selectedFile) return;
     setIsUploading(true);
+    setParsingStep(0);
 
     try {
       const formData = new FormData();
@@ -875,13 +893,24 @@ function FlightPlanUploadModal({
       if (overrides.pilotId) formData.append('pilotId', overrides.pilotId);
       if (overrides.aircraftId) formData.append('aircraftId', overrides.aircraftId);
 
+      // Simulate step progression for better UX
+      const stepInterval = setInterval(() => {
+        setParsingStep(prev => {
+          if (prev < PARSING_STEPS.length - 1) return prev + 1;
+          return prev;
+        });
+      }, 1500);
+
       const res = await fetch('/api/flights/upload', {
         method: 'POST',
         body: formData,
       });
 
+      clearInterval(stepInterval);
+
       const data = await res.json();
       if (data.success) {
+        setParsingStep(PARSING_STEPS.length); // Complete
         setParsedData(data.data);
         // Auto-set overrides if matched
         if (data.data.matches?.pilot?.id) {
@@ -891,9 +920,11 @@ function FlightPlanUploadModal({
           setOverrides(prev => ({ ...prev, aircraftId: data.data.matches.aircraft.id }));
         }
       } else {
+        setParsingStep(-1);
         alert('Parse failed: ' + data.error);
       }
     } catch (err) {
+      setParsingStep(-1);
       alert('Upload error');
     } finally {
       setIsUploading(false);
@@ -934,20 +965,20 @@ function FlightPlanUploadModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl">
+      <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
         <h2 className="text-lg font-bold mb-4 flex items-center">
           <Upload className="w-5 h-5 mr-2" />
           Upload Flight Plan
         </h2>
 
         <div className="space-y-4">
-          {/* File Upload */}
+          {/* File Upload with Preview */}
           <div
             className={cn(
-              "border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors",
+              "border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors",
               selectedFile ? "border-blue-300 bg-blue-50" : "border-zinc-300 hover:border-zinc-400"
             )}
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => !isUploading && fileInputRef.current?.click()}
           >
             <input
               ref={fileInputRef}
@@ -955,26 +986,96 @@ function FlightPlanUploadModal({
               accept="image/*,.pdf"
               onChange={handleFileSelect}
               className="hidden"
+              disabled={isUploading}
             />
             {selectedFile ? (
-              <div>
-                <CheckCircle className="w-8 h-8 text-blue-500 mx-auto mb-2" />
-                <p className="font-medium text-zinc-900">{selectedFile.name}</p>
-                <p className="text-xs text-zinc-500">{(selectedFile.size / 1024).toFixed(1)} KB</p>
+              <div className="flex items-start gap-4">
+                {/* File Preview */}
+                <div className="flex-shrink-0 w-24 h-24 rounded-lg overflow-hidden bg-white border border-zinc-200 flex items-center justify-center">
+                  {previewUrl ? (
+                    <img
+                      src={previewUrl}
+                      alt={selectedFile.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center">
+                      <FileText className="w-8 h-8 text-red-500" />
+                      <span className="text-[10px] text-red-500 font-medium mt-1">PDF</span>
+                    </div>
+                  )}
+                </div>
+                {/* File Info */}
+                <div className="flex-1 text-left">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-blue-500" />
+                    <span className="text-xs text-blue-600 font-medium">File Selected</span>
+                  </div>
+                  <p className="font-medium text-zinc-900 mt-1 truncate">{selectedFile.name}</p>
+                  <p className="text-xs text-zinc-500">{(selectedFile.size / 1024).toFixed(1)} KB</p>
+                  {!isUploading && (
+                    <p className="text-xs text-blue-500 mt-2 hover:underline">Click to change file</p>
+                  )}
+                </div>
               </div>
             ) : (
-              <div>
-                <Upload className="w-8 h-8 text-zinc-400 mx-auto mb-2" />
-                <p className="text-sm text-zinc-600">Click or drag to upload</p>
-                <p className="text-xs text-zinc-400">PNG, JPG, PDF (PaperlessFBO, ForeFlight, etc.)</p>
+              <div className="py-4">
+                <Upload className="w-10 h-10 text-zinc-400 mx-auto mb-3" />
+                <p className="text-sm font-medium text-zinc-600">Click or drag to upload</p>
+                <p className="text-xs text-zinc-400 mt-1">PNG, JPG, PDF (PaperlessFBO, ForeFlight, etc.)</p>
               </div>
             )}
           </div>
 
+          {/* Parsing Progress */}
+          {isUploading && parsingStep >= 0 && (
+            <div className="bg-zinc-50 rounded-lg p-4">
+              <h4 className="font-semibold text-sm text-zinc-900 mb-3 flex items-center">
+                <RefreshCw className="w-4 h-4 mr-2 animate-spin text-blue-500" />
+                Analyzing Flight Plan...
+              </h4>
+              <div className="space-y-2">
+                {PARSING_STEPS.map((step, idx) => {
+                  const StepIcon = step.icon;
+                  const isActive = idx === parsingStep;
+                  const isComplete = idx < parsingStep;
+                  return (
+                    <div
+                      key={step.id}
+                      className={cn(
+                        "flex items-center gap-3 py-2 px-3 rounded-md transition-all",
+                        isActive ? "bg-blue-100" : isComplete ? "bg-emerald-50" : "bg-white"
+                      )}
+                    >
+                      <div className={cn(
+                        "w-6 h-6 rounded-full flex items-center justify-center",
+                        isComplete ? "bg-emerald-500" : isActive ? "bg-blue-500" : "bg-zinc-200"
+                      )}>
+                        {isComplete ? (
+                          <CheckCircle className="w-4 h-4 text-white" />
+                        ) : isActive ? (
+                          <Loader2 className="w-4 h-4 text-white animate-spin" />
+                        ) : (
+                          <StepIcon className="w-3 h-3 text-zinc-400" />
+                        )}
+                      </div>
+                      <span className={cn(
+                        "text-sm",
+                        isComplete ? "text-emerald-700" : isActive ? "text-blue-700 font-medium" : "text-zinc-400"
+                      )}>
+                        {step.label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Parse Button */}
-          {selectedFile && !parsedData && (
+          {selectedFile && !parsedData && !isUploading && (
             <Button onClick={handleUpload} disabled={isUploading} className="w-full">
-              {isUploading ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Zap className="w-4 h-4 mr-2" />}
+              <Zap className="w-4 h-4 mr-2" />
               Parse Flight Plan
             </Button>
           )}
@@ -982,31 +1083,59 @@ function FlightPlanUploadModal({
           {/* Parsed Data Display */}
           {parsedData && (
             <div className="space-y-4">
-              <div className="bg-zinc-50 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="font-semibold text-sm">Parsed Data</h4>
-                  <Badge variant={parsedData.confidence > 0.7 ? 'success' : 'warning'}>
-                    {Math.round(parsedData.confidence * 100)}% confidence
-                  </Badge>
+              {/* Success Banner */}
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex items-center gap-3">
+                <div className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center">
+                  <CheckCircle className="w-5 h-5 text-emerald-600" />
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <p className="font-medium text-emerald-800">Analysis Complete</p>
+                  <p className="text-xs text-emerald-600">Flight plan successfully parsed</p>
+                </div>
+                <Badge variant={parsedData.confidence > 0.7 ? 'success' : 'warning'} className="ml-auto">
+                  {Math.round(parsedData.confidence * 100)}% confidence
+                </Badge>
+              </div>
+
+              {/* Extracted Data */}
+              <div className="bg-zinc-50 rounded-lg p-4">
+                <h4 className="font-semibold text-sm mb-3">Extracted Data</h4>
+                <div className="grid grid-cols-2 gap-3">
                   {parsedData.parsedData.pilotName && (
-                    <div><span className="text-zinc-500">Pilot:</span> {parsedData.parsedData.pilotName}</div>
+                    <div className="bg-white rounded-md p-2 border border-zinc-200">
+                      <span className="text-xs text-zinc-500 block">Pilot</span>
+                      <span className="font-medium text-sm">{parsedData.parsedData.pilotName}</span>
+                    </div>
                   )}
                   {parsedData.parsedData.aircraftTail && (
-                    <div><span className="text-zinc-500">Aircraft:</span> {parsedData.parsedData.aircraftTail}</div>
+                    <div className="bg-white rounded-md p-2 border border-zinc-200">
+                      <span className="text-xs text-zinc-500 block">Aircraft</span>
+                      <span className="font-medium text-sm font-mono">{parsedData.parsedData.aircraftTail}</span>
+                    </div>
                   )}
                   {parsedData.parsedData.date && (
-                    <div><span className="text-zinc-500">Date:</span> {parsedData.parsedData.date}</div>
+                    <div className="bg-white rounded-md p-2 border border-zinc-200">
+                      <span className="text-xs text-zinc-500 block">Date</span>
+                      <span className="font-medium text-sm">{parsedData.parsedData.date}</span>
+                    </div>
                   )}
                   {parsedData.parsedData.departureTime && (
-                    <div><span className="text-zinc-500">Time:</span> {parsedData.parsedData.departureTime}</div>
+                    <div className="bg-white rounded-md p-2 border border-zinc-200">
+                      <span className="text-xs text-zinc-500 block">Departure Time</span>
+                      <span className="font-medium text-sm">{parsedData.parsedData.departureTime}</span>
+                    </div>
                   )}
                   {parsedData.parsedData.departureAirport && (
-                    <div><span className="text-zinc-500">From:</span> {parsedData.parsedData.departureAirport}</div>
+                    <div className="bg-white rounded-md p-2 border border-zinc-200">
+                      <span className="text-xs text-zinc-500 block">From</span>
+                      <span className="font-medium text-sm font-mono">{parsedData.parsedData.departureAirport}</span>
+                    </div>
                   )}
                   {parsedData.parsedData.arrivalAirport && (
-                    <div><span className="text-zinc-500">To:</span> {parsedData.parsedData.arrivalAirport}</div>
+                    <div className="bg-white rounded-md p-2 border border-zinc-200">
+                      <span className="text-xs text-zinc-500 block">To</span>
+                      <span className="font-medium text-sm font-mono">{parsedData.parsedData.arrivalAirport}</span>
+                    </div>
                   )}
                 </div>
               </div>
@@ -1056,7 +1185,7 @@ function FlightPlanUploadModal({
         </div>
 
         <div className="flex justify-end pt-4 mt-4 border-t">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={onClose} disabled={isUploading}>Cancel</Button>
         </div>
       </div>
     </div>

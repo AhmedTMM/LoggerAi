@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { FileText, Upload, Check, X, Loader2, Link2, User, Plane, Clock, AlertCircle, Trash2 } from 'lucide-react';
+import { FileText, Upload, Check, X, Loader2, Link2, User, Plane, Clock, AlertCircle, Trash2, Image, FileImage, Eye, ChevronRight } from 'lucide-react';
 import { useParsedDocuments, useParseDocument, usePilots, useAircraft, useLinkDocToAircraft, useDeleteParsedDocument } from '@/lib/hooks';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -15,7 +15,27 @@ interface QueuedFile {
     error?: string;
     pilotId?: string;
     aircraftId?: string;
+    previewUrl?: string;
+    analysisStep?: string;
+    parsedSummary?: {
+        entries?: number;
+        hours?: number;
+        documentType?: string;
+    };
 }
+
+// Analysis steps for user feedback
+const ANALYSIS_STEPS = {
+    queued: 'Waiting in queue...',
+    uploading: 'Uploading file to server...',
+    parsing_init: 'Initializing document parser...',
+    parsing_ocr: 'Extracting text from document...',
+    parsing_ai: 'AI analyzing document content...',
+    parsing_extract: 'Extracting logbook entries...',
+    parsing_validate: 'Validating extracted data...',
+    completed: 'Analysis complete',
+    failed: 'Analysis failed',
+};
 
 export default function FilesPage() {
     const { data: documents = [], refetch: refetchDocs } = useParsedDocuments();
@@ -28,19 +48,34 @@ export default function FilesPage() {
     const [queue, setQueue] = useState<QueuedFile[]>([]);
     const [dragOver, setDragOver] = useState(false);
 
+    // Create preview URL for file
+    const createPreviewUrl = (file: File): string | undefined => {
+        if (file.type.startsWith('image/')) {
+            return URL.createObjectURL(file);
+        }
+        return undefined;
+    };
+
     // Process queue automatically
     const processQueue = useCallback(async (files: File[]) => {
         const newItems: QueuedFile[] = files.map(file => ({
             id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
             file,
             status: 'queued' as const,
+            previewUrl: createPreviewUrl(file),
+            analysisStep: ANALYSIS_STEPS.queued,
         }));
 
         setQueue(prev => [...prev, ...newItems]);
 
         // Process each file
         for (const item of newItems) {
-            setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'uploading' } : q));
+            // Update to uploading status
+            setQueue(prev => prev.map(q => q.id === item.id ? {
+                ...q,
+                status: 'uploading',
+                analysisStep: ANALYSIS_STEPS.uploading,
+            } : q));
 
             try {
                 const base64 = await fileToBase64(item.file);
@@ -53,7 +88,22 @@ export default function FilesPage() {
                     documentType = 'maintenance';
                 }
 
-                setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'parsing' } : q));
+                // Update to parsing status with step progression
+                setQueue(prev => prev.map(q => q.id === item.id ? {
+                    ...q,
+                    status: 'parsing',
+                    analysisStep: ANALYSIS_STEPS.parsing_init,
+                } : q));
+
+                // Simulate step progression for better UX
+                const updateStep = (step: string) => {
+                    setQueue(prev => prev.map(q => q.id === item.id ? { ...q, analysisStep: step } : q));
+                };
+
+                // Progress through steps
+                setTimeout(() => updateStep(ANALYSIS_STEPS.parsing_ocr), 500);
+                setTimeout(() => updateStep(ANALYSIS_STEPS.parsing_ai), 2000);
+                setTimeout(() => updateStep(ANALYSIS_STEPS.parsing_extract), 4000);
 
                 // Parse synchronously to get results
                 await new Promise<void>((resolve, reject) => {
@@ -68,6 +118,12 @@ export default function FilesPage() {
                                 ...q,
                                 status: 'completed',
                                 documentId: data?.data?.documentId,
+                                analysisStep: ANALYSIS_STEPS.completed,
+                                parsedSummary: {
+                                    entries: data?.data?.summary?.totalEntries,
+                                    hours: data?.data?.summary?.totalHours,
+                                    documentType: documentType,
+                                },
                             } : q));
                             refetchDocs();
                             resolve();
@@ -77,6 +133,7 @@ export default function FilesPage() {
                                 ...q,
                                 status: 'failed',
                                 error: error.message,
+                                analysisStep: ANALYSIS_STEPS.failed,
                             } : q));
                             reject(error);
                         },
@@ -87,6 +144,7 @@ export default function FilesPage() {
                     ...q,
                     status: 'failed',
                     error: (error as Error).message,
+                    analysisStep: ANALYSIS_STEPS.failed,
                 } : q));
             }
         }
@@ -201,7 +259,7 @@ export default function FilesPage() {
                     </label>
                 </div>
 
-                {/* Upload Queue */}
+                {/* Upload Queue with Preview */}
                 {queue.length > 0 && (
                     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
                         <div className="px-4 py-3 bg-zinc-50 border-b border-zinc-200 flex items-center justify-between">
@@ -215,26 +273,103 @@ export default function FilesPage() {
                         </div>
                         <div className="divide-y divide-zinc-100">
                             {queue.map(item => (
-                                <div key={item.id} className="px-4 py-3 flex items-center gap-4">
-                                    <div className="flex-shrink-0">
-                                        {getStatusIcon(item.status)}
+                                <div key={item.id} className="px-4 py-4 flex items-start gap-4">
+                                    {/* File Preview */}
+                                    <div className="flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden bg-zinc-100 border border-zinc-200 flex items-center justify-center">
+                                        {item.previewUrl ? (
+                                            <img
+                                                src={item.previewUrl}
+                                                alt={item.file.name}
+                                                className="w-full h-full object-cover"
+                                            />
+                                        ) : item.file.type.includes('pdf') ? (
+                                            <div className="flex flex-col items-center">
+                                                <FileText className="w-6 h-6 text-red-500" />
+                                                <span className="text-[8px] text-red-500 font-medium mt-0.5">PDF</span>
+                                            </div>
+                                        ) : (
+                                            <FileImage className="w-6 h-6 text-zinc-400" />
+                                        )}
                                     </div>
+
+                                    {/* File Info & Analysis Status */}
                                     <div className="flex-1 min-w-0">
-                                        <p className="font-medium text-zinc-900 truncate">{item.file.name}</p>
-                                        <p className="text-xs text-zinc-500">{getStatusLabel(item.status)}</p>
-                                        {item.error && <p className="text-xs text-red-500">{item.error}</p>}
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <p className="font-medium text-zinc-900 truncate">{item.file.name}</p>
+                                            <span className="text-xs text-zinc-400">
+                                                ({(item.file.size / 1024).toFixed(1)} KB)
+                                            </span>
+                                        </div>
+
+                                        {/* Analysis Progress */}
+                                        <div className="mt-2">
+                                            <div className="flex items-center gap-2">
+                                                {getStatusIcon(item.status)}
+                                                <span className={cn(
+                                                    "text-sm",
+                                                    item.status === 'completed' ? "text-emerald-600" :
+                                                    item.status === 'failed' ? "text-red-500" :
+                                                    "text-zinc-600"
+                                                )}>
+                                                    {item.analysisStep || getStatusLabel(item.status)}
+                                                </span>
+                                            </div>
+
+                                            {/* Progress Bar */}
+                                            {(item.status === 'uploading' || item.status === 'parsing') && (
+                                                <div className="mt-2 h-1.5 bg-zinc-100 rounded-full overflow-hidden">
+                                                    <div
+                                                        className={cn(
+                                                            "h-full rounded-full transition-all duration-500",
+                                                            item.status === 'uploading' ? "w-1/4 bg-blue-500" :
+                                                            item.analysisStep === ANALYSIS_STEPS.parsing_init ? "w-2/5 bg-purple-500" :
+                                                            item.analysisStep === ANALYSIS_STEPS.parsing_ocr ? "w-1/2 bg-purple-500" :
+                                                            item.analysisStep === ANALYSIS_STEPS.parsing_ai ? "w-3/4 bg-purple-500" :
+                                                            item.analysisStep === ANALYSIS_STEPS.parsing_extract ? "w-[85%] bg-purple-500" :
+                                                            "w-[95%] bg-purple-500"
+                                                        )}
+                                                    />
+                                                </div>
+                                            )}
+
+                                            {/* Parsed Summary */}
+                                            {item.status === 'completed' && item.parsedSummary && (
+                                                <div className="mt-2 flex items-center gap-3 text-xs text-zinc-500">
+                                                    {item.parsedSummary.entries !== undefined && (
+                                                        <span className="flex items-center gap-1">
+                                                            <Check className="w-3 h-3 text-emerald-500" />
+                                                            {item.parsedSummary.entries} entries extracted
+                                                        </span>
+                                                    )}
+                                                    {item.parsedSummary.hours !== undefined && (
+                                                        <span>{item.parsedSummary.hours} hours</span>
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            {/* Error Message */}
+                                            {item.error && (
+                                                <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                                                    <AlertCircle className="w-3 h-3" />
+                                                    {item.error}
+                                                </p>
+                                            )}
+                                        </div>
                                     </div>
+
+                                    {/* Actions */}
                                     <div className="flex items-center gap-2">
                                         {item.status === 'completed' && (
                                             <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+                                                <Check className="w-3 h-3 mr-1" />
                                                 Parsed
                                             </Badge>
                                         )}
                                         <button
                                             onClick={() => removeFromQueue(item.id)}
-                                            className="p-1 hover:bg-zinc-100 rounded"
+                                            className="p-1.5 hover:bg-zinc-100 rounded-lg transition-colors"
                                         >
-                                            <X className="w-4 h-4 text-zinc-400" />
+                                            <X className="w-4 h-4 text-zinc-400 hover:text-zinc-600" />
                                         </button>
                                     </div>
                                 </div>

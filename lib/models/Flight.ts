@@ -146,6 +146,7 @@ export interface IFlight {
   // Notes
   notes?: string;
   emailSent: boolean;
+  preFlightAlertSent: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -343,6 +344,10 @@ const FlightSchema = new Schema<IFlight>(
     },
     notes: { type: String },
     emailSent: {
+      type: Boolean,
+      default: false,
+    },
+    preFlightAlertSent: {
       type: Boolean,
       default: false,
     },

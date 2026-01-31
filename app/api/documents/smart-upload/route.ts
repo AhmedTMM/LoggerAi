@@ -86,9 +86,10 @@ export async function POST(request: NextRequest) {
         if (isLargeFile) {
           progress(30, 'Saving file...');
           storedFile = await saveFile(
-            Buffer.from(fileBase64, 'base64'),
+            fileBase64,
             filename || `doc_${Date.now()}.${fileType === 'pdf' ? 'pdf' : 'png'}`,
-            documentType
+            fileType,
+            'other'
           );
         }
 

@@ -167,9 +167,10 @@ export async function POST(request: NextRequest) {
             duration: 0
           });
           storedFile = await saveFile(
-            Buffer.from(fileBase64, 'base64'),
+            fileBase64,
             originalFilename,
-            documentType
+            fileType,
+            'other'
           );
         }
 

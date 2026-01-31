@@ -219,18 +219,14 @@ export async function suggestAttachments(
   ]);
 
   // Build result based on document type and matches
+  // Note: Pilot logbooks should ONLY link to pilots (they contain flights on many aircraft)
+  // Aircraft logbooks should ONLY link to aircraft (they track a single airframe)
   if (isPilotDoc && pilotMatch) {
     result.suggestedPilotId = pilotMatch.pilotId;
     result.suggestedPilotName = pilotMatch.pilotName;
     result.attachmentConfidence = pilotMatch.confidence * classification.confidence;
     result.attachmentReason = `Pilot name "${pilotMatch.pilotName}" found in document`;
-
-    // Also include aircraft if found in pilot logbook
-    if (aircraftMatch && classification.detectedType === 'pilot_logbook') {
-      result.suggestedAircraftId = aircraftMatch.aircraftId;
-      result.suggestedAircraftTail = aircraftMatch.tailNumber;
-      result.attachmentReason += ` with aircraft ${aircraftMatch.tailNumber}`;
-    }
+    // Don't attach pilot logbooks to aircraft - they reference many aircraft
   } else if (isAircraftDoc && aircraftMatch) {
     result.suggestedAircraftId = aircraftMatch.aircraftId;
     result.suggestedAircraftTail = aircraftMatch.tailNumber;

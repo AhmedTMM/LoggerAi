@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { User, Plus, Clock, X, Shield, AlertTriangle, CheckCircle, Plane, Upload, Trash2, Loader2, FileText, Target, TrendingUp, RefreshCw, Search, ChevronDown, ChevronUp, Wrench, Book, Sparkles, Microscope, Wand2, UserPlus, Star, Zap, ArrowRight, Brain } from 'lucide-react';
-import { usePilots, useCreatePilot, useAircraft, useCreateFlight, useDeletePilot, useParsedDocuments, useApplyLogbook, useUpdatePilot, usePilotById, useAircraftById, useGeneratePilotProfile, useUploadDocument, useStartParsing, useParseDocument } from '@/lib/hooks';
+import { User, Plus, Clock, X, Shield, AlertTriangle, CheckCircle, Plane, Upload, Trash2, Loader2, FileText, Target, TrendingUp, RefreshCw, Search, ChevronDown, ChevronUp, Wrench, Book, Sparkles, Microscope, Wand2, UserPlus, Star, Zap, ArrowRight, Brain, ExternalLink } from 'lucide-react';
+import { usePilots, useCreatePilot, useAircraft, useCreateFlight, useDeletePilot, useParsedDocuments, useApplyLogbook, useUpdatePilot, usePilotById, useAircraftById, useGeneratePilotProfile, useParseDocument } from '@/lib/hooks';
+import Link from 'next/link';
 import type { Pilot, Aircraft } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -21,18 +22,8 @@ export default function PilotsPage() {
   const deletePilot = useDeletePilot();
   const updatePilot = useUpdatePilot();
   const createFlight = useCreateFlight();
-  const uploadDocument = useUploadDocument();
-  const startParsing = useStartParsing();
   const { data: parsedDocs = [], refetch: refetchDocs } = useParsedDocuments();
   const applyLogbook = useApplyLogbook();
-
-  // Upload progress tracking
-  const [uploadProgress, setUploadProgress] = useState<{
-    stage: 'idle' | 'reading' | 'uploading' | 'parsing';
-    percent: number;
-    message: string;
-  }>({ stage: 'idle', percent: 0, message: '' });
-  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const [selectedPilotId, setSelectedPilotId] = useState<string | null>(null);
   const { data: fullPilotData } = usePilotById(selectedPilotId || '');
@@ -120,81 +111,6 @@ export default function PilotsPage() {
     } finally {
       setAnalyzingAI(false);
     }
-  };
-
-  const handleLogbookUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !selectedPilot) return;
-
-    // Reset state
-    setUploadError(null);
-
-    // Check file size (50MB limit)
-    const maxSize = 50 * 1024 * 1024;
-    if (file.size > maxSize) {
-      setUploadError(`File too large. Maximum size is 50MB. Your file is ${Math.round(file.size / 1024 / 1024)}MB.`);
-      return;
-    }
-
-    // Stage 1: Reading file
-    setUploadProgress({ stage: 'reading', percent: 10, message: 'Reading file...' });
-
-    const reader = new FileReader();
-    reader.onprogress = (event) => {
-      if (event.lengthComputable) {
-        const readPercent = Math.round((event.loaded / event.total) * 20);
-        setUploadProgress({ stage: 'reading', percent: 10 + readPercent, message: 'Reading file...' });
-      }
-    };
-    reader.onerror = () => {
-      setUploadError('Failed to read file. Please try again.');
-      setUploadProgress({ stage: 'idle', percent: 0, message: '' });
-    };
-    reader.onload = async (event) => {
-      const base64 = (event.target?.result as string).split(',')[1];
-
-      // Stage 2: Uploading
-      setUploadProgress({ stage: 'uploading', percent: 35, message: 'Uploading to server...' });
-
-      uploadDocument.mutate({
-        fileBase64: base64,
-        fileType: file.type.includes('pdf') ? 'pdf' : 'image',
-        documentType: 'logbook',
-        pilotId: selectedPilot._id,
-        filename: file.name,
-      }, {
-        onSuccess: async (data) => {
-          // Stage 3: Parsing
-          setUploadProgress({ stage: 'parsing', percent: 50, message: 'Analyzing with AI...' });
-
-          if (data?.documentId) {
-            startParsing.mutate(data.documentId, {
-              onSuccess: async () => {
-                setUploadProgress({ stage: 'idle', percent: 100, message: 'Complete!' });
-                await refetch();
-                await refetchDocs();
-                // Reset after showing completion
-                setTimeout(() => {
-                  setUploadProgress({ stage: 'idle', percent: 0, message: '' });
-                }, 2000);
-              },
-              onError: (err: any) => {
-                setUploadError(err?.message || 'Failed to parse document.');
-                setUploadProgress({ stage: 'idle', percent: 0, message: '' });
-              },
-            });
-          }
-        },
-        onError: (err: any) => {
-          setUploadError(err?.message || 'Upload failed. File may be too large.');
-          setUploadProgress({ stage: 'idle', percent: 0, message: '' });
-        },
-      });
-    };
-    reader.readAsDataURL(file);
-
-    // Reset input so same file can be selected again
-    e.target.value = '';
   };
 
   // Safety Gap Analysis
@@ -454,62 +370,22 @@ export default function PilotsPage() {
 
                 {activeTab === 'logbook' && (
                   <div className="space-y-6">
-                    {/* Upload Error Alert */}
-                    {uploadError && (
-                      <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
-                        <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-                        <div className="flex-1">
-                          <p className="text-sm font-medium text-red-800">Upload Failed</p>
-                          <p className="text-sm text-red-600 mt-1">{uploadError}</p>
+                    {/* Link to Files Page */}
+                    <Link
+                      href="/files"
+                      className="flex items-center justify-between p-4 bg-white border border-zinc-200 rounded-xl hover:border-blue-300 hover:bg-blue-50/30 transition-colors group"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-blue-100 rounded-lg group-hover:bg-blue-200 transition-colors">
+                          <FileText className="w-5 h-5 text-blue-600" />
                         </div>
-                        <button onClick={() => setUploadError(null)} className="text-red-400 hover:text-red-600">
-                          <X className="w-4 h-4" />
-                        </button>
+                        <div>
+                          <p className="font-medium text-zinc-900">Upload & Manage Logbooks</p>
+                          <p className="text-sm text-zinc-500">Go to Files to upload pilot logbooks and link them to this pilot</p>
+                        </div>
                       </div>
-                    )}
-
-                    {/* Upload Area */}
-                    <div className={cn(
-                      "border-2 border-dashed rounded-xl p-6 text-center transition-colors",
-                      uploadProgress.stage !== 'idle'
-                        ? "border-blue-300 bg-blue-50"
-                        : "border-zinc-300 hover:border-zinc-400"
-                    )}>
-                      <input type="file" accept="image/*,.pdf" onChange={handleLogbookUpload} className="hidden" id="pilot-logbook-upload" disabled={uploadProgress.stage !== 'idle'} />
-                      <label htmlFor="pilot-logbook-upload" className={uploadProgress.stage === 'idle' ? "cursor-pointer" : ""}>
-                        {uploadProgress.stage !== 'idle' ? (
-                          <div className="flex flex-col items-center">
-                            <Loader2 className="w-10 h-10 text-blue-500 mb-3 animate-spin" />
-                            <p className="text-sm font-medium text-blue-600">{uploadProgress.message}</p>
-
-                            {/* Progress Bar */}
-                            <div className="w-full max-w-xs mt-4">
-                              <div className="flex justify-between text-xs text-zinc-500 mb-1">
-                                <span>{uploadProgress.stage === 'reading' ? 'Reading' : uploadProgress.stage === 'uploading' ? 'Uploading' : 'Analyzing'}</span>
-                                <span>{uploadProgress.percent}%</span>
-                              </div>
-                              <div className="h-2 bg-zinc-200 rounded-full overflow-hidden">
-                                <div
-                                  className="h-full bg-blue-500 rounded-full transition-all duration-300 ease-out"
-                                  style={{ width: `${uploadProgress.percent}%` }}
-                                />
-                              </div>
-                              <p className="text-xs text-zinc-500 mt-2">
-                                {uploadProgress.stage === 'reading' && 'Reading file from your device...'}
-                                {uploadProgress.stage === 'uploading' && 'Sending to server...'}
-                                {uploadProgress.stage === 'parsing' && 'AI is extracting flight entries...'}
-                              </p>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            <Upload className="w-10 h-10 mx-auto text-zinc-400 mb-3" />
-                            <p className="text-sm font-medium text-zinc-700">Upload Pilot Logbook</p>
-                            <p className="text-xs text-zinc-500 mt-1">PDF or image - we'll extract all flight entries</p>
-                          </>
-                        )}
-                      </label>
-                    </div>
+                      <ExternalLink className="w-5 h-5 text-zinc-400 group-hover:text-blue-500 transition-colors" />
+                    </Link>
 
                     {/* Hour Summary (from parsed data) */}
                     {selectedPilot.flightEntries && selectedPilot.flightEntries.length > 0 && (

@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Plane, Plus, AlertTriangle, CheckCircle, Clock, Wrench, Trash2, X, Upload, FileText, Loader2, Image as ImageIcon, Link2, Unlink, Search, ShieldCheck, Microscope, Sparkles, ChevronDown, Settings, Cog, Radio, BookOpen } from 'lucide-react';
-import { useAircraft, useCreateAircraft, useDeleteAircraft, useParsedDocuments, useLinkDocToAircraft, useAircraftById, useUploadDocument, useStartParsing } from '@/lib/hooks';
+import { Plane, Plus, AlertTriangle, CheckCircle, Clock, Wrench, Trash2, X, FileText, Loader2, Image as ImageIcon, Link2, Search, ShieldCheck, Microscope, Sparkles, ChevronDown, Settings, Cog, Radio, BookOpen, ExternalLink } from 'lucide-react';
+import { useAircraft, useCreateAircraft, useDeleteAircraft, useParsedDocuments, useAircraftById } from '@/lib/hooks';
+import Link from 'next/link';
 import type { Aircraft } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -18,10 +19,7 @@ export default function AircraftPage() {
     const { data: fleet, isLoading, error, refetch } = useAircraft();
     const createAircraft = useCreateAircraft();
     const deleteAircraft = useDeleteAircraft();
-    const uploadDocument = useUploadDocument();
-    const startParsing = useStartParsing();
     const { data: parsedDocs, refetch: refetchDocs } = useParsedDocuments({ documentType: 'maintenance' });
-    const linkDoc = useLinkDocToAircraft();
 
     const [selectedAircraftId, setSelectedAircraftId] = useState<string | null>(null);
     const { data: fullAircraftData } = useAircraftById(selectedAircraftId || '');
@@ -34,8 +32,6 @@ export default function AircraftPage() {
     const [activeTab, setActiveTab] = useState<'details' | 'logbooks' | 'analysis'>('details');
     const [logbookCategory, setLogbookCategory] = useState<LogbookCategory>('airframe');
     const [logbookYear, setLogbookYear] = useState<string>('All');
-    const [isDragging, setIsDragging] = useState(false);
-    const [uploadError, setUploadError] = useState<string | null>(null);
 
     useEffect(() => {
         setLogbookYear('All');
@@ -70,102 +66,7 @@ export default function AircraftPage() {
         ? currentCategoryLogs
         : currentCategoryLogs.filter((l: any) => new Date(l.date).getFullYear() === parseInt(logbookYear));
 
-    const handleLogbookUpload = async (file: File) => {
-        if (!file || !selectedAircraft) return;
-
-        // Clear any previous error
-        setUploadError(null);
-
-        // Check file size before reading (50MB limit)
-        const maxSize = 50 * 1024 * 1024;
-        if (file.size > maxSize) {
-            setUploadError(`File too large. Maximum size is 50MB. Your file is ${Math.round(file.size / 1024 / 1024)}MB.`);
-            return;
-        }
-
-        const reader = new FileReader();
-        reader.onerror = () => {
-            setUploadError('Failed to read file. Please try again.');
-        };
-        reader.onload = async (event) => {
-            const base64 = (event.target?.result as string).split(',')[1];
-            // Step 1: Upload file immediately (no parsing)
-            uploadDocument.mutate({
-                fileBase64: base64,
-                fileType: file.type.includes('pdf') ? 'pdf' : 'image',
-                documentType: 'maintenance',
-                aircraftId: selectedAircraft._id,
-                filename: file.name,
-            }, {
-                onSuccess: (data) => {
-                    setUploadError(null);
-                    refetch();
-                    refetchDocs();
-                    // Step 2: Start parsing in background
-                    if (data?.documentId) {
-                        startParsing.mutate(data.documentId, {
-                            onSuccess: () => {
-                                refetch();
-                                refetchDocs();
-                            },
-                            onError: (err: any) => {
-                                setUploadError(err?.message || 'Failed to start parsing.');
-                            },
-                        });
-                    }
-                },
-                onError: (err: any) => {
-                    setUploadError(err?.message || 'Upload failed. File may be too large.');
-                },
-            });
-        };
-        reader.readAsDataURL(file);
-    };
-
-    const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) handleLogbookUpload(file);
-        e.target.value = '';
-    };
-
-    const handleDrop = (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragging(false);
-        const file = e.dataTransfer.files?.[0];
-        if (file && (file.type.includes('pdf') || file.type.includes('image'))) {
-            handleLogbookUpload(file);
-        }
-    };
-
-    const handleDragOver = (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragging(true);
-    };
-
-    const handleDragLeave = (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragging(false);
-    };
-
-    const handleLinkDoc = (docId: string) => {
-        if (!selectedAircraft) return;
-        linkDoc.mutate({ docId, aircraftId: selectedAircraft._id }, {
-            onSuccess: () => {
-                refetch();
-                refetchDocs();
-            },
-        });
-    };
-
-    const handleUnlinkDoc = (docId: string) => {
-        linkDoc.mutate({ docId, aircraftId: null }, {
-            onSuccess: () => {
-                refetch();
-                refetchDocs();
-            },
-        });
-    };
-
+    // Document linking is now done from the Files page
 
     if (isLoading) return <div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900"></div></div>;
     if (error) return <div className="text-center py-12"><AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" /><p className="text-zinc-600">Failed to load aircraft fleet.</p></div>;
@@ -360,7 +261,7 @@ export default function AircraftPage() {
                                         <div className="flex items-center gap-4 p-4 bg-gradient-to-r from-indigo-50 to-slate-50 rounded-xl border border-indigo-100">
                                             <div className="flex-1">
                                                 <h3 className="text-sm font-bold text-indigo-900 mb-1">Logbook Category</h3>
-                                                <p className="text-xs text-indigo-700/70">Select logbook type to view or upload documents</p>
+                                                <p className="text-xs text-indigo-700/70">Select logbook type to view maintenance history</p>
                                             </div>
                                             <div className="flex gap-2">
                                                 {[
@@ -386,60 +287,22 @@ export default function AircraftPage() {
                                             </div>
                                         </div>
 
-                                        {/* Drop Zone Upload */}
-                                        <div
-                                            onDrop={handleDrop}
-                                            onDragOver={handleDragOver}
-                                            onDragLeave={handleDragLeave}
-                                            className={cn(
-                                                "relative border-2 border-dashed rounded-xl p-8 text-center transition-all cursor-pointer",
-                                                isDragging
-                                                    ? "border-indigo-500 bg-indigo-50 scale-[1.02]"
-                                                    : uploadDocument.isPending || startParsing.isPending
-                                                        ? "border-indigo-300 bg-indigo-50/50"
-                                                        : "border-zinc-300 hover:border-indigo-400 hover:bg-indigo-50/30"
-                                            )}
+                                        {/* Link to Files Page */}
+                                        <Link
+                                            href="/files"
+                                            className="flex items-center justify-between p-4 bg-white border border-zinc-200 rounded-xl hover:border-indigo-300 hover:bg-indigo-50/30 transition-colors group"
                                         >
-                                            <input
-                                                type="file"
-                                                accept="application/pdf,image/*"
-                                                onChange={handleFileInputChange}
-                                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                                disabled={uploadDocument.isPending || startParsing.isPending}
-                                            />
-                                            {uploadDocument.isPending || startParsing.isPending ? (
-                                                <div className="flex flex-col items-center">
-                                                    <Loader2 className="w-12 h-12 text-indigo-500 mb-3 animate-spin" />
-                                                    <p className="font-semibold text-indigo-700">Processing document...</p>
-                                                    <p className="text-sm text-indigo-600 mt-1">This may take a minute for large files</p>
+                                            <div className="flex items-center gap-3">
+                                                <div className="p-2 bg-indigo-100 rounded-lg group-hover:bg-indigo-200 transition-colors">
+                                                    <FileText className="w-5 h-5 text-indigo-600" />
                                                 </div>
-                                            ) : isDragging ? (
-                                                <div className="flex flex-col items-center">
-                                                    <Upload className="w-12 h-12 text-indigo-500 mb-3" />
-                                                    <p className="font-semibold text-indigo-700">Drop file here</p>
+                                                <div>
+                                                    <p className="font-medium text-zinc-900">Upload & Manage Documents</p>
+                                                    <p className="text-sm text-zinc-500">Go to Files to upload maintenance logs and link them to this aircraft</p>
                                                 </div>
-                                            ) : (
-                                                <div className="flex flex-col items-center">
-                                                    <Upload className="w-12 h-12 text-zinc-300 mb-3" />
-                                                    <p className="font-semibold text-zinc-700">Drop maintenance log here</p>
-                                                    <p className="text-sm text-zinc-500 mt-1">or click to browse • PDF or Image (max 50MB)</p>
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        {/* Upload Error Alert */}
-                                        {uploadError && (
-                                            <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-xl">
-                                                <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-                                                <div className="flex-1">
-                                                    <p className="text-sm font-medium text-red-800">Upload Failed</p>
-                                                    <p className="text-sm text-red-600 mt-1">{uploadError}</p>
-                                                </div>
-                                                <button onClick={() => setUploadError(null)} className="text-red-400 hover:text-red-600">
-                                                    <X className="w-4 h-4" />
-                                                </button>
                                             </div>
-                                        )}
+                                            <ExternalLink className="w-5 h-5 text-zinc-400 group-hover:text-indigo-500 transition-colors" />
+                                        </Link>
 
                                         {/* Linked Files */}
                                         {parsedDocs && parsedDocs.filter(d => d.aircraft === selectedAircraft._id).length > 0 && (
@@ -448,7 +311,7 @@ export default function AircraftPage() {
                                                     <Link2 className="w-4 h-4 mr-2" /> Linked Documents
                                                 </h3>
                                                 <div className="grid gap-3">
-                                                    {parsedDocs.filter(d => d.aircraft === selectedAircraft._id).map((doc) => (
+                                                    {parsedDocs.filter(d => d.aircraft === selectedAircraft._id).map((doc: any) => (
                                                         <div
                                                             key={doc._id}
                                                             className={cn(
@@ -474,54 +337,19 @@ export default function AircraftPage() {
                                                                     </p>
                                                                 </div>
                                                             </div>
-                                                            <div className="flex items-center gap-2">
-                                                                <Badge variant={doc.status === 'completed' ? 'success' : doc.status === 'parsing' ? 'warning' : 'secondary'}>
-                                                                    {doc.status === 'parsing' ? (
-                                                                        <span className="flex items-center gap-1">
-                                                                            <Loader2 className="w-3 h-3 animate-spin" />
-                                                                            Parsing
-                                                                        </span>
-                                                                    ) : doc.status}
-                                                                </Badge>
-                                                                {doc.status !== 'parsing' && (
-                                                                    <Button size="sm" variant="ghost" onClick={() => handleUnlinkDoc(doc._id)}>
-                                                                        <Unlink className="w-4 h-4 text-zinc-400" />
-                                                                    </Button>
-                                                                )}
-                                                            </div>
+                                                            <Badge variant={doc.status === 'completed' ? 'success' : doc.status === 'parsing' ? 'warning' : 'secondary'}>
+                                                                {doc.status === 'parsing' ? (
+                                                                    <span className="flex items-center gap-1">
+                                                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                                                        Parsing
+                                                                    </span>
+                                                                ) : doc.status}
+                                                            </Badge>
                                                         </div>
                                                     ))}
                                                 </div>
                                             </div>
                                         )}
-
-                                        {/* Available Files to Link */}
-                                        {parsedDocs && parsedDocs.filter(d => !d.aircraft && d.status === 'completed').length > 0 && (
-                                            <div className="space-y-3">
-                                                <h3 className="text-sm font-semibold text-zinc-900 flex items-center">
-                                                    <FileText className="w-4 h-4 mr-2" /> Available to Link
-                                                </h3>
-                                                <div className="grid gap-2">
-                                                    {parsedDocs.filter(d => !d.aircraft && d.status === 'completed').map((doc) => (
-                                                        <div key={doc._id} className="bg-white border border-zinc-200 rounded-lg p-3 flex items-center justify-between hover:border-indigo-200 transition-colors">
-                                                            <div className="flex items-center gap-3">
-                                                                <FileText className="w-5 h-5 text-zinc-400" />
-                                                                <div>
-                                                                    <p className="text-sm font-medium text-zinc-900">{doc.filename}</p>
-                                                                    <p className="text-xs text-zinc-500">
-                                                                        {doc.summary?.totalEntries || 0} entries • Uploaded {new Date(doc.uploadedAt).toLocaleDateString()}
-                                                                    </p>
-                                                                </div>
-                                                            </div>
-                                                            <Button size="sm" variant="outline" onClick={() => handleLinkDoc(doc._id)}>
-                                                                <Link2 className="w-4 h-4 mr-1" /> Link
-                                                            </Button>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        )}
-
 
                                         {/* Category-specific Log Entries */}
                                         <div className="space-y-4">

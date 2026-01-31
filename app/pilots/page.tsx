@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { User, Plus, Clock, X, Shield, AlertTriangle, CheckCircle, Plane, Upload, Trash2, Loader2, FileText, Target, TrendingUp, RefreshCw, Search, ChevronDown, ChevronUp, Wrench, Book, Sparkles, Microscope } from 'lucide-react';
-import { usePilots, useCreatePilot, useAircraft, useCreateFlight, useDeletePilot, useParseDocument, useParsedDocuments, useApplyLogbook, useUpdatePilot } from '@/lib/hooks';
+import { usePilots, useCreatePilot, useAircraft, useCreateFlight, useDeletePilot, useParseDocument, useParsedDocuments, useApplyLogbook, useUpdatePilot, usePilotById, useAircraftById } from '@/lib/hooks';
 import type { Pilot, Aircraft } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -22,7 +22,12 @@ export default function PilotsPage() {
   const { data: parsedDocs = [], refetch: refetchDocs } = useParsedDocuments();
   const applyLogbook = useApplyLogbook();
 
-  const [selectedPilot, setSelectedPilot] = useState<Pilot | null>(null);
+  const [selectedPilotId, setSelectedPilotId] = useState<string | null>(null);
+  const { data: fullPilotData } = usePilotById(selectedPilotId || '');
+
+  // Merge: prefer full data, fallback to basic list data for instant UI feedback
+  const selectedPilot = (fullPilotData || pilots?.find((p: Pilot) => p._id === selectedPilotId)) as Pilot | null;
+
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showPlanFlightModal, setShowPlanFlightModal] = useState(false);
@@ -119,12 +124,8 @@ export default function PilotsPage() {
         filename: file.name,
       }, {
         onSuccess: async () => {
-          const result = await refetch();
-          // Update selectedPilot with refreshed data
-          if (result.data && selectedPilot) {
-            const updated = result.data.find((p: Pilot) => p._id === selectedPilot._id);
-            if (updated) setSelectedPilot(updated);
-          }
+          await refetch();
+          // Full pilot data will be refetched by usePilotById hook automatically if its query key is invalidated
         },
       });
     };
@@ -232,7 +233,7 @@ export default function PilotsPage() {
               return (
                 <div
                   key={pilot._id}
-                  onClick={() => { setSelectedPilot(pilot); setActiveTab('overview'); setSafetyData(null); }}
+                  onClick={() => { setSelectedPilotId(pilot._id); setActiveTab('overview'); setSafetyData(null); }}
                   className={cn(
                     "group flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all border border-transparent",
                     isSelected ? "bg-blue-50 border-blue-200 shadow-sm" : "hover:bg-zinc-50 hover:border-zinc-200"
@@ -286,7 +287,7 @@ export default function PilotsPage() {
                   <Button size="sm" variant="ghost" className="h-9 w-9 p-0" onClick={() => setShowDeleteModal(true)}>
                     <Trash2 className="w-4 h-4 text-zinc-400 hover:text-red-500" />
                   </Button>
-                  <Button size="sm" variant="ghost" className="h-9 w-9 p-0" onClick={() => setSelectedPilot(null)}>
+                  <Button size="sm" variant="ghost" className="h-9 w-9 p-0" onClick={() => setSelectedPilotId(null)}>
                     <X className="w-4 h-4 text-zinc-400" />
                   </Button>
                 </div>
@@ -476,11 +477,7 @@ export default function PilotsPage() {
                                           documentId: doc._id,
                                           action: 'remove'
                                         });
-                                        const result = await refetch();
-                                        if (result.data) {
-                                          const updated = result.data.find((p: Pilot) => p._id === selectedPilot._id);
-                                          if (updated) setSelectedPilot(updated);
-                                        }
+                                        await refetch();
                                         refetchDocs();
                                       }}
                                       disabled={applyLogbook.isPending}
@@ -566,10 +563,25 @@ export default function PilotsPage() {
                         <h3 className="text-xl font-bold text-zinc-900 flex items-center gap-2">
                           <Sparkles className="w-5 h-5 text-indigo-600" />
                           AI Safety Intelligence
+                          <span className="text-xs font-normal text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">Gemini Pro 3</span>
                         </h3>
                         <p className="text-zinc-500 mt-1 max-w-2xl">
                           Autonomous analysis of flight patterns, weather exposure, and logbook integrity.
                         </p>
+                        {/* Last Analyzed Timestamp */}
+                        {selectedPilot?.safetyAnalysis?.lastAnalyzed && (
+                          <div className="flex items-center gap-2 mt-2 text-xs text-zinc-500">
+                            <Clock className="w-3 h-3" />
+                            <span>Last analyzed: {new Date(selectedPilot.safetyAnalysis.lastAnalyzed).toLocaleString()}</span>
+                            {(() => {
+                              const hoursSince = Math.floor((Date.now() - new Date(selectedPilot.safetyAnalysis.lastAnalyzed).getTime()) / (1000 * 60 * 60));
+                              if (hoursSince > 168) { // 7 days
+                                return <span className="text-amber-600 font-medium">(Analysis may be stale)</span>;
+                              }
+                              return null;
+                            })()}
+                          </div>
+                        )}
                       </div>
 
                       {/* Overall Score */}
@@ -616,14 +628,32 @@ export default function PilotsPage() {
                             {aiAnalysis.risk_factors.map((factor, i) => renderRiskCard(factor, i))}
                           </div>
 
-                          <div className="flex justify-end pt-2">
+                          <div className="flex items-center justify-between pt-2 border-t border-zinc-100 mt-4">
+                            <div className="text-xs text-zinc-500">
+                              {selectedPilot?.safetyAnalysis?.lastAnalyzed ? (
+                                <span className="flex items-center gap-1">
+                                  <CheckCircle className="w-3 h-3 text-emerald-500" />
+                                  Analysis saved to database
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-1">
+                                  <AlertTriangle className="w-3 h-3 text-amber-500" />
+                                  Analysis not yet persisted
+                                </span>
+                              )}
+                            </div>
                             <Button
                               onClick={() => selectedPilot && handleRunAIAnalysis(selectedPilot._id as string)}
                               variant="outline"
                               size="sm"
+                              disabled={analyzingAI}
                               className="text-zinc-500 hover:text-indigo-600 hover:bg-indigo-50 hover:border-indigo-200"
                             >
-                              <RefreshCw className="w-3.5 h-3.5 mr-2" />
+                              {analyzingAI ? (
+                                <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+                              ) : (
+                                <RefreshCw className="w-3.5 h-3.5 mr-2" />
+                              )}
                               Re-run Analysis
                             </Button>
                           </div>
@@ -791,7 +821,7 @@ export default function PilotsPage() {
 
       {showAddModal && <AddPilotModal onClose={() => setShowAddModal(false)} onCreate={(data) => createPilot.mutate(data, { onSuccess: () => setShowAddModal(false) })} isLoading={createPilot.isPending} />}
       {showPlanFlightModal && selectedPilot && aircraft && <PlanFlightModal onClose={() => setShowPlanFlightModal(false)} pilot={selectedPilot} aircraft={aircraft} onSubmit={(data) => createFlight.mutate(data, { onSuccess: () => setShowPlanFlightModal(false) })} isLoading={createFlight.isPending} />}
-      {showDeleteModal && selectedPilot && <DeleteConfirmModal pilot={selectedPilot} onClose={() => setShowDeleteModal(false)} onDelete={() => deletePilot.mutate(selectedPilot._id, { onSuccess: () => { setShowDeleteModal(false); setSelectedPilot(null); } })} isLoading={deletePilot.isPending} />}
+      {showDeleteModal && selectedPilot && <DeleteConfirmModal pilot={selectedPilot} onClose={() => setShowDeleteModal(false)} onDelete={() => deletePilot.mutate(selectedPilot._id, { onSuccess: () => { setShowDeleteModal(false); setSelectedPilotId(null); } })} isLoading={deletePilot.isPending} />}
 
       {/* Add Document Modal */}
       {
@@ -800,11 +830,7 @@ export default function PilotsPage() {
             pilot={selectedPilot}
             onClose={() => setShowAddDocModal(false)}
             onPilotUpdate={async () => {
-              const res = await refetch();
-              if (res.data) {
-                const updated = res.data.find((p: Pilot) => p._id === selectedPilot._id);
-                if (updated) setSelectedPilot(updated);
-              }
+              await refetch();
             }}
           />
         )

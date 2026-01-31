@@ -6,7 +6,7 @@ import { parseDocument, aggregateLogbookHours } from '@/lib/services/reductoServ
 export async function GET() {
   try {
     await dbConnect();
-    const pilots = await Pilot.find().sort({ name: 1 });
+    const pilots = await Pilot.find().select('-flightEntries -linkedDocuments').sort({ name: 1 });
     return NextResponse.json({ success: true, data: pilots });
   } catch (error) {
     return NextResponse.json(

@@ -1,9 +1,27 @@
 // Aircraft Types
+export type LogbookCategory = 'engine' | 'airframe' | 'propeller' | 'avionics';
+
 export interface MaintenanceDates {
   annual: Date | string;
   transponder: Date | string;
   staticSystem: Date | string;
   hundredHour?: Date | string;
+}
+
+export interface AirworthinessStatus {
+  annual?: Date | string;
+  transponder?: Date | string;
+  altimeter?: Date | string;
+  staticSystem?: Date | string;
+  vor?: Date | string;
+  elt?: Date | string;
+  hundredHour?: Date | string;
+}
+
+export interface MELItem {
+  item: string;
+  required: boolean;
+  remarks?: string;
 }
 
 export interface CurrentHours {
@@ -18,6 +36,7 @@ export interface LogEntry {
   tachTime: number;
   mechanic?: string;
   rawText?: string;
+  category?: LogbookCategory;
 }
 
 export interface Aircraft {
@@ -30,25 +49,27 @@ export interface Aircraft {
   imageUrl?: string;
   pohUrl?: string;
   operatingLimits?: {
-    vSpeeds: {
-      vso: number;
-      vs1: number;
-      vr: number;
-      vx: number;
-      vy: number;
-      vfe: number;
-      va: number;
-      vno: number;
-      vne: number;
+    vSpeeds?: {
+      vso?: number;
+      vs1?: number;
+      vr?: number;
+      vx?: number;
+      vy?: number;
+      vfe?: number;
+      va?: number;
+      vno?: number;
+      vne?: number;
     };
-    weights: {
-      maxGross: number;
-      empty: number;
-      usefulLoad: number;
-      fuelCapacity: number;
+    weights?: {
+      maxGross?: number;
+      empty?: number;
+      usefulLoad?: number;
+      fuelCapacity?: number;
     };
   };
   maintenanceDates: MaintenanceDates;
+  airworthinessStatus?: AirworthinessStatus;
+  mel?: MELItem[];
   currentHours: CurrentHours;
   safetyAnalysis?: {
     lastAnalyzed: Date | string;
@@ -61,9 +82,20 @@ export interface Aircraft {
     }[];
   };
   logs: LogEntry[];
+  logbooks?: {
+    engine: LogEntry[];
+    airframe: LogEntry[];
+    propeller: LogEntry[];
+    avionics: LogEntry[];
+  };
   owner?: {
     name: string;
     email: string;
+  };
+  scrapedData?: {
+    lastScraped: Date | string;
+    source: string;
+    rawData?: any;
   };
   createdAt: Date | string;
   updatedAt: Date | string;

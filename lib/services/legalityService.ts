@@ -498,15 +498,88 @@ function calculateRiskScenarios(aircraft: IAircraft, pilot: IPilot, weather: IWe
         });
     }
 
-    // AI Safety Analysis Integration
+    // ============================================
+    // AI SAFETY ANALYSIS INTEGRATION - PILOT
+    // ============================================
     if (pilot.safetyAnalysis && pilot.safetyAnalysis.score > 5) {
         const aiScore = pilot.safetyAnalysis.score;
+
+        // Extract specific high-risk findings from AI analysis
+        const highRiskFindings = pilot.safetyAnalysis.findings?.filter(
+            (f: any) => f.riskLevel === 'high'
+        ) || [];
+
+        const findingsSummary = highRiskFindings.length > 0
+            ? ` Key concerns: ${highRiskFindings.map((f: any) => f.category).join(', ')}.`
+            : '';
+
         scenarios.push({
-            title: 'Historical Safety Risk',
-            probability: aiScore * 5,
-            severity: aiScore > 8 ? 'critical' : 'high',
-            description: `AI Safety Analysis historically scores this pilot at ${aiScore}/10 risk level.`
+            title: 'AI Pilot Risk Assessment',
+            probability: Math.min(aiScore * 8, 80),
+            severity: aiScore > 8 ? 'critical' : aiScore > 6 ? 'high' : 'medium',
+            description: `Gemini Pro 3 analysis scores this pilot at ${aiScore}/10 risk level.${findingsSummary} Last analyzed: ${pilot.safetyAnalysis.lastAnalyzed ? new Date(pilot.safetyAnalysis.lastAnalyzed).toLocaleDateString() : 'Unknown'}.`
         });
+
+        // If pilot has critical findings, add individual risk scenarios
+        highRiskFindings.forEach((finding: any) => {
+            scenarios.push({
+                title: `Pilot: ${finding.category}`,
+                probability: 40,
+                severity: 'high',
+                description: finding.message
+            });
+        });
+    }
+
+    // ============================================
+    // AI SAFETY ANALYSIS INTEGRATION - AIRCRAFT
+    // ============================================
+    if (aircraft.safetyAnalysis && aircraft.safetyAnalysis.findings) {
+        const criticalFindings = aircraft.safetyAnalysis.findings.filter(
+            (f: any) => f.status === 'critical'
+        );
+        const warningFindings = aircraft.safetyAnalysis.findings.filter(
+            (f: any) => f.status === 'warning'
+        );
+
+        // Add critical mechanical integrity scenarios
+        if (criticalFindings.length > 0) {
+            scenarios.push({
+                title: 'Mechanical Integrity - Critical',
+                probability: 60,
+                severity: 'critical',
+                description: `AI maintenance analysis detected ${criticalFindings.length} critical issue(s): ${criticalFindings.map((f: any) => f.component).join(', ')}. Aircraft may not be airworthy.`
+            });
+
+            criticalFindings.forEach((finding: any) => {
+                scenarios.push({
+                    title: `Component: ${finding.component}`,
+                    probability: 50,
+                    severity: 'critical',
+                    description: finding.message
+                });
+            });
+        }
+
+        // Add warning-level mechanical scenarios
+        if (warningFindings.length > 0) {
+            scenarios.push({
+                title: 'Mechanical Integrity - Caution',
+                probability: 30,
+                severity: 'high',
+                description: `AI maintenance analysis flagged ${warningFindings.length} warning(s): ${warningFindings.map((f: any) => f.component).join(', ')}. Verify maintenance status.`
+            });
+        }
+
+        // Add overall aircraft safety score if low
+        if (aircraft.safetyAnalysis.score < 7) {
+            scenarios.push({
+                title: 'Low Aircraft Safety Score',
+                probability: Math.round((10 - aircraft.safetyAnalysis.score) * 8),
+                severity: aircraft.safetyAnalysis.score < 5 ? 'critical' : 'high',
+                description: `Aircraft safety score is ${aircraft.safetyAnalysis.score}/10. Multiple maintenance items may require attention. Last analysis: ${new Date(aircraft.safetyAnalysis.lastAnalyzed).toLocaleDateString()}.`
+            });
+        }
     }
 
     if (isStudent || totalHours < 100) {
@@ -533,6 +606,22 @@ function calculateRiskScenarios(aircraft: IAircraft, pilot: IPilot, weather: IWe
         severity: engineRisk > 5 ? 'medium' : 'low',
         description: `${engineRisk}% risk based on TBO position. ${engineHours.toFixed(0)} hrs since major overhaul.`
     });
+
+    // ============================================
+    // COMBINED AI RISK - HIGH-RISK PILOT + AIRCRAFT WARNINGS
+    // ============================================
+    const hasPilotRisk = pilot.safetyAnalysis && pilot.safetyAnalysis.score > 7;
+    const hasAircraftRisk = aircraft.safetyAnalysis &&
+        aircraft.safetyAnalysis.findings?.some((f: any) => f.status === 'warning' || f.status === 'critical');
+
+    if (hasPilotRisk && hasAircraftRisk) {
+        scenarios.push({
+            title: 'Combined AI Risk Factor',
+            probability: 70,
+            severity: 'critical',
+            description: `CRITICAL: Both pilot (score: ${pilot.safetyAnalysis?.score}/10) and aircraft have AI-flagged concerns. This combination significantly elevates mission risk. Consider alternative crew/aircraft pairing.`
+        });
+    }
 
     return scenarios.sort((a, b) => {
         const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };

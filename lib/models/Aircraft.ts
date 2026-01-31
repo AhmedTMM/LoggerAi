@@ -1,5 +1,7 @@
 import mongoose, { Schema, Model } from 'mongoose';
 
+export type LogbookCategory = 'engine' | 'airframe' | 'propeller' | 'avionics';
+
 export interface ILogEntry {
   date: Date;
   description: string;
@@ -7,6 +9,23 @@ export interface ILogEntry {
   tachTime: number;
   mechanic?: string;
   rawText?: string;
+  category?: LogbookCategory;
+}
+
+export interface IAirworthinessStatus {
+  annual?: Date;
+  transponder?: Date;
+  altimeter?: Date;
+  staticSystem?: Date;
+  vor?: Date;
+  elt?: Date;
+  hundredHour?: Date;
+}
+
+export interface IMELItem {
+  item: string;
+  required: boolean;
+  remarks?: string;
 }
 
 export interface IAircraft {
@@ -43,6 +62,8 @@ export interface IAircraft {
     staticSystem: Date;
     hundredHour?: Date;
   };
+  airworthinessStatus?: IAirworthinessStatus;
+  mel?: IMELItem[];
   currentHours: {
     hobbs: number;
     tach: number;
@@ -59,9 +80,20 @@ export interface IAircraft {
   };
   linkedDocuments?: mongoose.Types.ObjectId[];
   logs: ILogEntry[];
+  logbooks?: {
+    engine: ILogEntry[];
+    airframe: ILogEntry[];
+    propeller: ILogEntry[];
+    avionics: ILogEntry[];
+  };
   owner?: {
     name: string;
     email: string;
+  };
+  scrapedData?: {
+    lastScraped: Date;
+    source: string;
+    rawData?: any;
   };
   createdAt: Date;
   updatedAt: Date;
@@ -74,7 +106,14 @@ const LogEntrySchema = new Schema<ILogEntry>({
   tachTime: { type: Number, required: true },
   mechanic: { type: String },
   rawText: { type: String },
+  category: { type: String, enum: ['engine', 'airframe', 'propeller', 'avionics'] },
 });
+
+const MELItemSchema = new Schema({
+  item: { type: String, required: true },
+  required: { type: Boolean, default: true },
+  remarks: { type: String },
+}, { _id: false });
 
 const AircraftSchema = new Schema<IAircraft>(
   {
@@ -99,6 +138,7 @@ const AircraftSchema = new Schema<IAircraft>(
       type: String,
       required: true,
       trim: true,
+      index: true,
     },
     year: {
       type: Number,
@@ -135,6 +175,16 @@ const AircraftSchema = new Schema<IAircraft>(
       staticSystem: { type: Date, required: true },
       hundredHour: { type: Date },
     },
+    airworthinessStatus: {
+      annual: { type: Date },
+      transponder: { type: Date },
+      altimeter: { type: Date },
+      staticSystem: { type: Date },
+      vor: { type: Date },
+      elt: { type: Date },
+      hundredHour: { type: Date },
+    },
+    mel: [MELItemSchema],
     currentHours: {
       hobbs: { type: Number, required: true, default: 0 },
       tach: { type: Number, required: true, default: 0 },
@@ -151,9 +201,20 @@ const AircraftSchema = new Schema<IAircraft>(
     },
     linkedDocuments: [{ type: Schema.Types.ObjectId, ref: 'ParsedDocument' }],
     logs: [LogEntrySchema],
+    logbooks: {
+      engine: [LogEntrySchema],
+      airframe: [LogEntrySchema],
+      propeller: [LogEntrySchema],
+      avionics: [LogEntrySchema],
+    },
     owner: {
       name: { type: String },
       email: { type: String },
+    },
+    scrapedData: {
+      lastScraped: { type: Date },
+      source: { type: String },
+      rawData: { type: Schema.Types.Mixed },
     },
   },
   {

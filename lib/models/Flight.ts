@@ -85,15 +85,18 @@ const FlightSchema = new Schema<IFlight>(
       type: Schema.Types.ObjectId,
       ref: 'Pilot',
       required: true,
+      index: true,
     },
     aircraft: {
       type: Schema.Types.ObjectId,
       ref: 'Aircraft',
       required: true,
+      index: true,
     },
     scheduledDate: {
       type: Date,
       required: true,
+      index: true,
     },
     scheduledTime: {
       type: Date,
@@ -116,6 +119,7 @@ const FlightSchema = new Schema<IFlight>(
       type: String,
       enum: ['planned', 'go', 'caution', 'no-go', 'completed', 'cancelled'],
       default: 'planned',
+      index: true,
     },
     legalityChecks: [LegalityCheckSchema],
     overallStatus: {

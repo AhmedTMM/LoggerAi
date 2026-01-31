@@ -1,7 +1,7 @@
 {
-  "/pilots/page": "app/pilots/page.js",
   "/files/page": "app/files/page.js",
-  "/flights/page": "app/flights/page.js",
+  "/page": "app/page.js",
   "/aircraft/page": "app/aircraft/page.js",
-  "/page": "app/page.js"
+  "/pilots/page": "app/pilots/page.js",
+  "/flights/page": "app/flights/page.js"
 }

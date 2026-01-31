@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
     await dbConnect();
-    const aircraft = await Aircraft.find().sort({ tailNumber: 1 });
+    const aircraft = await Aircraft.find().select('-logs -linkedDocuments').sort({ tailNumber: 1 });
     return NextResponse.json({ success: true, data: aircraft });
   } catch (error) {
     return NextResponse.json(

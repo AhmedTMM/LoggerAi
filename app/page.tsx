@@ -1,9 +1,8 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
 import { Plane, Users, Calendar, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
-import { aircraftApi, pilotApi, flightApi } from '@/lib/api';
+import { useAircraft, usePilots, useFlights } from '@/lib/hooks';
 
 function StatCard({
   label,
@@ -39,20 +38,11 @@ function StatCard({
 }
 
 export default function Dashboard() {
-  const { data: aircraft = [] } = useQuery({
-    queryKey: ['aircraft'],
-    queryFn: aircraftApi.getAll,
-  });
+  const { data: aircraft = [] } = useAircraft();
 
-  const { data: pilots = [] } = useQuery({
-    queryKey: ['pilots'],
-    queryFn: pilotApi.getAll,
-  });
+  const { data: pilots = [] } = usePilots();
 
-  const { data: flights = [] } = useQuery({
-    queryKey: ['flights'],
-    queryFn: () => flightApi.getAll(),
-  });
+  const { data: flights = [] } = useFlights();
 
   const upcomingFlights = flights.filter(
     (f: any) => new Date(f.scheduledDate) > new Date() && f.status !== 'cancelled'

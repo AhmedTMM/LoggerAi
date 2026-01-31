@@ -132,6 +132,7 @@ const PilotSchema = new Schema<IPilot>(
       type: String,
       required: true,
       trim: true,
+      index: true,
     },
     email: {
       type: String,

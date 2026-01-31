@@ -322,7 +322,10 @@ export async function POST(request: NextRequest) {
 
           // Update aircraft from maintenance docs
           if (aircraftId && ['aircraft_logbook', 'maintenance', 'inspection'].includes(documentType) && entries.length > 0) {
+            console.log(`[Smart-Upload] Updating aircraft ${aircraftId} with ${entries.length} entries (docType: ${documentType})`);
             await updateAircraftFromEntries(aircraftId, entries, categoryFromFilename || undefined);
+          } else {
+            console.log(`[Smart-Upload] Skipping aircraft update: aircraftId=${aircraftId}, docType=${documentType}, entries=${entries.length}`);
           }
 
           // Run audit if we have both pilot and aircraft
@@ -488,8 +491,12 @@ async function updateAircraftFromEntries(
   entries: any[],
   filenameCategory?: LogbookCategory
 ) {
+  console.log(`[updateAircraftFromEntries] Starting update for aircraft ${aircraftId} with ${entries.length} entries`);
   const aircraft = await Aircraft.findById(aircraftId);
-  if (!aircraft) return;
+  if (!aircraft) {
+    console.log(`[updateAircraftFromEntries] Aircraft ${aircraftId} not found!`);
+    return;
+  }
 
   // Extract maintenance info
   let latestAnnual: Date | null = null;
@@ -505,6 +512,27 @@ async function updateAircraftFromEntries(
     const desc = (entry.description || '').toLowerCase();
 
     if (entryDate && !isNaN(entryDate.getTime())) {
+      // Check structured fields first (from parser)
+      if (entry.isInspection && entry.inspectionType) {
+        const inspType = entry.inspectionType.toLowerCase();
+        if (inspType === 'annual' || inspType.includes('annual')) {
+          if (!latestAnnual || entryDate > latestAnnual) latestAnnual = entryDate;
+        }
+        if (inspType === '100hour' || inspType.includes('100')) {
+          if (!latestHundredHour || entryDate > latestHundredHour) latestHundredHour = entryDate;
+        }
+        if (inspType === 'transponder' || inspType.includes('transponder')) {
+          if (!latestTransponder || entryDate > latestTransponder) latestTransponder = entryDate;
+        }
+        if (inspType === 'static' || inspType.includes('static') || inspType.includes('altimeter')) {
+          if (!latestStatic || entryDate > latestStatic) latestStatic = entryDate;
+        }
+        if (inspType === 'elt' || inspType.includes('elt')) {
+          if (!latestElt || entryDate > latestElt) latestElt = entryDate;
+        }
+      }
+
+      // Fall back to description text parsing
       if (desc.includes('annual') && !desc.includes('100')) {
         if (!latestAnnual || entryDate > latestAnnual) latestAnnual = entryDate;
       }
@@ -525,6 +553,17 @@ async function updateAircraftFromEntries(
     if (entry.hobbsTime && entry.hobbsTime > maxHobbs) maxHobbs = entry.hobbsTime;
     if (entry.tachTime && entry.tachTime > maxTach) maxTach = entry.tachTime;
   }
+
+  // Log detected maintenance dates
+  console.log(`[Maintenance] Detected dates for ${aircraft.tailNumber}:`, {
+    annual: latestAnnual,
+    transponder: latestTransponder,
+    static: latestStatic,
+    hundredHour: latestHundredHour,
+    elt: latestElt,
+    maxHobbs,
+    maxTach,
+  });
 
   // Update maintenance dates
   if (latestAnnual) aircraft.maintenanceDates.annual = latestAnnual;
@@ -584,5 +623,20 @@ async function updateAircraftFromEntries(
     console.log(`[Maintenance] Saved ${newLogs.length} entries to aircraft ${aircraft.tailNumber} (${filenameCategory || 'auto-categorized'})`);
   }
 
-  await aircraft.save();
+  // Save the updated aircraft
+  try {
+    await aircraft.save();
+    console.log(`[updateAircraftFromEntries] Successfully saved aircraft ${aircraft.tailNumber}`);
+    console.log(`[updateAircraftFromEntries] Final dates:`, {
+      annual: aircraft.maintenanceDates.annual,
+      transponder: aircraft.maintenanceDates.transponder,
+      staticSystem: aircraft.maintenanceDates.staticSystem,
+      hundredHour: aircraft.maintenanceDates.hundredHour,
+      hobbs: aircraft.currentHours.hobbs,
+      tach: aircraft.currentHours.tach,
+    });
+  } catch (saveError) {
+    console.error(`[updateAircraftFromEntries] Error saving aircraft ${aircraft.tailNumber}:`, saveError);
+    throw saveError;
+  }
 }

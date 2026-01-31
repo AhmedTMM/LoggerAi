@@ -187,6 +187,24 @@ export const documentApi = {
   },
 };
 
+// Pilot Profile Generation API
+export const profileApi = {
+  generateFromLogbook: async (params: {
+    fileBase64: string;
+    fileType: 'pdf' | 'image';
+    name?: string;
+    email?: string;
+    filename?: string;
+    createPilot?: boolean;
+  }): Promise<any> => {
+    const data = await fetchAPI<any>('/pilots/generate-profile', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+    return data;
+  },
+};
+
 // Parsed Document Management API
 export const parsedDocumentApi = {
   getAll: async (params?: { aircraftId?: string; documentType?: string }): Promise<any[]> => {

@@ -3,6 +3,63 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 // Gemini Pro 3 Preview - Latest model for all safety analysis
 const GEMINI_MODEL = 'gemini-3-pro-preview';
 
+interface LogbookEntry {
+    date: string;
+    aircraftIdent: string;
+    aircraftType?: string;
+    from: string;
+    to: string;
+    totalTime: number;
+    pic?: number;
+    sic?: number;
+    solo?: number;
+    dualReceived?: number;
+    dualGiven?: number;
+    crossCountry?: number;
+    night?: number;
+    actualInstrument?: number;
+    simulatedInstrument?: number;
+    sel?: number;
+    mel?: number;
+    landingsDay?: number;
+    landingsNight?: number;
+    remarks?: string;
+}
+
+interface GeneratedPilotProfile {
+    name: string;
+    email: string;
+    certificates: {
+        type: 'Student' | 'PPL' | 'CPL' | 'ATP' | 'Sport';
+        instrumentRated: boolean;
+        multiEngineRated: boolean;
+    };
+    endorsements: {
+        type: 'High Performance' | 'Complex' | 'Tailwheel' | 'High Altitude';
+        date: string;
+        instructor: string;
+    }[];
+    experience: {
+        totalHours: number;
+        picHours: number;
+        nightHours: number;
+        ifrHours: number;
+        crossCountryHours: number;
+        last90DaysHours: number;
+        last30DaysHours: number;
+    };
+    medicalExpiration: string;
+    flightReviewExpiration: string;
+    flightEntries: LogbookEntry[];
+    profileAnalysis: {
+        pilotCategory: string;
+        strengthAreas: string[];
+        developmentAreas: string[];
+        recommendations: string[];
+        experienceSummary: string;
+    };
+}
+
 interface PilotData {
     name: string;
     experience: any;
@@ -211,5 +268,263 @@ Analyze this maintenance history and identify any safety concerns.`;
     } catch (error) {
         console.error("Aircraft AI Analysis Error:", error);
         throw new Error("Failed to generate aircraft safety analysis");
+    }
+}
+
+/**
+ * Generate a complete pilot profile from logbook data using Gemini 3 Pro Preview
+ * Analyzes flight entries to infer missing profile information like certifications,
+ * ratings, endorsements, and provides experience analysis
+ */
+export async function generatePilotProfile(
+    flightEntries: LogbookEntry[],
+    partialData?: {
+        name?: string;
+        email?: string;
+    }
+): Promise<GeneratedPilotProfile> {
+    // Calculate raw experience totals from logbook entries
+    const calculatedExperience = {
+        totalHours: 0,
+        picHours: 0,
+        nightHours: 0,
+        ifrHours: 0,
+        crossCountryHours: 0,
+        last90DaysHours: 0,
+        last30DaysHours: 0,
+        selHours: 0,
+        melHours: 0,
+        dualReceivedHours: 0,
+        dualGivenHours: 0,
+        soloHours: 0,
+    };
+
+    const now = new Date();
+    const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    // Sort entries by date
+    const sortedEntries = [...flightEntries].sort(
+        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+
+    // Calculate totals
+    for (const entry of flightEntries) {
+        calculatedExperience.totalHours += entry.totalTime || 0;
+        calculatedExperience.picHours += entry.pic || 0;
+        calculatedExperience.nightHours += entry.night || 0;
+        calculatedExperience.ifrHours += (entry.actualInstrument || 0) + (entry.simulatedInstrument || 0);
+        calculatedExperience.crossCountryHours += entry.crossCountry || 0;
+        calculatedExperience.selHours += entry.sel || 0;
+        calculatedExperience.melHours += entry.mel || 0;
+        calculatedExperience.dualReceivedHours += entry.dualReceived || 0;
+        calculatedExperience.dualGivenHours += entry.dualGiven || 0;
+        calculatedExperience.soloHours += entry.solo || 0;
+
+        const entryDate = new Date(entry.date);
+        if (entryDate >= ninetyDaysAgo) {
+            calculatedExperience.last90DaysHours += entry.totalTime || 0;
+        }
+        if (entryDate >= thirtyDaysAgo) {
+            calculatedExperience.last30DaysHours += entry.totalTime || 0;
+        }
+    }
+
+    // Get unique aircraft types and airports
+    const aircraftTypes = Array.from(new Set(flightEntries.map(e => e.aircraftType).filter(Boolean)));
+    const aircraftIdents = Array.from(new Set(flightEntries.map(e => e.aircraftIdent).filter(Boolean)));
+    const airports = Array.from(new Set([
+        ...flightEntries.map(e => e.from),
+        ...flightEntries.map(e => e.to)
+    ].filter(Boolean)));
+
+    // Extract remarks for analysis
+    const remarksWithDates = flightEntries
+        .filter(e => e.remarks && e.remarks.trim().length > 0)
+        .map(e => ({ date: e.date, remarks: e.remarks }))
+        .slice(-50); // Last 50 remarks
+
+    // Get first and last flight dates
+    const firstFlight = sortedEntries[0]?.date || 'Unknown';
+    const lastFlight = sortedEntries[sortedEntries.length - 1]?.date || 'Unknown';
+
+    const systemInstruction = `You are an experienced Chief Flight Instructor and DPE (Designated Pilot Examiner) analyzing a pilot's logbook to build their complete profile.
+
+Your task is to infer missing information about the pilot based on their flight history, experience patterns, and logbook remarks. Use your deep knowledge of FAA regulations, certificate requirements, and typical pilot progression.
+
+ANALYSIS GUIDELINES:
+1. **Certificate Type**: Infer from hours, PIC time, dual given (CFI indicator), ATP minimums
+   - Student: < 40 hrs or all dual received
+   - PPL: 40-250 hrs, has PIC time
+   - CPL: 250+ hrs, significant PIC
+   - ATP: 1500+ hrs or airline-pattern operations
+   - Sport: If only light sport aircraft
+
+2. **Instrument Rating**: Look for IFR hours, actual/simulated instrument time, IFR remarks
+
+3. **Multi-Engine**: Check for MEL hours or multi-engine aircraft types
+
+4. **Endorsements**: Infer from aircraft types and remarks
+   - High Performance: 200+ HP aircraft (Bonanza, Cirrus SR22, etc.)
+   - Complex: Retractable gear, constant speed prop
+   - Tailwheel: Aircraft like Cubs, Citabrias, etc.
+   - High Altitude: Pressurized aircraft, FL180+ operations
+
+5. **Medical/Flight Review**: Estimate based on recency of flight activity
+   - Medical: Active pilot likely has current medical (assume 1 year out)
+   - Flight Review: If flying regularly, assume current (assume 2 years out)
+
+6. **Profile Analysis**: Provide insights on their flying patterns, strengths, and areas for improvement
+
+Output VALID JSON only (no markdown formatting):
+{
+  "inferredName": "string or null if cannot determine",
+  "inferredEmail": "string or null (suggest format based on name)",
+  "certificates": {
+    "type": "Student" | "PPL" | "CPL" | "ATP" | "Sport",
+    "instrumentRated": boolean,
+    "multiEngineRated": boolean
+  },
+  "endorsements": [
+    { "type": "High Performance" | "Complex" | "Tailwheel" | "High Altitude", "reasoning": "why inferred" }
+  ],
+  "medicalExpirationEstimate": "ISO date string (estimate 12 months from now if active)",
+  "flightReviewExpirationEstimate": "ISO date string (estimate 24 months from now if active)",
+  "profileAnalysis": {
+    "pilotCategory": "string (e.g. 'Weekend Warrior', 'Career-Track', 'Flight Instructor', 'Active Private')",
+    "strengthAreas": ["array of 2-4 strength areas"],
+    "developmentAreas": ["array of 2-4 areas needing attention"],
+    "recommendations": ["array of 2-4 specific recommendations"],
+    "experienceSummary": "2-3 sentence summary of the pilot's experience and typical flying"
+  },
+  "confidence": {
+    "certificateConfidence": "high" | "medium" | "low",
+    "ratingsConfidence": "high" | "medium" | "low",
+    "reasoning": "brief explanation of inference confidence"
+  }
+}`;
+
+    const userPrompt = `
+PILOT LOGBOOK DATA FOR ANALYSIS:
+
+**Calculated Experience Totals:**
+- Total Time: ${calculatedExperience.totalHours.toFixed(1)} hours
+- PIC: ${calculatedExperience.picHours.toFixed(1)} hours
+- Night: ${calculatedExperience.nightHours.toFixed(1)} hours
+- Instrument (actual + sim): ${calculatedExperience.ifrHours.toFixed(1)} hours
+- Cross-Country: ${calculatedExperience.crossCountryHours.toFixed(1)} hours
+- SEL: ${calculatedExperience.selHours.toFixed(1)} hours
+- MEL: ${calculatedExperience.melHours.toFixed(1)} hours
+- Dual Received: ${calculatedExperience.dualReceivedHours.toFixed(1)} hours
+- Dual Given: ${calculatedExperience.dualGivenHours.toFixed(1)} hours
+- Solo: ${calculatedExperience.soloHours.toFixed(1)} hours
+- Last 90 Days: ${calculatedExperience.last90DaysHours.toFixed(1)} hours
+- Last 30 Days: ${calculatedExperience.last30DaysHours.toFixed(1)} hours
+
+**Flight Activity Period:**
+- First Flight: ${firstFlight}
+- Most Recent Flight: ${lastFlight}
+- Total Entries: ${flightEntries.length}
+
+**Aircraft Flown:**
+Types: ${aircraftTypes.join(', ') || 'Not specified'}
+Tail Numbers: ${aircraftIdents.slice(0, 20).join(', ')}${aircraftIdents.length > 20 ? '...' : ''}
+
+**Airports Visited:**
+${airports.slice(0, 30).join(', ')}${airports.length > 30 ? ` (and ${airports.length - 30} more)` : ''}
+
+**Logbook Remarks (recent):**
+${remarksWithDates.length > 0 ? remarksWithDates.map(r => `[${r.date}] ${r.remarks}`).join('\n') : 'No remarks found'}
+
+${partialData?.name ? `**Known Name:** ${partialData.name}` : ''}
+${partialData?.email ? `**Known Email:** ${partialData.email}` : ''}
+
+Based on this logbook data, generate the pilot's complete profile with inferred certifications, ratings, endorsements, and analysis.`;
+
+    try {
+        if (!process.env.GEMINI_API_KEY) {
+            throw new Error("Missing GEMINI_API_KEY");
+        }
+
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const model = genAI.getGenerativeModel({
+            model: GEMINI_MODEL,
+            systemInstruction: systemInstruction
+        });
+
+        const result = await model.generateContent(userPrompt);
+        const response = await result.response;
+        const text = response.text();
+
+        // Clean up potential markdown
+        const jsonString = text.replace(/```json/g, '').replace(/```/g, '').trim();
+
+        let aiInference: any;
+        try {
+            aiInference = JSON.parse(jsonString);
+        } catch (e) {
+            console.error("AI returned invalid JSON:", text);
+            // Provide sensible defaults if AI fails
+            aiInference = {
+                inferredName: null,
+                inferredEmail: null,
+                certificates: {
+                    type: calculatedExperience.totalHours >= 250 ? 'CPL' : calculatedExperience.totalHours >= 40 ? 'PPL' : 'Student',
+                    instrumentRated: calculatedExperience.ifrHours >= 40,
+                    multiEngineRated: calculatedExperience.melHours >= 10
+                },
+                endorsements: [],
+                medicalExpirationEstimate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+                flightReviewExpirationEstimate: new Date(Date.now() + 730 * 24 * 60 * 60 * 1000).toISOString(),
+                profileAnalysis: {
+                    pilotCategory: 'Active Pilot',
+                    strengthAreas: ['Consistent flight activity'],
+                    developmentAreas: ['Continue building experience'],
+                    recommendations: ['Maintain currency', 'Consider additional ratings'],
+                    experienceSummary: `Pilot with ${calculatedExperience.totalHours.toFixed(1)} total hours and ${calculatedExperience.picHours.toFixed(1)} PIC hours.`
+                }
+            };
+        }
+
+        // Build the complete profile
+        const profile: GeneratedPilotProfile = {
+            name: partialData?.name || aiInference.inferredName || 'New Pilot',
+            email: partialData?.email || aiInference.inferredEmail || `pilot${Date.now()}@example.com`,
+            certificates: {
+                type: aiInference.certificates?.type || 'PPL',
+                instrumentRated: aiInference.certificates?.instrumentRated || false,
+                multiEngineRated: aiInference.certificates?.multiEngineRated || false
+            },
+            endorsements: (aiInference.endorsements || []).map((e: any) => ({
+                type: e.type,
+                date: new Date().toISOString(),
+                instructor: 'Inferred from logbook'
+            })),
+            experience: {
+                totalHours: Math.round(calculatedExperience.totalHours * 10) / 10,
+                picHours: Math.round(calculatedExperience.picHours * 10) / 10,
+                nightHours: Math.round(calculatedExperience.nightHours * 10) / 10,
+                ifrHours: Math.round(calculatedExperience.ifrHours * 10) / 10,
+                crossCountryHours: Math.round(calculatedExperience.crossCountryHours * 10) / 10,
+                last90DaysHours: Math.round(calculatedExperience.last90DaysHours * 10) / 10,
+                last30DaysHours: Math.round(calculatedExperience.last30DaysHours * 10) / 10
+            },
+            medicalExpiration: aiInference.medicalExpirationEstimate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+            flightReviewExpiration: aiInference.flightReviewExpirationEstimate || new Date(Date.now() + 730 * 24 * 60 * 60 * 1000).toISOString(),
+            flightEntries: flightEntries,
+            profileAnalysis: aiInference.profileAnalysis || {
+                pilotCategory: 'Active Pilot',
+                strengthAreas: [],
+                developmentAreas: [],
+                recommendations: [],
+                experienceSummary: 'Profile generated from logbook data.'
+            }
+        };
+
+        return profile;
+
+    } catch (error) {
+        console.error("Profile Generation Error:", error);
+        throw new Error("Failed to generate pilot profile from logbook");
     }
 }

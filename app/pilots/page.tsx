@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { User, Plus, Clock, X, Shield, AlertTriangle, CheckCircle, Plane, Upload, Trash2, Loader2, FileText, Target, TrendingUp, RefreshCw, Search, ChevronDown, ChevronUp, Wrench, Book, Sparkles, Microscope } from 'lucide-react';
-import { usePilots, useCreatePilot, useAircraft, useCreateFlight, useDeletePilot, useParseDocument, useParsedDocuments, useApplyLogbook, useUpdatePilot, usePilotById, useAircraftById } from '@/lib/hooks';
+import { User, Plus, Clock, X, Shield, AlertTriangle, CheckCircle, Plane, Upload, Trash2, Loader2, FileText, Target, TrendingUp, RefreshCw, Search, ChevronDown, ChevronUp, Wrench, Book, Sparkles, Microscope, Wand2, UserPlus, Star, Zap, ArrowRight, Brain } from 'lucide-react';
+import { usePilots, useCreatePilot, useAircraft, useCreateFlight, useDeletePilot, useParseDocument, useParsedDocuments, useApplyLogbook, useUpdatePilot, usePilotById, useAircraftById, useGeneratePilotProfile } from '@/lib/hooks';
 import type { Pilot, Aircraft } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -35,6 +35,7 @@ export default function PilotsPage() {
 
   const [showAddDocModal, setShowAddDocModal] = useState(false);
   const [docSearchQuery, setDocSearchQuery] = useState('');
+  const [showProfileGenerator, setShowProfileGenerator] = useState(false);
 
   // Safety Data State
   const [safetyData, setSafetyData] = useState<{ reports: any[] } | null>(null);
@@ -199,10 +200,16 @@ export default function PilotsPage() {
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900">Pilot Roster</h1>
           <p className="text-sm text-zinc-500">Logbooks, certifications, and safety analysis.</p>
         </div>
-        <Button onClick={() => setShowAddModal(true)}>
-          <Plus className="w-4 h-4 mr-2" />
-          Add Pilot
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowProfileGenerator(true)} className="bg-gradient-to-r from-indigo-50 to-purple-50 border-indigo-200 hover:border-indigo-300 text-indigo-700 hover:text-indigo-800">
+            <Wand2 className="w-4 h-4 mr-2" />
+            Generate Profile
+          </Button>
+          <Button onClick={() => setShowAddModal(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            Add Pilot
+          </Button>
+        </div>
       </div>
 
       {/* Stats Row */}
@@ -835,6 +842,18 @@ export default function PilotsPage() {
           />
         )
       }
+
+      {/* Profile Generator Modal */}
+      {showProfileGenerator && (
+        <ProfileGeneratorModal
+          onClose={() => setShowProfileGenerator(false)}
+          onPilotCreated={(pilotId) => {
+            setShowProfileGenerator(false);
+            refetch();
+            setSelectedPilotId(pilotId);
+          }}
+        />
+      )}
     </div >
   );
 }
@@ -1146,6 +1165,455 @@ function AddDocumentModal({ pilot, onClose, onPilotUpdate }: { pilot: Pilot; onC
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfileGeneratorModal({ onClose, onPilotCreated }: { onClose: () => void; onPilotCreated: (pilotId: string) => void }) {
+  const generateProfile = useGeneratePilotProfile();
+  const [step, setStep] = useState<'upload' | 'preview' | 'creating'>('upload');
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [dragActive, setDragActive] = useState(false);
+  const [generatedProfile, setGeneratedProfile] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Editable fields for the preview step
+  const [editedName, setEditedName] = useState('');
+  const [editedEmail, setEditedEmail] = useState('');
+
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setDragActive(true);
+    } else if (e.type === 'dragleave') {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      handleFile(e.target.files[0]);
+    }
+  };
+
+  const handleFile = async (file: File) => {
+    setUploadedFile(file);
+    setError(null);
+
+    // Read file and generate profile
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const base64 = (event.target?.result as string).split(',')[1];
+      try {
+        const result = await generateProfile.mutateAsync({
+          fileBase64: base64,
+          fileType: file.type.includes('pdf') ? 'pdf' : 'image',
+          filename: file.name,
+          createPilot: false // Just preview first
+        });
+
+        if (result.success && result.profile) {
+          setGeneratedProfile(result.profile);
+          setEditedName(result.profile.name);
+          setEditedEmail(result.profile.email);
+          setStep('preview');
+        } else {
+          setError(result.error || 'Failed to generate profile');
+        }
+      } catch (err) {
+        setError((err as Error).message);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleCreatePilot = async () => {
+    if (!uploadedFile || !generatedProfile) return;
+    setStep('creating');
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const base64 = (event.target?.result as string).split(',')[1];
+      try {
+        const result = await generateProfile.mutateAsync({
+          fileBase64: base64,
+          fileType: uploadedFile.type.includes('pdf') ? 'pdf' : 'image',
+          filename: uploadedFile.name,
+          name: editedName,
+          email: editedEmail,
+          createPilot: true
+        });
+
+        if (result.success && result.pilot) {
+          onPilotCreated(result.pilot._id);
+        } else {
+          setError(result.error || 'Failed to create pilot');
+          setStep('preview');
+        }
+      } catch (err) {
+        setError((err as Error).message);
+        setStep('preview');
+      }
+    };
+    reader.readAsDataURL(uploadedFile);
+  };
+
+  const getCertLabel = (type: string) => ({ Student: 'Student Pilot', PPL: 'Private Pilot', CPL: 'Commercial Pilot', ATP: 'ATP', Sport: 'Sport Pilot' }[type] || type);
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="px-6 py-5 border-b border-zinc-100 bg-gradient-to-r from-indigo-50 via-purple-50 to-pink-50">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                <Brain className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-zinc-900">AI Profile Generator</h2>
+                <p className="text-sm text-zinc-500">Drop your logbook, get a complete pilot profile</p>
+              </div>
+            </div>
+            <Button variant="ghost" size="icon" onClick={onClose} className="text-zinc-400 hover:text-zinc-600">
+              <X className="w-5 h-5" />
+            </Button>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto">
+          {step === 'upload' && (
+            <div className="p-6 space-y-6">
+              {/* Hero Section */}
+              <div className="text-center space-y-3 py-4">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-100 text-indigo-700 text-xs font-medium">
+                  <Sparkles className="w-3 h-3" />
+                  Powered by Gemini 3 Pro
+                </div>
+                <h3 className="text-xl font-semibold text-zinc-900">Upload Logbook, Get Everything</h3>
+                <p className="text-zinc-500 max-w-md mx-auto text-sm">
+                  Our AI analyzes your flight entries to automatically determine certificates, ratings, endorsements, and provides personalized insights.
+                </p>
+              </div>
+
+              {/* Upload Area */}
+              <div
+                onDragEnter={handleDrag}
+                onDragLeave={handleDrag}
+                onDragOver={handleDrag}
+                onDrop={handleDrop}
+                className={cn(
+                  "relative border-2 border-dashed rounded-2xl p-8 transition-all duration-300 text-center",
+                  dragActive
+                    ? "border-indigo-400 bg-indigo-50/50 scale-[1.02]"
+                    : "border-zinc-300 hover:border-indigo-300 hover:bg-zinc-50/50"
+                )}
+              >
+                <input
+                  type="file"
+                  accept="application/pdf,image/*"
+                  onChange={handleFileChange}
+                  className="hidden"
+                  id="profile-logbook-upload"
+                  disabled={generateProfile.isPending}
+                />
+                <label htmlFor="profile-logbook-upload" className="cursor-pointer block">
+                  {generateProfile.isPending ? (
+                    <div className="space-y-4">
+                      <div className="w-16 h-16 rounded-full bg-indigo-100 flex items-center justify-center mx-auto">
+                        <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-indigo-900">Analyzing Logbook...</p>
+                        <p className="text-sm text-indigo-600 mt-1">Extracting entries & generating profile</p>
+                      </div>
+                      <div className="flex justify-center gap-1">
+                        {[0, 1, 2].map(i => (
+                          <div key={i} className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" style={{ animationDelay: `${i * 0.2}s` }} />
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 flex items-center justify-center mx-auto">
+                        <Upload className="w-8 h-8 text-indigo-600" />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-zinc-900">Drop Logbook Here</p>
+                        <p className="text-sm text-zinc-500 mt-1">or click to browse</p>
+                      </div>
+                      <div className="flex justify-center gap-2">
+                        <Badge variant="secondary" className="bg-zinc-100 text-zinc-600">PDF</Badge>
+                        <Badge variant="secondary" className="bg-zinc-100 text-zinc-600">PNG</Badge>
+                        <Badge variant="secondary" className="bg-zinc-100 text-zinc-600">JPG</Badge>
+                      </div>
+                    </div>
+                  )}
+                </label>
+              </div>
+
+              {error && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-medium text-red-900">Error processing logbook</p>
+                    <p className="text-sm text-red-700 mt-1">{error}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Features */}
+              <div className="grid grid-cols-3 gap-4 pt-4">
+                <div className="text-center p-4 rounded-xl bg-zinc-50/70">
+                  <div className="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto mb-2">
+                    <CheckCircle className="w-5 h-5" />
+                  </div>
+                  <p className="font-medium text-sm text-zinc-900">Auto-Detect Certs</p>
+                  <p className="text-xs text-zinc-500 mt-1">PPL, CPL, ATP, IR</p>
+                </div>
+                <div className="text-center p-4 rounded-xl bg-zinc-50/70">
+                  <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center mx-auto mb-2">
+                    <Target className="w-5 h-5" />
+                  </div>
+                  <p className="font-medium text-sm text-zinc-900">Hour Totals</p>
+                  <p className="text-xs text-zinc-500 mt-1">PIC, Night, IFR, XC</p>
+                </div>
+                <div className="text-center p-4 rounded-xl bg-zinc-50/70">
+                  <div className="w-10 h-10 rounded-lg bg-purple-100 text-purple-600 flex items-center justify-center mx-auto mb-2">
+                    <Star className="w-5 h-5" />
+                  </div>
+                  <p className="font-medium text-sm text-zinc-900">AI Analysis</p>
+                  <p className="text-xs text-zinc-500 mt-1">Strengths & Tips</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {step === 'preview' && generatedProfile && (
+            <div className="p-6 space-y-6">
+              {/* Success Banner */}
+              <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+                <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                  <CheckCircle className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div>
+                  <p className="font-semibold text-emerald-900">Profile Generated Successfully</p>
+                  <p className="text-sm text-emerald-700">Review the details below and make any adjustments</p>
+                </div>
+              </div>
+
+              {/* Core Info - Editable */}
+              <div className="space-y-4">
+                <h4 className="text-sm font-semibold text-zinc-900 uppercase tracking-wider">Pilot Information</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 mb-1">Name</label>
+                    <input
+                      type="text"
+                      value={editedName}
+                      onChange={(e) => setEditedName(e.target.value)}
+                      className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                      placeholder="Pilot Name"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 mb-1">Email</label>
+                    <input
+                      type="email"
+                      value={editedEmail}
+                      onChange={(e) => setEditedEmail(e.target.value)}
+                      className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                      placeholder="pilot@example.com"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* AI-Inferred Data */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-semibold text-zinc-900 uppercase tracking-wider">AI-Detected Profile</h4>
+                  <Badge className="bg-gradient-to-r from-indigo-100 to-purple-100 text-indigo-700 border-0 text-[10px]">
+                    <Sparkles className="w-3 h-3 mr-1" /> Gemini 3 Pro
+                  </Badge>
+                </div>
+
+                {/* Certificates & Ratings */}
+                <div className="p-4 bg-zinc-50 rounded-xl border border-zinc-200 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-zinc-600">Certificate</span>
+                    <Badge variant="outline" className="bg-white font-medium">
+                      {getCertLabel(generatedProfile.certificates.type)}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-zinc-600">Instrument Rating</span>
+                    <Badge variant={generatedProfile.certificates.instrumentRated ? 'default' : 'secondary'} className={generatedProfile.certificates.instrumentRated ? 'bg-purple-100 text-purple-700 border-purple-200' : ''}>
+                      {generatedProfile.certificates.instrumentRated ? 'Yes - IR' : 'No'}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-zinc-600">Multi-Engine</span>
+                    <Badge variant={generatedProfile.certificates.multiEngineRated ? 'default' : 'secondary'} className={generatedProfile.certificates.multiEngineRated ? 'bg-blue-100 text-blue-700 border-blue-200' : ''}>
+                      {generatedProfile.certificates.multiEngineRated ? 'Yes - ME' : 'No'}
+                    </Badge>
+                  </div>
+                  {generatedProfile.endorsements && generatedProfile.endorsements.length > 0 && (
+                    <div className="pt-2 border-t border-zinc-200">
+                      <span className="text-sm text-zinc-600">Endorsements</span>
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {generatedProfile.endorsements.map((e: any, i: number) => (
+                          <Badge key={i} variant="secondary" className="bg-amber-50 text-amber-700 border-amber-200">
+                            {e.type}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Experience Stats */}
+                <div className="grid grid-cols-4 gap-3">
+                  <div className="p-3 bg-white rounded-lg border border-zinc-200 text-center">
+                    <div className="text-2xl font-bold text-zinc-900 tabular-nums">{generatedProfile.experience.totalHours}</div>
+                    <div className="text-xs text-zinc-500 uppercase tracking-wider mt-1">Total</div>
+                  </div>
+                  <div className="p-3 bg-white rounded-lg border border-zinc-200 text-center">
+                    <div className="text-2xl font-bold text-zinc-900 tabular-nums">{generatedProfile.experience.picHours}</div>
+                    <div className="text-xs text-zinc-500 uppercase tracking-wider mt-1">PIC</div>
+                  </div>
+                  <div className="p-3 bg-white rounded-lg border border-zinc-200 text-center">
+                    <div className="text-2xl font-bold text-zinc-900 tabular-nums">{generatedProfile.experience.nightHours}</div>
+                    <div className="text-xs text-zinc-500 uppercase tracking-wider mt-1">Night</div>
+                  </div>
+                  <div className="p-3 bg-white rounded-lg border border-zinc-200 text-center">
+                    <div className="text-2xl font-bold text-zinc-900 tabular-nums">{generatedProfile.experience.ifrHours}</div>
+                    <div className="text-xs text-zinc-500 uppercase tracking-wider mt-1">IFR</div>
+                  </div>
+                </div>
+
+                {/* Profile Analysis */}
+                {generatedProfile.profileAnalysis && (
+                  <div className="p-4 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl border border-indigo-100 space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Brain className="w-4 h-4 text-indigo-600" />
+                      <span className="text-sm font-semibold text-indigo-900">AI Analysis</span>
+                      <Badge className="bg-white/70 text-indigo-700 border-indigo-200 text-[10px]">
+                        {generatedProfile.profileAnalysis.pilotCategory}
+                      </Badge>
+                    </div>
+
+                    <p className="text-sm text-indigo-800 leading-relaxed">
+                      {generatedProfile.profileAnalysis.experienceSummary}
+                    </p>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <h5 className="text-xs font-semibold text-emerald-700 uppercase tracking-wider mb-2 flex items-center gap-1">
+                          <Star className="w-3 h-3" /> Strengths
+                        </h5>
+                        <ul className="space-y-1">
+                          {generatedProfile.profileAnalysis.strengthAreas?.map((s: string, i: number) => (
+                            <li key={i} className="text-xs text-emerald-800 flex items-start gap-1.5">
+                              <CheckCircle className="w-3 h-3 text-emerald-500 flex-shrink-0 mt-0.5" />
+                              {s}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div>
+                        <h5 className="text-xs font-semibold text-amber-700 uppercase tracking-wider mb-2 flex items-center gap-1">
+                          <Target className="w-3 h-3" /> Development
+                        </h5>
+                        <ul className="space-y-1">
+                          {generatedProfile.profileAnalysis.developmentAreas?.map((d: string, i: number) => (
+                            <li key={i} className="text-xs text-amber-800 flex items-start gap-1.5">
+                              <ArrowRight className="w-3 h-3 text-amber-500 flex-shrink-0 mt-0.5" />
+                              {d}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+
+                    {generatedProfile.profileAnalysis.recommendations?.length > 0 && (
+                      <div className="pt-3 border-t border-indigo-200/50">
+                        <h5 className="text-xs font-semibold text-indigo-700 uppercase tracking-wider mb-2 flex items-center gap-1">
+                          <Zap className="w-3 h-3" /> Recommendations
+                        </h5>
+                        <ul className="space-y-1">
+                          {generatedProfile.profileAnalysis.recommendations.map((r: string, i: number) => (
+                            <li key={i} className="text-xs text-indigo-800 flex items-start gap-1.5">
+                              <span className="text-indigo-400">{i + 1}.</span>
+                              {r}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Flight Entries Count */}
+              <div className="p-3 bg-zinc-100 rounded-lg flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-zinc-500" />
+                  <span className="text-sm text-zinc-700">Flight Entries</span>
+                </div>
+                <Badge variant="secondary">{generatedProfile.flightEntries?.length || 0} entries will be imported</Badge>
+              </div>
+
+              {error && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0" />
+                  <p className="text-sm text-red-700">{error}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {step === 'creating' && (
+            <div className="p-12 flex flex-col items-center justify-center space-y-6">
+              <div className="w-20 h-20 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 flex items-center justify-center">
+                <Loader2 className="w-10 h-10 text-indigo-600 animate-spin" />
+              </div>
+              <div className="text-center">
+                <p className="font-semibold text-lg text-zinc-900">Creating Pilot Profile</p>
+                <p className="text-sm text-zinc-500 mt-2">Saving profile and importing flight entries...</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        {step === 'preview' && (
+          <div className="px-6 py-4 border-t border-zinc-200 bg-zinc-50/50 flex items-center justify-between">
+            <Button variant="ghost" onClick={() => { setStep('upload'); setGeneratedProfile(null); setUploadedFile(null); }}>
+              <Upload className="w-4 h-4 mr-2" /> Upload Different
+            </Button>
+            <Button
+              onClick={handleCreatePilot}
+              disabled={!editedName || !editedEmail}
+              className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700"
+            >
+              <UserPlus className="w-4 h-4 mr-2" />
+              Create Pilot
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

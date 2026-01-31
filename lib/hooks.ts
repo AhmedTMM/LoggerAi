@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { aircraftApi, pilotApi, flightApi, auditApi, weatherApi, documentApi, parsedDocumentApi } from './api';
+import { aircraftApi, pilotApi, flightApi, auditApi, weatherApi, documentApi, parsedDocumentApi, profileApi } from './api';
 import type { Aircraft, Pilot, Flight, WeatherData } from './types';
 
 // Aircraft Hooks
@@ -325,6 +325,28 @@ export function useDeleteParsedDocument() {
     mutationFn: (id: string) => parsedDocumentApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['parsedDocuments'] });
+    },
+  });
+}
+
+// Pilot Profile Generation Hook
+export function useGeneratePilotProfile() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params: {
+      fileBase64: string;
+      fileType: 'pdf' | 'image';
+      name?: string;
+      email?: string;
+      filename?: string;
+      createPilot?: boolean;
+    }) => profileApi.generateFromLogbook(params),
+    onSuccess: (data, variables) => {
+      if (variables.createPilot && data.pilot) {
+        queryClient.invalidateQueries({ queryKey: ['pilots'] });
+        queryClient.invalidateQueries({ queryKey: ['parsedDocuments'] });
+      }
     },
   });
 }

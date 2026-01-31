@@ -109,10 +109,9 @@ export default function Dashboard() {
                 className="flex items-center justify-between p-3 rounded-lg bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
               >
                 <div className="flex items-center gap-3">
-                  <div className={`w-2 h-2 rounded-full ${
-                    flight.overallStatus === 'go' ? 'bg-emerald-500' :
-                    flight.overallStatus === 'caution' ? 'bg-amber-500' : 'bg-red-500'
-                  }`} />
+                  <div className={`w-2 h-2 rounded-full ${flight.overallStatus === 'go' ? 'bg-emerald-500' :
+                      flht.overallStatus === 'caution' ? 'bg-amber-500' : 'bg-red-500'
+                    }`} />
                   <div>
                     <p className="font-medium text-zinc-900 dark:text-zinc-100">
                       {flight.departureAirport} → {flight.arrivalAirport || 'Local'}

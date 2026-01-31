@@ -204,7 +204,7 @@ export default function FlightsPage() {
                         <div className="flex items-center gap-4 mb-3">
                           <Badge variant={
                             selectedFlight.weather.flightCategory === 'VFR' ? 'success' :
-                            selectedFlight.weather.flightCategory === 'MVFR' ? 'warning' : 'destructive'
+                              selectedFlight.weather.flightCategory === 'MVFR' ? 'warning' : 'destructive'
                           }>
                             {selectedFlight.weather.flightCategory}
                           </Badge>

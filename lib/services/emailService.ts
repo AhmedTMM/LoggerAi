@@ -89,8 +89,8 @@ Always verify information independently before flight.
 
   try {
     const { data, error } = await resend.emails.send({
-      from: 'Aviation Intelligence <safety@yourdomain.com>',
-      to: [pilot.email],
+      from: 'Aviation Intelligence <onboarding@resend.dev>',
+      to: ["ahmed@abushagur.com"],
       subject: `${statusEmoji} Flight Audit: ${aircraft.tailNumber} - ${statusText}`,
       text: emailBody,
     });

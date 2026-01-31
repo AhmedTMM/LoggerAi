@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { User, Plus, Clock, AlertTriangle, CheckCircle, Trash2, RefreshCw, Shield, Award } from 'lucide-react';
+import { User, Plus, Clock, AlertTriangle, CheckCircle, Trash2, RefreshCw, Shield, Award, Mail, Save } from 'lucide-react';
 import { usePilots, useCreatePilot, useDeletePilot } from '@/lib/hooks';
 import type { Pilot } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
@@ -17,6 +17,32 @@ export default function PilotsPage() {
   const [selectedPilot, setSelectedPilot] = useState<Pilot | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [editingEmail, setEditingEmail] = useState('');
+  const [isSavingEmail, setIsSavingEmail] = useState(false);
+
+  const handleSaveEmail = async () => {
+    if (!selectedPilot) return;
+    setIsSavingEmail(true);
+    try {
+      const res = await fetch(`/api/pilots/${selectedPilot._id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: editingEmail }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSelectedPilot({ ...selectedPilot, email: editingEmail });
+        refetch();
+        alert('Email saved!');
+      } else {
+        alert('Failed to save email: ' + data.error);
+      }
+    } catch (err) {
+      alert('Error saving email');
+    } finally {
+      setIsSavingEmail(false);
+    }
+  };
 
   const getCertBadge = (type: string) => {
     switch (type) {
@@ -103,7 +129,10 @@ export default function PilotsPage() {
                 return (
                   <div
                     key={pilot._id}
-                    onClick={() => setSelectedPilot(pilot)}
+                    onClick={() => {
+                      setSelectedPilot(pilot);
+                      setEditingEmail((pilot as any).email || '');
+                    }}
                     className={cn(
                       "p-4 border-b border-zinc-100 dark:border-zinc-700 cursor-pointer transition-colors",
                       isSelected
@@ -155,6 +184,29 @@ export default function PilotsPage() {
                           {selectedPilot.certificates?.instrumentRated && (
                             <Badge variant="outline">Instrument Rated</Badge>
                           )}
+                        </div>
+                        {/* Email Field */}
+                        <div className="flex items-center gap-2 mt-2">
+                          <Mail className="w-4 h-4 text-zinc-400" />
+                          <input
+                            type="email"
+                            value={editingEmail}
+                            onChange={(e) => setEditingEmail(e.target.value)}
+                            placeholder="pilot@email.com"
+                            className="flex-1 px-2 py-1 text-sm border border-zinc-300 dark:border-zinc-600 rounded bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
+                          />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleSaveEmail}
+                            disabled={isSavingEmail}
+                          >
+                            {isSavingEmail ? (
+                              <RefreshCw className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Save className="w-3 h-3" />
+                            )}
+                          </Button>
                         </div>
                       </div>
                     </div>

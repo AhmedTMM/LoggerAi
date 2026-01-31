@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Play, AlertTriangle, CheckCircle, XCircle, Plane, RefreshCw, Calendar, MapPin, ArrowRight } from 'lucide-react';
+import { Plus, Play, AlertTriangle, CheckCircle, XCircle, Plane, RefreshCw, Calendar, MapPin, ArrowRight, Mail } from 'lucide-react';
 import { useFlights, useRunFlightAudit, usePilots, useAircraft } from '@/lib/hooks';
 import type { Flight } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
@@ -10,12 +10,30 @@ import { LoadingSpinner } from '@/components/ui/LoadingSkeleton';
 import { cn, formatDateTime } from '@/lib/utils';
 
 export default function FlightsPage() {
-  const { data: flights, isLoading, error, refetch } = useFlights({ upcoming: true });
+  const { data: flights, isLoading, error, refetch } = useFlights();
   const { data: pilots } = usePilots();
   const { data: aircraft } = useAircraft();
   const runAudit = useRunFlightAudit();
   const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null);
   const [showNewFlightModal, setShowNewFlightModal] = useState(false);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+
+  const handleSendEmail = async (flightId: string) => {
+    setIsSendingEmail(true);
+    try {
+      const res = await fetch(`/api/audit/email/${flightId}`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        alert('Email sent successfully!');
+      } else {
+        alert('Failed to send email: ' + data.message);
+      }
+    } catch (err) {
+      alert('Error sending email');
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
 
   const handleRunAudit = (flightId: string) => runAudit.mutate(flightId, { onSuccess: (data) => setSelectedFlight(data) });
 
@@ -70,7 +88,7 @@ export default function FlightsPage() {
         <div className="lg:col-span-1">
           <div className="bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 overflow-hidden">
             <div className="p-3 border-b border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900">
-              <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">Upcoming Flights</h3>
+              <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">All Flights</h3>
             </div>
             <div className="max-h-[600px] overflow-y-auto">
               {flights?.map((flight) => {
@@ -115,7 +133,7 @@ export default function FlightsPage() {
               {(!flights || flights.length === 0) && (
                 <div className="p-8 text-center">
                   <Plane className="w-10 h-10 text-zinc-300 dark:text-zinc-600 mx-auto mb-3" />
-                  <p className="text-zinc-500 dark:text-zinc-400">No upcoming flights</p>
+                  <p className="text-zinc-500 dark:text-zinc-400">No flights yet</p>
                   <Button variant="outline" size="sm" className="mt-4" onClick={() => setShowNewFlightModal(true)}>
                     <Plus className="w-4 h-4 mr-2" />
                     Add Flight
@@ -147,17 +165,31 @@ export default function FlightsPage() {
                         <span className="font-mono">{selectedFlight.departureAirport} → {selectedFlight.arrivalAirport || 'Local'}</span>
                       </div>
                     </div>
-                    <Button
-                      onClick={() => handleRunAudit(selectedFlight._id)}
-                      disabled={runAudit.isPending}
-                    >
-                      {runAudit.isPending ? (
-                        <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                      ) : (
-                        <Play className="w-4 h-4 mr-2" />
-                      )}
-                      Run Audit
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={() => handleRunAudit(selectedFlight._id)}
+                        disabled={runAudit.isPending}
+                      >
+                        {runAudit.isPending ? (
+                          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                        ) : (
+                          <Play className="w-4 h-4 mr-2" />
+                        )}
+                        Run Audit
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => handleSendEmail(selectedFlight._id)}
+                        disabled={isSendingEmail}
+                      >
+                        {isSendingEmail ? (
+                          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                        ) : (
+                          <Mail className="w-4 h-4 mr-2" />
+                        )}
+                        Send Email
+                      </Button>
+                    </div>
                   </div>
                 </div>
 

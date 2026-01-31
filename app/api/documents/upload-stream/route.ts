@@ -3,7 +3,7 @@ import dbConnect from '@/lib/db';
 import ParsedDocument from '@/lib/models/ParsedDocument';
 import Aircraft from '@/lib/models/Aircraft';
 import Pilot from '@/lib/models/Pilot';
-import { parseDocument, StepLog } from '@/lib/services/reductoService';
+import { parseDocumentFast, StepLog } from '@/lib/services/reductoService';
 import { classifyDocumentFast } from '@/lib/services/aiService';
 import { saveFile } from '@/lib/services/fileStorage';
 
@@ -262,8 +262,8 @@ export async function POST(request: NextRequest) {
               progressStep: 'processing',
             });
 
-            // Parse with step logging
-            const result = await parseDocument(
+            // Parse with step logging (using fast hybrid OCR + Gemini pipeline)
+            const result = await parseDocumentFast(
               fileBase64,
               fileType,
               documentType === 'poh' ? 'logbook' : (documentType as 'logbook' | 'maintenance'),

@@ -6,7 +6,10 @@ import { useFlights, useRunFlightAudit, useSendAuditEmail, useWeather, usePilots
 import type { Flight, LegalityCheck } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { cn } from '@/lib/utils';
+import { StatusBadge } from '@/components/ui/StatusBadge';
+import { LoadingSpinner } from '@/components/ui/LoadingSkeleton';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { cn, formatDateTime, getStatusBadgeVariant, getStatusLabel } from '@/lib/utils';
 
 export default function FlightsPage() {
   const { data: flights, isLoading, error, refetch } = useFlights({ upcoming: true });
@@ -18,19 +21,6 @@ export default function FlightsPage() {
   const [weatherAirport, setWeatherAirport] = useState('');
   const [showNewFlightModal, setShowNewFlightModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
-
-  const formatDate = (date: Date | string) => new Date(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-  const formatTime = (date: Date | string) => new Date(date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-  const formatDateTime = (date: Date | string, time?: string) => {
-    const d = new Date(date);
-    if (time) {
-      return `${formatDate(d)} ${time}`;
-    }
-    return `${formatDate(d)} ${formatTime(d)}`;
-  };
-
-  const getStatusBadgeVariant = (status: string) => status === 'go' ? 'success' : status === 'caution' ? 'warning' : status === 'no-go' ? 'destructive' : 'secondary';
-  const getStatusLabel = (status: string) => status === 'go' ? 'GO' : status === 'caution' ? 'CAUTION' : status === 'no-go' ? 'NO-GO' : 'PENDING';
 
   const handleRunAudit = (flightId: string) => runAudit.mutate(flightId, { onSuccess: (data) => setSelectedFlight(data) });
   const handleSendEmail = (flightId: string) => sendEmail.mutate(flightId);
@@ -47,8 +37,8 @@ export default function FlightsPage() {
     return [];
   };
 
-  if (isLoading) return <div className="flex items-center justify-center h-screen"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900"></div></div>;
-  if (error) return <div className="text-center py-12"><AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" /><p className="text-zinc-600">Failed to load flights.</p></div>;
+  if (isLoading) return <LoadingSpinner className="h-screen" />;
+  if (error) return <EmptyState icon={AlertTriangle} title="Failed to load flights" className="py-12" />;
 
   return (
     <div className="space-y-6">

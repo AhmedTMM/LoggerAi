@@ -69,28 +69,81 @@ export default function AircraftPage() {
 
     const getDaysUntil = (date: Date | string) => Math.ceil((new Date(date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
 
-    const handleLogbookUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
+    const handleLogbookUpload = async (file: File) => {
         if (!file || !selectedAircraft) return;
 
+        // Clear any previous error
+        setUploadError(null);
+
+        // Check file size before reading (50MB limit)
+        const maxSize = 50 * 1024 * 1024;
+        if (file.size > maxSize) {
+            setUploadError(`File too large. Maximum size is 50MB. Your file is ${Math.round(file.size / 1024 / 1024)}MB.`);
+            return;
+        }
+
         const reader = new FileReader();
+        reader.onerror = () => {
+            setUploadError('Failed to read file. Please try again.');
+        };
         reader.onload = async (event) => {
             const base64 = (event.target?.result as string).split(',')[1];
-            parseDocument.mutate({
+            // Step 1: Upload file immediately (no parsing)
+            uploadDocument.mutate({
                 fileBase64: base64,
                 fileType: file.type.includes('pdf') ? 'pdf' : 'image',
                 documentType: 'maintenance',
                 aircraftId: selectedAircraft._id,
                 filename: file.name,
-                background: true, // Background processing
             }, {
-                onSuccess: () => {
+                onSuccess: (data) => {
+                    setUploadError(null);
                     refetch();
                     refetchDocs();
+                    // Step 2: Start parsing in background
+                    if (data?.documentId) {
+                        startParsing.mutate(data.documentId, {
+                            onSuccess: () => {
+                                refetch();
+                                refetchDocs();
+                            },
+                            onError: (err: any) => {
+                                setUploadError(err?.message || 'Failed to start parsing.');
+                            },
+                        });
+                    }
+                },
+                onError: (err: any) => {
+                    setUploadError(err?.message || 'Upload failed. File may be too large.');
                 },
             });
         };
         reader.readAsDataURL(file);
+    };
+
+    const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) handleLogbookUpload(file);
+        e.target.value = '';
+    };
+
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+        const file = e.dataTransfer.files?.[0];
+        if (file && (file.type.includes('pdf') || file.type.includes('image'))) {
+            handleLogbookUpload(file);
+        }
+    };
+
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(true);
+    };
+
+    const handleDragLeave = (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
     };
 
     const handleLinkDoc = (docId: string) => {
@@ -332,47 +385,60 @@ export default function AircraftPage() {
                                             </div>
                                         </div>
 
-                                        {/* Logbook Upload Actions */}
-                                        <div className="flex gap-3">
-                                            <Button
-                                                onClick={() => setShowDocumentModal(true)}
-                                                className="flex-1 bg-indigo-600 hover:bg-indigo-700"
-                                            >
-                                                <Plus className="w-4 h-4 mr-2" />
-                                                Add Logbook
-                                            </Button>
-                                            <div className="relative flex-1">
-                                                <input
-                                                    type="file"
-                                                    accept="image/*,.pdf"
-                                                    onChange={handleLogbookUpload}
-                                                    className="hidden"
-                                                    id="logbook-upload"
-                                                    disabled={parseDocument.isPending}
-                                                />
-                                                <label
-                                                    htmlFor="logbook-upload"
-                                                    className={cn(
-                                                        "flex items-center justify-center gap-2 w-full h-full px-4 py-2 rounded-md border-2 border-dashed cursor-pointer transition-colors",
-                                                        parseDocument.isPending
-                                                            ? "border-indigo-300 bg-indigo-50"
-                                                            : "border-zinc-300 hover:border-indigo-400 hover:bg-indigo-50/50"
-                                                    )}
-                                                >
-                                                    {parseDocument.isPending ? (
-                                                        <>
-                                                            <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
-                                                            <span className="text-sm font-medium text-indigo-600">Processing...</span>
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <Upload className="w-4 h-4 text-zinc-400" />
-                                                            <span className="text-sm text-zinc-600">Quick Upload</span>
-                                                        </>
-                                                    )}
-                                                </label>
-                                            </div>
+                                        {/* Drop Zone Upload */}
+                                        <div
+                                            onDrop={handleDrop}
+                                            onDragOver={handleDragOver}
+                                            onDragLeave={handleDragLeave}
+                                            className={cn(
+                                                "relative border-2 border-dashed rounded-xl p-8 text-center transition-all cursor-pointer",
+                                                isDragging
+                                                    ? "border-indigo-500 bg-indigo-50 scale-[1.02]"
+                                                    : uploadDocument.isPending || startParsing.isPending
+                                                        ? "border-indigo-300 bg-indigo-50/50"
+                                                        : "border-zinc-300 hover:border-indigo-400 hover:bg-indigo-50/30"
+                                            )}
+                                        >
+                                            <input
+                                                type="file"
+                                                accept="application/pdf,image/*"
+                                                onChange={handleFileInputChange}
+                                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                                disabled={uploadDocument.isPending || startParsing.isPending}
+                                            />
+                                            {uploadDocument.isPending || startParsing.isPending ? (
+                                                <div className="flex flex-col items-center">
+                                                    <Loader2 className="w-12 h-12 text-indigo-500 mb-3 animate-spin" />
+                                                    <p className="font-semibold text-indigo-700">Processing document...</p>
+                                                    <p className="text-sm text-indigo-600 mt-1">This may take a minute for large files</p>
+                                                </div>
+                                            ) : isDragging ? (
+                                                <div className="flex flex-col items-center">
+                                                    <Upload className="w-12 h-12 text-indigo-500 mb-3" />
+                                                    <p className="font-semibold text-indigo-700">Drop file here</p>
+                                                </div>
+                                            ) : (
+                                                <div className="flex flex-col items-center">
+                                                    <Upload className="w-12 h-12 text-zinc-300 mb-3" />
+                                                    <p className="font-semibold text-zinc-700">Drop maintenance log here</p>
+                                                    <p className="text-sm text-zinc-500 mt-1">or click to browse • PDF or Image (max 50MB)</p>
+                                                </div>
+                                            )}
                                         </div>
+
+                                        {/* Upload Error Alert */}
+                                        {uploadError && (
+                                            <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-xl">
+                                                <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                                                <div className="flex-1">
+                                                    <p className="text-sm font-medium text-red-800">Upload Failed</p>
+                                                    <p className="text-sm text-red-600 mt-1">{uploadError}</p>
+                                                </div>
+                                                <button onClick={() => setUploadError(null)} className="text-red-400 hover:text-red-600">
+                                                    <X className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        )}
 
                                         {/* Linked Files */}
                                         {parsedDocs && parsedDocs.filter(d => d.aircraft === selectedAircraft._id).length > 0 && (
@@ -543,14 +609,6 @@ export default function AircraftPage() {
 
             {showAddModal && <AddAircraftModal onClose={() => setShowAddModal(false)} onCreate={(data) => createAircraft.mutate(data, { onSuccess: () => setShowAddModal(false) })} isLoading={createAircraft.isPending} />}
 
-            {showDocumentModal && selectedAircraft && (
-                <AddDocumentModal
-                    aircraft={selectedAircraft}
-                    onClose={() => setShowDocumentModal(false)}
-                    onSuccess={() => { refetch(); refetchDocs(); }}
-                />
-            )}
-
             {/* Delete Confirmation Modal */}
             {showDeleteModal && selectedAircraft && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -704,293 +762,6 @@ function RiskAnalysisPanel({ aircraft, onAnalyze }: { aircraft: Aircraft; onAnal
                     <p>No analysis run yet.</p>
                 </div>
             )}
-        </div>
-    );
-}
-
-function AddDocumentModal({
-    aircraft,
-    onClose,
-    onSuccess
-}: {
-    aircraft: Aircraft;
-    onClose: () => void;
-    onSuccess: () => void;
-}) {
-    const [activeTab, setActiveTab] = useState<'link' | 'upload'>('link');
-    const [docSearchQuery, setDocSearchQuery] = useState('');
-    const { data: parsedDocs = [], refetch: refetchDocs } = useParsedDocuments({ documentType: 'maintenance' });
-    const linkDoc = useLinkDocToAircraft();
-    const parseDocument = useParseDocument();
-
-    // Upload State
-    const [uploadFile, setUploadFile] = useState<File | null>(null);
-    const [selectedCategory, setSelectedCategory] = useState<LogbookCategory>('airframe');
-    const [uploadStarted, setUploadStarted] = useState(false);
-
-    // Documents currently being parsed for this aircraft
-    const parsingDocs = parsedDocs.filter((d: any) => d.aircraft === aircraft._id && d.status === 'parsing');
-
-    // Auto-refresh while documents are parsing
-    useEffect(() => {
-        if (parsingDocs.length > 0 || uploadStarted) {
-            const interval = setInterval(() => {
-                refetchDocs();
-                onSuccess(); // Refresh parent too
-            }, 3000);
-            return () => clearInterval(interval);
-        }
-    }, [parsingDocs.length, uploadStarted, refetchDocs, onSuccess]);
-
-    const handleUpload = async () => {
-        if (!uploadFile) return;
-
-        setUploadStarted(true);
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-            const base64 = (event.target?.result as string).split(',')[1];
-            parseDocument.mutate({
-                fileBase64: base64,
-                fileType: uploadFile.type.includes('pdf') ? 'pdf' : 'image',
-                documentType: 'maintenance',
-                aircraftId: aircraft._id,
-                filename: uploadFile.name,
-                background: true,
-            }, {
-                onSuccess: () => {
-                    refetchDocs();
-                    onSuccess();
-                    setUploadFile(null);
-                    setActiveTab('link'); // Switch to link tab to show parsing status
-                },
-                onError: () => {
-                    setUploadStarted(false);
-                },
-            });
-        };
-        reader.readAsDataURL(uploadFile);
-    };
-
-    const handleLinkDoc = (docId: string) => {
-        linkDoc.mutate({ docId, aircraftId: aircraft._id }, {
-            onSuccess: () => {
-                refetchDocs();
-                onSuccess();
-            },
-        });
-    };
-
-    const availableDocs = parsedDocs.filter((d: any) => !d.aircraft && d.status === 'completed');
-    const filteredDocs = availableDocs.filter((d: any) =>
-        !docSearchQuery || d.filename?.toLowerCase().includes(docSearchQuery.toLowerCase())
-    );
-
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden border border-zinc-200 max-h-[80vh] flex flex-col">
-                <div className="px-6 py-4 border-b border-zinc-200 flex items-center justify-between bg-gradient-to-r from-indigo-50 to-slate-50">
-                    <div>
-                        <h2 className="text-lg font-semibold text-zinc-900">Add Logbook</h2>
-                        <p className="text-xs text-zinc-500">Link existing or upload new for {aircraft.tailNumber}</p>
-                    </div>
-                    <Button variant="ghost" size="icon" onClick={onClose}><X className="w-5 h-5" /></Button>
-                </div>
-
-                <div className="flex border-b border-zinc-100">
-                    <button
-                        onClick={() => setActiveTab('link')}
-                        className={cn(
-                            "flex-1 py-3 text-sm font-medium transition-colors flex items-center justify-center gap-2",
-                            activeTab === 'link' ? "text-indigo-600 border-b-2 border-indigo-600" : "text-zinc-500 hover:text-zinc-700"
-                        )}
-                    >
-                        <Link2 className="w-4 h-4" />
-                        Link Existing
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('upload')}
-                        className={cn(
-                            "flex-1 py-3 text-sm font-medium transition-colors flex items-center justify-center gap-2",
-                            activeTab === 'upload' ? "text-indigo-600 border-b-2 border-indigo-600" : "text-zinc-500 hover:text-zinc-700"
-                        )}
-                    >
-                        <Upload className="w-4 h-4" />
-                        Upload New
-                    </button>
-                </div>
-
-                <div className="flex-1 overflow-y-auto p-4">
-                    {activeTab === 'link' ? (
-                        <div className="space-y-4">
-                            {/* Show documents currently being parsed */}
-                            {parsingDocs.length > 0 && (
-                                <div className="space-y-2">
-                                    <h4 className="text-xs font-semibold text-amber-700 uppercase tracking-wider flex items-center gap-2">
-                                        <Loader2 className="w-3 h-3 animate-spin" />
-                                        Processing ({parsingDocs.length})
-                                    </h4>
-                                    {parsingDocs.map((doc: any) => (
-                                        <div
-                                            key={doc._id}
-                                            className="flex items-center justify-between p-3 rounded-lg border border-amber-200 bg-amber-50/50"
-                                        >
-                                            <div className="flex items-center gap-3 min-w-0">
-                                                <div className="w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0 bg-amber-100 text-amber-600">
-                                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                                </div>
-                                                <div className="min-w-0">
-                                                    <p className="font-medium text-sm text-zinc-900 truncate">{doc.filename}</p>
-                                                    <p className="text-xs text-amber-600">
-                                                        Parsing with Reducto AI... This may take 1-2 minutes
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <Badge variant="warning" className="text-xs">
-                                                Parsing
-                                            </Badge>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-
-                            {/* Search for available docs */}
-                            <div className="relative">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-                                <input
-                                    type="text"
-                                    placeholder="Search available logbooks..."
-                                    value={docSearchQuery}
-                                    onChange={(e) => setDocSearchQuery(e.target.value)}
-                                    className="w-full pl-9 pr-4 py-2 border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                {filteredDocs.length > 0 && (
-                                    <h4 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
-                                        Available to Link
-                                    </h4>
-                                )}
-                                {filteredDocs.map((doc: any) => (
-                                    <div
-                                        key={doc._id}
-                                        className="flex items-center justify-between p-3 rounded-lg border border-zinc-200 hover:border-indigo-300 hover:bg-indigo-50/30 transition-colors"
-                                    >
-                                        <div className="flex items-center gap-3 min-w-0">
-                                            <div className="w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0 bg-indigo-100 text-indigo-600">
-                                                <Wrench className="w-4 h-4" />
-                                            </div>
-                                            <div className="min-w-0">
-                                                <p className="font-medium text-sm text-zinc-900 truncate">{doc.filename}</p>
-                                                <p className="text-xs text-zinc-500">
-                                                    {doc.summary?.totalEntries || 0} entries • {new Date(doc.uploadedAt).toLocaleDateString()}
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <Button
-                                            size="sm"
-                                            variant="ghost"
-                                            className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
-                                            onClick={() => handleLinkDoc(doc._id)}
-                                            disabled={linkDoc.isPending}
-                                        >
-                                            {linkDoc.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                                        </Button>
-                                    </div>
-                                ))}
-                                {filteredDocs.length === 0 && parsingDocs.length === 0 && (
-                                    <div className="text-center py-8 text-zinc-500">
-                                        <FileText className="w-8 h-8 mx-auto text-zinc-300 mb-2" />
-                                        <p className="font-medium">No available logbooks found</p>
-                                        <p className="text-xs mt-1">Upload a new logbook to get started</p>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="space-y-6">
-                            {/* Category Selector */}
-                            <div className="space-y-2">
-                                <label className="text-sm font-semibold text-zinc-700">Logbook Category</label>
-                                <div className="grid grid-cols-2 gap-2">
-                                    {[
-                                        { key: 'engine', label: 'Engine', icon: Cog },
-                                        { key: 'airframe', label: 'Airframe', icon: Plane },
-                                        { key: 'propeller', label: 'Propeller', icon: Settings },
-                                        { key: 'avionics', label: 'Avionics', icon: Radio },
-                                    ].map(({ key, label, icon: Icon }) => (
-                                        <button
-                                            key={key}
-                                            onClick={() => setSelectedCategory(key as LogbookCategory)}
-                                            className={cn(
-                                                "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all",
-                                                selectedCategory === key
-                                                    ? "bg-indigo-600 text-white shadow-md"
-                                                    : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
-                                            )}
-                                        >
-                                            <Icon className="w-4 h-4" />
-                                            {label}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* File Upload */}
-                            <div className="border-2 border-dashed border-zinc-300 rounded-xl p-6 text-center hover:border-indigo-400 transition-colors bg-zinc-50/50">
-                                <input
-                                    type="file"
-                                    accept="application/pdf,image/*"
-                                    onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
-                                    className="hidden"
-                                    id="modal-logbook-upload"
-                                    disabled={parseDocument.isPending}
-                                />
-                                <label htmlFor="modal-logbook-upload" className="cursor-pointer">
-                                    {parseDocument.isPending ? (
-                                        <div className="flex flex-col items-center">
-                                            <Loader2 className="w-10 h-10 text-indigo-500 mb-2 animate-spin" />
-                                            <p className="font-medium text-indigo-600">Processing logbook...</p>
-                                            <p className="text-xs text-zinc-500">This may take a moment</p>
-                                        </div>
-                                    ) : uploadFile ? (
-                                        <div className="flex flex-col items-center">
-                                            <FileText className="w-10 h-10 text-indigo-500 mb-2" />
-                                            <p className="font-medium text-zinc-900">{uploadFile.name}</p>
-                                            <p className="text-xs text-zinc-500">Tap to change file</p>
-                                        </div>
-                                    ) : (
-                                        <div className="flex flex-col items-center">
-                                            <Upload className="w-10 h-10 text-zinc-300 mb-2" />
-                                            <p className="font-medium text-zinc-900">Choose File</p>
-                                            <p className="text-xs text-zinc-500">PDF or Image</p>
-                                        </div>
-                                    )}
-                                </label>
-                            </div>
-
-                            <div className="flex justify-end">
-                                <Button
-                                    onClick={handleUpload}
-                                    disabled={!uploadFile || parseDocument.isPending}
-                                    className="bg-indigo-600 hover:bg-indigo-700"
-                                >
-                                    {parseDocument.isPending ? (
-                                        <>
-                                            <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                                            Processing...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Upload className="w-4 h-4 mr-2" />
-                                            Upload & Process
-                                        </>
-                                    )}
-                                </Button>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            </div>
         </div>
     );
 }

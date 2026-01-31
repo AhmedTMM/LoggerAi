@@ -8,6 +8,12 @@ const nextConfig = {
       },
     ],
   },
+  // Allow larger request bodies for file uploads (50MB)
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '50mb',
+    },
+  },
 };
 
 module.exports = nextConfig;

@@ -185,6 +185,36 @@ export const documentApi = {
     );
     return data.data || {};
   },
+
+  // Upload file without parsing - returns immediately
+  uploadOnly: async (params: {
+    fileBase64: string;
+    fileType: 'pdf' | 'image';
+    documentType: 'logbook' | 'maintenance' | 'poh' | 'other';
+    aircraftId?: string;
+    pilotId?: string;
+    filename?: string;
+  }): Promise<any> => {
+    const data = await fetchAPI<ApiResponse<any>>('/documents/upload', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+    return data.data;
+  },
+
+  // Trigger parsing for an uploaded document
+  startParsing: async (documentId: string): Promise<any> => {
+    const data = await fetchAPI<ApiResponse<any>>(`/documents/${documentId}/parse`, {
+      method: 'POST',
+    });
+    return data.data;
+  },
+
+  // Get parsing progress/status for a document
+  getParsingStatus: async (documentId: string): Promise<any> => {
+    const data = await fetchAPI<ApiResponse<any>>(`/documents/${documentId}/parse`);
+    return data.data;
+  },
 };
 
 // Pilot Profile Generation API

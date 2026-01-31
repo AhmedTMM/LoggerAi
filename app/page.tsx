@@ -1,6 +1,6 @@
 'use client';
 
-import { Plane, Users, Calendar, ArrowRight, Map } from 'lucide-react';
+import { Plane, Users, Calendar, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 import { useAircraft, usePilots, useFlights } from '@/lib/hooks';
 import { StatusBadge } from '@/components/ui/StatusBadge';
@@ -23,17 +23,17 @@ function StatCard({
 }) {
   return (
     <Link href={href} className="group">
-      <div className="bg-white rounded-xl border border-zinc-200 p-6 hover:border-zinc-300 hover:shadow-lg transition-all">
-        <div className="flex items-start justify-between">
+      <div className="bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 p-5 hover:shadow-md transition-all">
+        <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm text-zinc-500 mb-1">{label}</p>
-            <p className="text-3xl font-bold text-zinc-900">{value}</p>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">{label}</p>
+            <p className="text-3xl font-bold text-zinc-900 dark:text-zinc-100 mt-1">{value}</p>
           </div>
-          <div className={`p-3 rounded-lg ${color}`}>
+          <div className={`p-3 rounded-xl ${color}`}>
             <Icon className="w-6 h-6 text-white" />
           </div>
         </div>
-        <div className="mt-4 flex items-center text-sm text-zinc-500 group-hover:text-zinc-700">
+        <div className="mt-3 flex items-center text-sm text-zinc-500 dark:text-zinc-400 group-hover:text-blue-600 dark:group-hover:text-blue-400">
           View all <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
         </div>
       </div>
@@ -51,24 +51,24 @@ export default function Dashboard() {
   );
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-zinc-900">Aviation Intelligence</h1>
-        <p className="text-zinc-500 mt-1">Fleet safety and compliance at a glance</p>
+        <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Dashboard</h1>
+        <p className="text-zinc-500 dark:text-zinc-400 mt-1">Your fleet overview</p>
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
-          label="Aircraft in Fleet"
+          label="Aircraft"
           value={aircraft.length}
           icon={Plane}
           href="/aircraft"
           color="bg-blue-500"
         />
         <StatCard
-          label="Active Pilots"
+          label="Pilots"
           value={pilots.length}
           icon={Users}
           href="/pilots"
@@ -84,48 +84,40 @@ export default function Dashboard() {
       </div>
 
       {/* Flight Map */}
-      <div className="bg-white rounded-xl border border-zinc-200 p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <Map className="w-5 h-5 text-blue-500" />
-            <h2 className="text-lg font-semibold text-zinc-900">Live Flight Map</h2>
-          </div>
-          <p className="text-sm text-zinc-500">
-            Click on toggles to filter flights
-          </p>
-        </div>
+      <div className="bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 p-4">
+        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-4">Flight Map</h2>
         <FlightMapWrapper flights={flights} aircraft={aircraft} pilots={pilots} />
       </div>
 
       {/* Recent Flights */}
       {flights.length > 0 && (
-        <div className="bg-white rounded-xl border border-zinc-200 p-6">
+        <div className="bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 p-4">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-zinc-900">Recent Flights</h2>
+            <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Recent Flights</h2>
             <Link
               href="/flights"
-              className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
+              className="text-sm text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
             >
               View all <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
-          <div className="space-y-3">
+          <div className="space-y-2">
             {flights.slice(0, 5).map((flight: Flight) => (
               <Link
                 key={flight._id}
                 href="/flights"
-                className="flex items-center justify-between p-3 rounded-lg bg-zinc-50 hover:bg-zinc-100 transition-colors"
+                className="flex items-center justify-between p-3 rounded-lg bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
               >
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3">
                   <div className={`w-2 h-2 rounded-full ${
                     flight.overallStatus === 'go' ? 'bg-emerald-500' :
                     flight.overallStatus === 'caution' ? 'bg-amber-500' : 'bg-red-500'
                   }`} />
                   <div>
-                    <p className="font-medium text-zinc-900">
+                    <p className="font-medium text-zinc-900 dark:text-zinc-100">
                       {flight.departureAirport} → {flight.arrivalAirport || 'Local'}
                     </p>
-                    <p className="text-sm text-zinc-500">
+                    <p className="text-sm text-zinc-500 dark:text-zinc-400">
                       {formatDate(flight.scheduledDate)}
                     </p>
                   </div>

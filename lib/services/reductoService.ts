@@ -10,7 +10,7 @@ interface ReductoResponse {
 }
 
 interface ParsedDocument {
-  documentType: 'logbook' | 'maintenance' | 'unknown';
+  documentType: string;  // Can be any document type (pilot_logbook, aircraft_logbook, maintenance, etc.)
   extractedData: Record<string, any>;
   confidence: number;
   rawText: string;
@@ -94,7 +94,7 @@ const GEMINI_FLASH_MODEL = 'gemini-2.0-flash';
 export async function parseDocumentUltraFast(
   fileBase64: string,
   fileType: 'pdf' | 'image',
-  documentType: 'logbook' | 'maintenance',
+  documentType: string,  // Accepts any document type - internally maps to logbook or maintenance prompts
   onStep?: StepCallback
 ): Promise<ReductoResponse> {
   const geminiKey = process.env.GEMINI_API_KEY;
@@ -143,7 +143,9 @@ export async function parseDocumentUltraFast(
     });
 
     // Choose the appropriate extraction prompt
-    const prompt = documentType === 'logbook'
+    // Handle all logbook types (pilot_logbook, aircraft_logbook, logbook)
+    const isLogbookType = documentType === 'logbook' || documentType.includes('logbook');
+    const prompt = isLogbookType
       ? ULTRA_FAST_LOGBOOK_PROMPT
       : ULTRA_FAST_MAINTENANCE_PROMPT;
 
@@ -270,36 +272,49 @@ export async function parseDocumentUltraFast(
 }
 
 // Ultra-fast prompts optimized for direct vision extraction
-const ULTRA_FAST_LOGBOOK_PROMPT = `You are extracting flight entries from a pilot logbook image/PDF. Extract ALL visible flight entries.
+const ULTRA_FAST_LOGBOOK_PROMPT = `You are an expert at extracting flight entries from pilot logbooks, including handwritten and scanned documents.
 
-For EACH flight entry, extract these fields (include only fields with values):
-- date: YYYY-MM-DD format
-- aircraftIdent: Tail number (N12345)
-- aircraftType: Make/model (C172, PA28)
-- from: Departure airport code
+CRITICAL: You MUST extract ALL visible flight entries with their HOURS. This is a pilot logbook - it WILL have time/hours data.
+
+UNDERSTANDING LOGBOOK STRUCTURE:
+- Pilot logbooks have ROWS (one per flight) and COLUMNS (different data fields)
+- Look for column headers at the top: DATE, AIRCRAFT, FROM, TO, and multiple TIME columns
+- TIME columns typically include: TOTAL TIME, PIC, SEL, XC, NIGHT, INSTRUMENT, DUAL, etc.
+- Numbers in time columns are flight hours in DECIMAL format (1.5 = 1 hour 30 min) or sometimes as X:XX
+- The TOTAL TIME column is the most important - it shows total flight duration
+
+For EACH flight entry row, extract:
+- date: YYYY-MM-DD format (convert from MM/DD/YY, MM-DD-YYYY, etc.)
+- aircraftIdent: Tail number (N-numbers like N12345, N5392R)
+- aircraftType: Make/model (C172, PA28, C152, etc.)
+- from: Departure airport (3-4 letter code like KRHV, KSJC, LAX)
 - to: Arrival airport code
-- totalTime: Total flight hours (decimal, e.g., 1.5)
-- pic: PIC hours
+- totalTime: REQUIRED - Total flight time in decimal hours. Look for the main TIME or TOTAL column. This is usually the first or most prominent time column.
+- pic: PIC (Pilot in Command) hours - often equals totalTime for private pilots
 - sic: SIC hours
-- sel: Single engine land hours
-- mel: Multi engine land hours
-- crossCountry: Cross-country hours
-- night: Night hours
-- actualInstrument: Actual IMC hours
-- simulatedInstrument: Hood/sim instrument hours
-- dualReceived: Instruction received hours
-- dualGiven: Instruction given hours
-- landingsDay: Day landings count
-- landingsNight: Night landings count
-- remarks: Any notes, instructor names, endorsements
+- sel: Single Engine Land hours - often equals totalTime for single-engine aircraft
+- mel: Multi Engine Land hours
+- crossCountry: Cross-country/XC hours
+- night: Night flying hours
+- actualInstrument: Actual IMC/instrument hours
+- simulatedInstrument: Hood/simulated instrument hours
+- dualReceived: Instruction received hours (student/training flights)
+- dualGiven: Instruction given hours (CFI flights)
+- landingsDay: Day landings (integer)
+- landingsNight: Night landings (integer)
+- remarks: Notes, instructor names, endorsements
 
-IMPORTANT:
-- Extract EVERY row you can see, even if some fields are unclear
-- For unclear numbers, make your best guess based on context
-- Dates might be in various formats (MM/DD/YY, DD-MMM-YYYY) - convert to YYYY-MM-DD
-- Output ONLY a valid JSON array, no markdown formatting:
+IMPORTANT EXTRACTION RULES:
+1. EVERY flight entry MUST have totalTime - this is the primary flight duration. If you see a time value in ANY column for a row, extract it as totalTime at minimum.
+2. For handwritten entries: look carefully at each cell. Numbers like 1.5, 2.0, 1.3 are common flight times.
+3. If you can't determine which column is totalTime, use the FIRST numeric time column or the largest time value in the row.
+4. For single-engine aircraft (C172, PA28, C152, etc.), sel usually equals totalTime.
+5. Extract EVERY row with a date, even if some fields are unclear.
+6. If a time looks like "1.5" or "1:30", convert to decimal (1.5).
+7. Do NOT skip rows - extract all visible entries.
 
-[{"date":"2024-01-15","aircraftIdent":"N12345","totalTime":1.5,...},...]`;
+Output ONLY a valid JSON array with NO markdown formatting:
+[{"date":"2024-01-15","aircraftIdent":"N12345","totalTime":1.5,"sel":1.5,"pic":1.5,"from":"KRHV","to":"KSJC"},...]`;
 
 const ULTRA_FAST_MAINTENANCE_PROMPT = `You are extracting maintenance entries from an aircraft maintenance log. Extract ALL visible maintenance entries.
 
@@ -342,7 +357,7 @@ IMPORTANT:
 export async function parseDocumentFast(
   fileBase64: string,
   fileType: 'pdf' | 'image',
-  documentType: 'logbook' | 'maintenance',
+  documentType: string,  // Accepts any document type - internally maps to logbook or maintenance prompts
   onStep?: StepCallback
 ): Promise<ReductoResponse> {
   const apiKey = process.env.REDUCTO_API_KEY;
@@ -484,7 +499,9 @@ export async function parseDocumentFast(
     });
 
     // 4. Use Gemini Flash to extract structured data from OCR text
-    const prompt = documentType === 'logbook'
+    // Handle all logbook types (pilot_logbook, aircraft_logbook, logbook)
+    const isLogbookType = documentType === 'logbook' || documentType.includes('logbook');
+    const prompt = isLogbookType
       ? LOGBOOK_GEMINI_EXTRACTION_PROMPT
       : MAINTENANCE_GEMINI_EXTRACTION_PROMPT;
 
@@ -557,23 +574,34 @@ export async function parseDocumentFast(
 // Gemini-optimized extraction prompts (more concise for speed)
 const LOGBOOK_GEMINI_EXTRACTION_PROMPT = `You are parsing OCR text from a pilot logbook. Extract ALL flight entries into JSON.
 
-EXTRACT these fields for each flight (include only fields with values):
-- date: YYYY-MM-DD format
-- aircraftIdent: Tail number (N-numbers)
-- aircraftType: Make/model (C172, PA28, etc.)
-- from, to: Airport codes
-- totalTime: Total flight hours (decimal)
-- sel, mel: Single/Multi engine land hours
-- pic, sic: PIC/SIC hours
-- crossCountry, night: XC and night hours
-- actualInstrument, simulatedInstrument: IFR hours
-- dualReceived, dualGiven: Instruction hours
-- landingsDay, landingsNight: Landing counts
-- remarks: All notes, instructor names, endorsements
+CRITICAL: Every flight entry MUST have totalTime (flight hours). This is required data - pilot logbooks always track time.
 
-Handle OCR errors: resolve ambiguous numbers (1/7, 0/O) using context.
-Output ONLY a JSON array of entries, no markdown:
-[{"date":"2024-01-15","aircraftIdent":"N12345","totalTime":1.5,...},...]`;
+EXTRACT these fields for each flight:
+- date: YYYY-MM-DD format (required)
+- aircraftIdent: Tail number like N12345 (required)
+- aircraftType: Make/model (C172, PA28, etc.)
+- from, to: Airport codes (KRHV, KSJC, etc.)
+- totalTime: Total flight hours in DECIMAL format (required - e.g., 1.5, 2.3). Look for the main time/duration column.
+- sel: Single engine land hours (often equals totalTime for single-engine planes)
+- mel: Multi engine land hours
+- pic: PIC hours (often equals totalTime for certificated pilots)
+- sic: SIC hours
+- crossCountry: XC hours (flights > 50nm)
+- night: Night flying hours
+- actualInstrument, simulatedInstrument: IFR hours
+- dualReceived: Instruction received hours
+- dualGiven: Instruction given hours (CFI)
+- landingsDay, landingsNight: Landing counts (integers)
+- remarks: Notes, instructor names, endorsements
+
+IMPORTANT:
+- EVERY entry needs totalTime - if you see ANY time value in a row, use it
+- Handle OCR errors: resolve ambiguous numbers (1/7, 0/O, 5/S) using context
+- Times like 1.5, 2.0, 0.8 are common flight durations in hours
+- Do NOT skip entries - extract all rows with dates
+
+Output ONLY a JSON array, no markdown:
+[{"date":"2024-01-15","aircraftIdent":"N12345","totalTime":1.5,"sel":1.5,"pic":1.5,"from":"KRHV","to":"KSJC"},...]`;
 
 const MAINTENANCE_GEMINI_EXTRACTION_PROMPT = `You are parsing OCR text from an aircraft maintenance log. Extract ALL maintenance entries into JSON.
 
@@ -597,7 +625,7 @@ Output ONLY valid JSON, no markdown:
 export async function parseDocument(
   fileBase64: string,
   fileType: 'pdf' | 'image',
-  documentType: 'logbook' | 'maintenance',
+  documentType: string,  // Accepts any document type - internally maps to logbook or maintenance prompts
   onStep?: StepCallback
 ): Promise<ReductoResponse> {
   const apiKey = process.env.REDUCTO_API_KEY;
@@ -654,12 +682,15 @@ export async function parseDocument(
     });
 
     // 2. Prepare Prompt
+    // Handle all logbook types (pilot_logbook, aircraft_logbook, logbook)
+    const isLogbookType = documentType === 'logbook' || documentType.includes('logbook');
+
     await log('preparing', 'Selecting optimal extraction prompt...', 40, {
       documentType,
-      promptType: documentType === 'logbook' ? 'LOGBOOK_EXTRACTION_PROMPT' : 'MAINTENANCE_EXTRACTION_PROMPT'
+      promptType: isLogbookType ? 'LOGBOOK_EXTRACTION_PROMPT' : 'MAINTENANCE_EXTRACTION_PROMPT'
     });
 
-    const prompt = documentType === 'logbook'
+    const prompt = isLogbookType
       ? LOGBOOK_EXTRACTION_PROMPT
       : MAINTENANCE_EXTRACTION_PROMPT;
 

@@ -84,12 +84,18 @@ OTHER:
 - other: Cannot determine or doesn't fit above categories
 - unknown: Completely unrecognizable
 
-CLASSIFICATION TIPS:
-- PILOT LOGBOOK has columns: DATE, AIRCRAFT IDENT, FROM/TO, TOTAL TIME, PIC, landings. Usually personal.
-- AIRCRAFT LOGBOOK tracks airframe/engine hours, often has "Aircraft Log" title and single tail number
+CLASSIFICATION TIPS - VERY IMPORTANT:
+- PILOT LOGBOOK: Look for TABULAR structure with multiple rows of flight entries. Key indicators:
+  * Multiple columns with headers like: DATE, AIRCRAFT (tail numbers like N12345), FROM/TO (airport codes like KRHV, KLAX), TIME columns
+  * Rows of flight entries with dates, often handwritten
+  * Time columns may show decimal hours (1.5, 2.3) or hours:minutes
+  * May be on standard Jeppesen, ASA, or generic logbook paper with pre-printed column headers
+  * EVEN IF HANDWRITTEN OR SCANNED QUALITY - if it has flight date/aircraft/airport/time structure, it's a pilot_logbook
+  * The presence of MULTIPLE DIFFERENT tail numbers (N-numbers) strongly indicates pilot logbook (not aircraft logbook)
+- AIRCRAFT LOGBOOK: Tracks a SINGLE aircraft's airframe/engine hours. Has "Aircraft Log" title, ONE tail number throughout
 - Look for pilot NAME on cover of pilot logbooks
-- Look for TAIL NUMBER (N-number) prominently displayed on aircraft documents
 - Maintenance records have mechanic names, A&P numbers, work performed descriptions
+- When in doubt between pilot_logbook and other for a document with flight entries, choose pilot_logbook
 
 Output ONLY valid JSON (no markdown):
 {

@@ -1,8 +1,9 @@
 'use client';
 
-import { Plane, Users, Calendar, ArrowRight } from 'lucide-react';
+import { Plane, Users, Calendar, ArrowRight, Map } from 'lucide-react';
 import Link from 'next/link';
 import { useAircraft, usePilots, useFlights } from '@/lib/hooks';
+import FlightMapWrapper from '@/components/FlightMapWrapper';
 
 function StatCard({
   label,
@@ -79,6 +80,20 @@ export default function Dashboard() {
           href="/flights"
           color="bg-amber-500"
         />
+      </div>
+
+      {/* Flight Map */}
+      <div className="bg-white rounded-xl border border-zinc-200 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <Map className="w-5 h-5 text-blue-500" />
+            <h2 className="text-lg font-semibold text-zinc-900">Live Flight Map</h2>
+          </div>
+          <p className="text-sm text-zinc-500">
+            Click on toggles to filter flights
+          </p>
+        </div>
+        <FlightMapWrapper flights={flights} aircraft={aircraft} pilots={pilots} />
       </div>
 
       {/* Quick Actions */}

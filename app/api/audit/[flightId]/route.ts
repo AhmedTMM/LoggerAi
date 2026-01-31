@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/db';
 import Flight from '@/lib/models/Flight';
 import { runLegalityAudit } from '@/lib/services/legalityService';
+import { runComprehensiveSafetyAnalysis } from '@/lib/services/comprehensiveSafetyService';
 import { sendAuditEmail } from '@/lib/services/emailService';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60; // Allow up to 60 seconds for comprehensive analysis
 
 export async function POST(
   request: NextRequest,
@@ -14,8 +16,26 @@ export async function POST(
     await dbConnect();
     const { flightId } = params;
 
-    // Run the legality audit (this updates the flight document)
-    const result = await runLegalityAudit(flightId);
+    // Check for query params
+    const { searchParams } = new URL(request.url);
+    const comprehensive = searchParams.get('comprehensive') !== 'false'; // Default true
+
+    let result;
+    let comprehensiveAnalysis;
+
+    if (comprehensive) {
+      // Run comprehensive safety analysis
+      comprehensiveAnalysis = await runComprehensiveSafetyAnalysis(flightId);
+      result = {
+        overallStatus: comprehensiveAnalysis.goNoGoRecommendation,
+        checks: (await Flight.findById(flightId))?.legalityChecks || [],
+        summary: comprehensiveAnalysis.reasoning,
+        riskScenarios: comprehensiveAnalysis.combinedRiskScenarios,
+      };
+    } else {
+      // Run basic legality audit
+      result = await runLegalityAudit(flightId, false);
+    }
 
     // If no-go, send email alert
     if (result.overallStatus === 'no-go') {
@@ -36,16 +56,58 @@ export async function POST(
 
     // Return populated flight
     const populatedFlight = await Flight.findById(flightId)
-      .populate('pilot')
-      .populate('aircraft');
+      .populate('pilot', 'name email certificates experience safetyAnalysis')
+      .populate('aircraft', 'tailNumber model maintenanceDates currentHours operatingLimits safetyAnalysis');
 
     return NextResponse.json({
       success: true,
       data: populatedFlight,
       audit: result,
+      comprehensiveAnalysis: comprehensive ? comprehensiveAnalysis : undefined,
     });
   } catch (error) {
     console.error('Audit error:', error);
+    return NextResponse.json(
+      { success: false, error: (error as Error).message },
+      { status: 500 }
+    );
+  }
+}
+
+// GET to retrieve existing audit data
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { flightId: string } }
+) {
+  try {
+    await dbConnect();
+    const { flightId } = params;
+
+    const flight = await Flight.findById(flightId)
+      .populate('pilot', 'name email certificates experience safetyAnalysis')
+      .populate('aircraft', 'tailNumber model maintenanceDates currentHours operatingLimits safetyAnalysis');
+
+    if (!flight) {
+      return NextResponse.json(
+        { success: false, error: 'Flight not found' },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        flight,
+        safetyAnalysis: flight.safetyAnalysisSnapshot,
+        legalityChecks: flight.legalityChecks,
+        overallStatus: flight.overallStatus,
+        weather: {
+          departure: flight.weather,
+          arrival: flight.arrivalWeather,
+        },
+      },
+    });
+  } catch (error) {
     return NextResponse.json(
       { success: false, error: (error as Error).message },
       { status: 500 }

@@ -1,19 +1,17 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { FileText, Upload, Loader2, CheckCircle, AlertTriangle, X, Plane, User, Link2, Unlink, Trash2, Eye, Clock, Sparkles, Search, RefreshCw, FileUp, Brain, Filter, ChevronDown, ChevronUp, FileImage, Calendar, Hash, Star, AlertCircle, Handshake, PenTool } from 'lucide-react';
-import { useParsedDocuments, useDeleteParsedDocument, useLinkDocToAircraft, useAircraft, usePilots, useUploadDocument, useStartParsing } from '@/lib/hooks';
+import { FileText, Upload, Loader2, CheckCircle, AlertTriangle, X, Plane, Trash2, RefreshCw, Search } from 'lucide-react';
+import { useParsedDocuments, useDeleteParsedDocument, useLinkDocToAircraft, useAircraft, useUploadDocument, useStartParsing } from '@/lib/hooks';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { cn } from '@/lib/utils';
 
 type DocumentType = 'logbook' | 'maintenance' | 'poh' | 'other';
-type FilterType = 'all' | 'logbook' | 'maintenance' | 'pending' | 'completed' | 'failed';
 
 export default function FilesPage() {
   const { data: documents = [], isLoading, refetch } = useParsedDocuments();
   const { data: aircraft = [] } = useAircraft();
-  const { data: pilots = [] } = usePilots();
   const deleteDocument = useDeleteParsedDocument();
   const linkDoc = useLinkDocToAircraft();
   const uploadDocument = useUploadDocument();
@@ -24,12 +22,9 @@ export default function FilesPage() {
     stage: 'idle' | 'reading' | 'detecting' | 'analyzing' | 'uploading' | 'parsing';
     percent: number;
     message: string;
-    filename?: string;
-  }>({ stage: 'idle', percent: 0, message: '' });
+  }>({ stage: 'idle', message: '' });
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<FilterType>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedDoc, setSelectedDoc] = useState<any | null>(null);
   const [showLinkModal, setShowLinkModal] = useState<string | null>(null);
   const [detectedType, setDetectedType] = useState<DocumentType | null>(null);
   const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
@@ -56,29 +51,25 @@ export default function FilesPage() {
     }
   }, [parsingCount, refetch]);
 
-  // Detect document type from filename
   const detectDocumentType = useCallback((filename: string): DocumentType => {
     const lower = filename.toLowerCase();
     if (lower.includes('logbook') || lower.includes('flight') || lower.includes('pilot')) {
       return 'logbook';
     }
-    if (lower.includes('maintenance') || lower.includes('mx') || lower.includes('annual') || lower.includes('inspection') || lower.includes('aircraft')) {
+    if (lower.includes('maintenance') || lower.includes('mx') || lower.includes('annual')) {
       return 'maintenance';
     }
-    if (lower.includes('poh') || lower.includes('handbook') || lower.includes('manual')) {
+    if (lower.includes('poh') || lower.includes('handbook')) {
       return 'poh';
     }
-    return 'maintenance'; // Default to maintenance for aircraft docs
+    return 'maintenance';
   }, []);
 
-  const handleUpload = useCallback(async (file: File, forcedType?: DocumentType) => {
+  const handleUpload = useCallback(async (file: File) => {
     setUploadError(null);
-    setDetectedType(null);
 
-    // Check file size
-    const maxSize = 50 * 1024 * 1024;
-    if (file.size > maxSize) {
-      setUploadError(`File too large. Maximum size is 50MB. Your file is ${Math.round(file.size / 1024 / 1024)}MB.`);
+    if (file.size > 50 * 1024 * 1024) {
+      setUploadError('File too large. Maximum size is 50MB.');
       return;
     }
 
@@ -93,8 +84,8 @@ export default function FilesPage() {
       }
     };
     reader.onerror = () => {
-      setUploadError('Failed to read file. Please try again.');
-      setUploadProgress({ stage: 'idle', percent: 0, message: '' });
+      setUploadError('Failed to read file.');
+      setUploadProgress({ stage: 'idle', message: '' });
     };
     reader.onload = async (event) => {
       const base64 = (event.target?.result as string).split(',')[1];
@@ -119,12 +110,8 @@ export default function FilesPage() {
 
           // For large files parsed inline
           if (data?.status === 'completed') {
-            setUploadProgress({ stage: 'idle', percent: 100, message: 'Complete!', filename: file.name });
+            setUploadProgress({ stage: 'idle', message: '' });
             refetch();
-            setTimeout(() => {
-              setUploadProgress({ stage: 'idle', percent: 0, message: '' });
-              setDetectedType(null);
-            }, 2000);
             return;
           }
 
@@ -134,24 +121,20 @@ export default function FilesPage() {
           if (data?.documentId) {
             startParsing.mutate(data.documentId, {
               onSuccess: () => {
-                setUploadProgress({ stage: 'idle', percent: 100, message: 'Complete!', filename: file.name });
+                setUploadProgress({ stage: 'idle', message: '' });
                 refetch();
-                setTimeout(() => {
-                  setUploadProgress({ stage: 'idle', percent: 0, message: '' });
-                  setDetectedType(null);
-                }, 2000);
               },
-              onError: (err: any) => {
-                setUploadError(err?.message || 'Failed to parse document.');
-                setUploadProgress({ stage: 'idle', percent: 0, message: '' });
+              onError: () => {
+                setUploadError('Failed to parse document.');
+                setUploadProgress({ stage: 'idle', message: '' });
                 refetch();
               },
             });
           }
         },
-        onError: (err: any) => {
-          setUploadError(err?.message || 'Upload failed.');
-          setUploadProgress({ stage: 'idle', percent: 0, message: '' });
+        onError: () => {
+          setUploadError('Upload failed.');
+          setUploadProgress({ stage: 'idle', message: '' });
         },
       });
     };
@@ -173,30 +156,13 @@ export default function FilesPage() {
     e.target.value = '';
   }, [handleUpload]);
 
-  const handleLink = (docId: string, aircraftId: string | null) => {
-    linkDoc.mutate({ docId, aircraftId }, {
-      onSuccess: () => {
-        refetch();
-        setShowLinkModal(null);
-      },
-    });
-  };
-
   const handleDelete = (docId: string) => {
-    if (confirm('Delete this document? This cannot be undone.')) {
-      deleteDocument.mutate(docId, {
-        onSuccess: () => refetch(),
-      });
+    if (confirm('Delete this document?')) {
+      deleteDocument.mutate(docId, { onSuccess: () => refetch() });
     }
   };
 
-  // Filter documents
   const filteredDocs = documents.filter((doc: any) => {
-    if (filter === 'logbook' && doc.documentType !== 'logbook') return false;
-    if (filter === 'maintenance' && doc.documentType !== 'maintenance') return false;
-    if (filter === 'pending' && doc.status !== 'pending') return false;
-    if (filter === 'completed' && doc.status !== 'completed') return false;
-    if (filter === 'failed' && doc.status !== 'failed') return false;
     if (searchQuery && !doc.filename?.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     return true;
   });
@@ -339,43 +305,94 @@ export default function FilesPage() {
             </div>
           )}
         </div>
+        <Button variant="outline" onClick={() => refetch()}>
+          <RefreshCw className={cn("w-4 h-4 mr-2", isLoading && "animate-spin")} />
+          Refresh
+        </Button>
+      </div>
 
-        {/* Upload Error */}
-        {uploadError && (
-          <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-xl">
-            <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="text-sm font-medium text-red-800">Upload Failed</p>
-              <p className="text-sm text-red-600 mt-1">{uploadError}</p>
-            </div>
-            <button onClick={() => setUploadError(null)} className="text-red-400 hover:text-red-600">
-              <X className="w-4 h-4" />
-            </button>
+      {/* Upload Zone */}
+      <div
+        onDrop={handleDrop}
+        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+        onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
+        className={cn(
+          "relative border-2 border-dashed rounded-xl p-8 transition-all bg-white dark:bg-zinc-800",
+          isDragging
+            ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
+            : uploadProgress.stage !== 'idle'
+              ? "border-blue-300 dark:border-blue-700"
+              : "border-zinc-300 dark:border-zinc-600 hover:border-blue-400 dark:hover:border-blue-500 cursor-pointer"
+        )}
+      >
+        <input
+          type="file"
+          accept="application/pdf,image/*"
+          onChange={handleFileInput}
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+          disabled={uploadProgress.stage !== 'idle'}
+        />
+
+        {uploadProgress.stage !== 'idle' ? (
+          <div className="flex flex-col items-center">
+            <Loader2 className="w-12 h-12 text-blue-500 animate-spin mb-4" />
+            <p className="font-medium text-blue-700 dark:text-blue-300">{uploadProgress.message}</p>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center">
+            <Upload className="w-12 h-12 text-zinc-400 dark:text-zinc-500 mb-4" />
+            <p className="font-medium text-zinc-700 dark:text-zinc-300">Drop files here or click to upload</p>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-2">PDF or Image (max 50MB)</p>
           </div>
         )}
+      </div>
 
-        {/* Filters & Search */}
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-            <input
-              type="text"
-              placeholder="Search documents..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-zinc-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-            />
-          </div>
-          <div className="flex gap-2 overflow-x-auto pb-2 sm:pb-0">
-            {(['all', 'logbook', 'maintenance', 'completed', 'pending', 'failed'] as FilterType[]).map((f) => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
+      {/* Error */}
+      {uploadError && (
+        <div className="flex items-center gap-3 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl">
+          <AlertTriangle className="w-5 h-5 text-red-500" />
+          <span className="text-red-700 dark:text-red-300">{uploadError}</span>
+          <button onClick={() => setUploadError(null)} className="ml-auto text-red-400 hover:text-red-600">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+        <input
+          type="text"
+          placeholder="Search documents..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full pl-10 pr-4 py-2 border border-zinc-200 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
+        />
+      </div>
+
+      {/* Documents List */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+        </div>
+      ) : filteredDocs.length === 0 ? (
+        <div className="text-center py-12 bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700">
+          <FileText className="w-12 h-12 text-zinc-300 dark:text-zinc-600 mx-auto mb-4" />
+          <p className="text-zinc-500 dark:text-zinc-400">No documents found</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filteredDocs.map((doc: any) => {
+            const linkedAircraft = aircraft.find((a: any) => a._id === doc.aircraft);
+
+            return (
+              <div
+                key={doc._id}
                 className={cn(
-                  "px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors",
-                  filter === f
-                    ? "bg-indigo-100 text-indigo-700"
-                    : "bg-white text-zinc-600 hover:bg-zinc-100 border border-zinc-200"
+                  "bg-white dark:bg-zinc-800 rounded-xl border p-4 transition-all",
+                  doc.status === 'parsing' && "border-amber-200 dark:border-amber-800",
+                  doc.status === 'failed' && "border-red-200 dark:border-red-800",
+                  doc.status === 'completed' && "border-zinc-200 dark:border-zinc-700"
                 )}
               >
                 {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}
@@ -730,124 +747,52 @@ export default function FilesPage() {
                     </div>
                   )}
                 </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Link Modal */}
-        {showLinkModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold text-zinc-900">Link to Aircraft</h3>
-                <button onClick={() => setShowLinkModal(null)} className="text-zinc-400 hover:text-zinc-600">
-                  <X className="w-5 h-5" />
-                </button>
               </div>
-              <div className="space-y-2 max-h-64 overflow-y-auto">
+            );
+          })}
+        </div>
+      )}
+
+      {/* Link Modal */}
+      {showLinkModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-zinc-800 rounded-xl p-6 w-full max-w-md shadow-xl">
+            <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-4">Link to Aircraft</h3>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              <button
+                onClick={() => {
+                  linkDoc.mutate({ docId: showLinkModal, aircraftId: null }, { onSuccess: () => { refetch(); setShowLinkModal(null); } });
+                }}
+                className="w-full p-3 text-left rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-900"
+              >
+                <span className="text-zinc-600 dark:text-zinc-400">Unlink</span>
+              </button>
+              {aircraft.map((ac: any) => (
                 <button
-                  onClick={() => handleLink(showLinkModal, null)}
-                  className="w-full p-3 text-left rounded-lg border border-zinc-200 hover:bg-zinc-50 transition-colors"
+                  key={ac._id}
+                  onClick={() => {
+                    linkDoc.mutate({ docId: showLinkModal, aircraftId: ac._id }, { onSuccess: () => { refetch(); setShowLinkModal(null); } });
+                  }}
+                  className="w-full p-3 text-left rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-200 dark:hover:border-blue-800"
                 >
                   <div className="flex items-center gap-3">
-                    <Unlink className="w-5 h-5 text-zinc-400" />
-                    <span className="text-zinc-600">Unlink (no aircraft)</span>
+                    <Plane className="w-5 h-5 text-blue-500" />
+                    <div>
+                      <p className="font-medium text-zinc-900 dark:text-zinc-100">{ac.tailNumber}</p>
+                      <p className="text-sm text-zinc-500 dark:text-zinc-400">{ac.model}</p>
+                    </div>
                   </div>
                 </button>
-                {aircraft.map((ac: any) => (
-                  <button
-                    key={ac._id}
-                    onClick={() => handleLink(showLinkModal, ac._id)}
-                    className="w-full p-3 text-left rounded-lg border border-zinc-200 hover:bg-indigo-50 hover:border-indigo-200 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <Plane className="w-5 h-5 text-indigo-500" />
-                      <div>
-                        <p className="font-medium text-zinc-900">{ac.tailNumber}</p>
-                        <p className="text-sm text-zinc-500">{ac.make} {ac.model}</p>
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
+              ))}
+            </div>
+            <div className="mt-4">
+              <Button variant="outline" onClick={() => setShowLinkModal(null)} className="w-full">
+                Cancel
+              </Button>
             </div>
           </div>
-        )}
-
-        {/* Document Detail Modal */}
-        {selectedDoc && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col">
-              <div className="flex items-center justify-between p-6 border-b">
-                <div>
-                  <h3 className="text-lg font-bold text-zinc-900">{selectedDoc.filename}</h3>
-                  <div className="flex gap-2 mt-1">
-                    {getTypeBadge(selectedDoc.documentType)}
-                    {getStatusBadge(selectedDoc.status)}
-                  </div>
-                </div>
-                <button onClick={() => setSelectedDoc(null)} className="text-zinc-400 hover:text-zinc-600">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <div className="p-6 overflow-y-auto flex-1">
-                {selectedDoc.summary && (
-                  <div className="grid grid-cols-3 gap-4 mb-6">
-                    <div className="bg-zinc-50 rounded-lg p-3">
-                      <p className="text-xs text-zinc-500 uppercase tracking-wider">Entries</p>
-                      <p className="text-2xl font-bold text-zinc-900">{selectedDoc.summary.totalEntries}</p>
-                    </div>
-                    {selectedDoc.summary.totalHours > 0 && (
-                      <div className="bg-zinc-50 rounded-lg p-3">
-                        <p className="text-xs text-zinc-500 uppercase tracking-wider">Hours</p>
-                        <p className="text-2xl font-bold text-zinc-900">{selectedDoc.summary.totalHours.toFixed(1)}</p>
-                      </div>
-                    )}
-                    {selectedDoc.summary.dateRange && (
-                      <div className="bg-zinc-50 rounded-lg p-3">
-                        <p className="text-xs text-zinc-500 uppercase tracking-wider">Date Range</p>
-                        <p className="text-sm font-medium text-zinc-900">
-                          {new Date(selectedDoc.summary.dateRange.from).toLocaleDateString()} - {new Date(selectedDoc.summary.dateRange.to).toLocaleDateString()}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {selectedDoc.entries && selectedDoc.entries.length > 0 && (
-                  <div>
-                    <h4 className="font-semibold text-zinc-900 mb-3">Extracted Entries</h4>
-                    <div className="space-y-2 max-h-64 overflow-y-auto">
-                      {selectedDoc.entries.slice(0, 20).map((entry: any, idx: number) => (
-                        <div key={idx} className="text-sm p-3 bg-zinc-50 rounded-lg">
-                          <div className="flex justify-between">
-                            <span className="font-medium">{entry.date || 'No date'}</span>
-                            {(entry.totalTime || entry.duration) && (
-                              <span className="text-zinc-500">{entry.totalTime || entry.duration} hrs</span>
-                            )}
-                          </div>
-                          {entry.description && (
-                            <p className="text-zinc-600 mt-1">{entry.description}</p>
-                          )}
-                          {(entry.from || entry.to) && (
-                            <p className="text-zinc-500 mt-1">{entry.from} → {entry.to}</p>
-                          )}
-                        </div>
-                      ))}
-                      {selectedDoc.entries.length > 20 && (
-                        <p className="text-sm text-zinc-500 text-center py-2">
-                          + {selectedDoc.entries.length - 20} more entries
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

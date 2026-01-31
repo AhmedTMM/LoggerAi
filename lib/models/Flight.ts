@@ -120,6 +120,8 @@ export interface IFlight {
   _id: mongoose.Types.ObjectId;
   pilot: Types.ObjectId;
   aircraft: Types.ObjectId;
+  // Safety Audit Reference (Skyris Integration)
+  safetyAuditId?: Types.ObjectId;
   // Scheduling
   scheduledDate: Date;
   scheduledTime?: string; // HH:MM format for display
@@ -287,6 +289,11 @@ const FlightSchema = new Schema<IFlight>(
       type: Schema.Types.ObjectId,
       ref: 'Aircraft',
       required: true,
+      index: true,
+    },
+    safetyAuditId: {
+      type: Schema.Types.ObjectId,
+      ref: 'SafetyAudit',
       index: true,
     },
     scheduledDate: {

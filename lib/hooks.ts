@@ -256,6 +256,39 @@ export function useFetchAircraftImage() {
   });
 }
 
+// Upload document without parsing - for large files
+export function useUploadDocument() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params: {
+      fileBase64: string;
+      fileType: 'pdf' | 'image';
+      documentType: 'logbook' | 'maintenance' | 'poh' | 'other';
+      aircraftId?: string;
+      pilotId?: string;
+      filename?: string;
+    }) => documentApi.uploadOnly(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['parsedDocuments'] });
+    },
+  });
+}
+
+// Trigger parsing for an uploaded document
+export function useStartParsing() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (documentId: string) => documentApi.startParsing(documentId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['parsedDocuments'] });
+      queryClient.invalidateQueries({ queryKey: ['aircraft'] });
+      queryClient.invalidateQueries({ queryKey: ['pilots'] });
+    },
+  });
+}
+
 // Parsed Documents Hooks
 export function useParsedDocuments(params?: { aircraftId?: string; documentType?: string }) {
   return useQuery({

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Plane, Plus, AlertTriangle, CheckCircle, Clock, Wrench, Trash2, X, Upload, FileText, Loader2, Image as ImageIcon, Link2, Unlink, Search, ShieldCheck, Microscope, Sparkles, ChevronDown, Settings, Cog, Radio, BookOpen } from 'lucide-react';
-import { useAircraft, useCreateAircraft, useDeleteAircraft, useParseDocument, useParsedDocuments, useLinkDocToAircraft, useAircraftById } from '@/lib/hooks';
+import { useAircraft, useCreateAircraft, useDeleteAircraft, useParsedDocuments, useLinkDocToAircraft, useAircraftById, useUploadDocument, useStartParsing } from '@/lib/hooks';
 import type { Aircraft } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -15,7 +15,8 @@ export default function AircraftPage() {
     const { data: fleet, isLoading, error, refetch } = useAircraft();
     const createAircraft = useCreateAircraft();
     const deleteAircraft = useDeleteAircraft();
-    const parseDocument = useParseDocument();
+    const uploadDocument = useUploadDocument();
+    const startParsing = useStartParsing();
     const { data: parsedDocs, refetch: refetchDocs } = useParsedDocuments({ documentType: 'maintenance' });
     const linkDoc = useLinkDocToAircraft();
 
@@ -27,10 +28,11 @@ export default function AircraftPage() {
 
     const [showAddModal, setShowAddModal] = useState(false);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
-    const [showDocumentModal, setShowDocumentModal] = useState(false);
     const [activeTab, setActiveTab] = useState<'details' | 'logbooks' | 'analysis'>('details');
     const [logbookCategory, setLogbookCategory] = useState<LogbookCategory>('airframe');
     const [logbookYear, setLogbookYear] = useState<string>('All');
+    const [isDragging, setIsDragging] = useState(false);
+    const [uploadError, setUploadError] = useState<string | null>(null);
 
     useEffect(() => {
         setLogbookYear('All');

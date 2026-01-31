@@ -1,7 +1,139 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-// Gemini Pro 3 Preview - Latest model for all safety analysis
+// Gemini Pro 3 Preview - For complex safety analysis
 const GEMINI_MODEL = 'gemini-3-pro-preview';
+
+// Gemini Flash - For fast classification (much faster, under 5 seconds)
+const GEMINI_FLASH_MODEL = 'gemini-2.0-flash';
+
+// Document classification result type
+export interface FastDocumentClassification {
+  detectedType: 'logbook' | 'maintenance' | 'poh' | 'unknown';
+  confidence: number;
+  suggestedName: string;
+  pilotName?: string;
+  aircraftTailNumbers?: string[];
+  dateRange?: { from: string; to: string };
+  estimatedEntryCount: number;
+  documentQuality: 'excellent' | 'good' | 'fair' | 'poor';
+  qualityNotes: string[];
+  isHandwritten: boolean;
+  pageCount?: number;
+  summary: string;
+}
+
+/**
+ * Fast document classification using Gemini 2.0 Flash
+ * Analyzes document images/PDFs to determine type without heavy extraction
+ * Target: Under 10 seconds for classification
+ */
+export async function classifyDocumentFast(
+  fileBase64: string,
+  fileType: 'pdf' | 'image'
+): Promise<{ success: boolean; classification?: FastDocumentClassification; error?: string }> {
+  const startTime = Date.now();
+
+  try {
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error("Missing GEMINI_API_KEY");
+    }
+
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: GEMINI_FLASH_MODEL });
+
+    // For large files, we only need a sample for classification
+    // Gemini can handle up to ~20MB inline, but we limit for speed
+    const MAX_SAMPLE_SIZE = 4 * 1024 * 1024; // 4MB sample for classification
+    let sampleBase64 = fileBase64;
+
+    if (fileBase64.length > MAX_SAMPLE_SIZE) {
+      // For PDFs, take first portion (typically first pages)
+      // For images, this will just be a truncated image (may still work for header detection)
+      sampleBase64 = fileBase64.substring(0, MAX_SAMPLE_SIZE);
+      console.log(`[FastClassify] Sampling first ${(MAX_SAMPLE_SIZE / 1024 / 1024).toFixed(1)}MB of ${(fileBase64.length / 1024 / 1024).toFixed(1)}MB file`);
+    }
+
+    const prompt = `You are an expert aviation document classifier. Analyze this document quickly and identify its type.
+
+DOCUMENT TYPES:
+1. PILOT LOGBOOK - Flight entries with dates, aircraft tail numbers, times (SEL, MEL, PIC, etc.), landings
+2. MAINTENANCE LOG - Aircraft maintenance records with dates, work descriptions, mechanic signatures
+3. POH - Pilot Operating Handbook with V-speeds, performance charts, emergency procedures
+4. UNKNOWN - Cannot determine
+
+QUICK INDICATORS:
+- Logbook: Columns like DATE, AIRCRAFT, FROM/TO, TOTAL TIME, PIC, landings columns
+- Maintenance: Work descriptions, hobbs/tach times, mechanic names, "annual inspection"
+- POH: Sections, performance tables, V-speeds, checklists
+
+Output ONLY valid JSON (no markdown):
+{
+  "detectedType": "logbook" | "maintenance" | "poh" | "unknown",
+  "confidence": 0.0-1.0,
+  "suggestedName": "Descriptive name",
+  "pilotName": "Name if visible on logbook cover",
+  "aircraftTailNumbers": ["N12345"],
+  "dateRange": {"from": "YYYY-MM-DD", "to": "YYYY-MM-DD"},
+  "estimatedEntryCount": 50,
+  "documentQuality": "excellent" | "good" | "fair" | "poor",
+  "qualityNotes": ["Handwritten", "Some faded text"],
+  "isHandwritten": true/false,
+  "pageCount": 10,
+  "summary": "Brief 1-2 sentence description"
+}`;
+
+    const mimeType = fileType === 'pdf' ? 'application/pdf' : 'image/png';
+
+    const result = await model.generateContent([
+      prompt,
+      {
+        inlineData: {
+          mimeType,
+          data: sampleBase64
+        }
+      }
+    ]);
+
+    const response = await result.response;
+    const text = response.text();
+
+    // Clean up potential markdown formatting
+    const jsonString = text.replace(/```json/g, '').replace(/```/g, '').trim();
+
+    let classification: FastDocumentClassification;
+    try {
+      classification = JSON.parse(jsonString);
+    } catch (parseError) {
+      console.error('[FastClassify] Failed to parse AI response:', text);
+      // Return a fallback classification
+      classification = {
+        detectedType: 'unknown',
+        confidence: 0.3,
+        suggestedName: `Document_${Date.now()}`,
+        estimatedEntryCount: 0,
+        documentQuality: 'fair',
+        qualityNotes: ['Could not fully analyze document'],
+        isHandwritten: false,
+        summary: 'Document type could not be determined'
+      };
+    }
+
+    const duration = Date.now() - startTime;
+    console.log(`[FastClassify] Completed in ${duration}ms - Type: ${classification.detectedType}, Confidence: ${classification.confidence}`);
+
+    return {
+      success: true,
+      classification
+    };
+
+  } catch (error) {
+    console.error('[FastClassify] Error:', error);
+    return {
+      success: false,
+      error: (error as Error).message
+    };
+  }
+}
 
 interface LogbookEntry {
     date: string;

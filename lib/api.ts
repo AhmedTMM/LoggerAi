@@ -312,6 +312,14 @@ export const parsedDocumentApi = {
     return data.data;
   },
 
+  linkToPilot: async (docId: string, pilotId: string | null): Promise<any> => {
+    const data = await fetchAPI<ApiResponse<any>>(`/parse-document/${docId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ pilotId }),
+    });
+    return data.data;
+  },
+
   delete: async (id: string): Promise<void> => {
     await fetchAPI(`/parse-document/${id}`, { method: 'DELETE' });
   },

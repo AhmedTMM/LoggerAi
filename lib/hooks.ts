@@ -318,6 +318,19 @@ export function useLinkDocToAircraft() {
   });
 }
 
+export function useLinkDocToPilot() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ docId, pilotId }: { docId: string; pilotId: string | null }) =>
+      parsedDocumentApi.linkToPilot(docId, pilotId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['parsedDocuments'] });
+      queryClient.invalidateQueries({ queryKey: ['pilots'] });
+    },
+  });
+}
+
 export function useDeleteParsedDocument() {
   const queryClient = useQueryClient();
 

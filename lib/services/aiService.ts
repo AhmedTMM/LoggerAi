@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { DetectedDocumentType, DocumentType } from '@/lib/models/ParsedDocument';
 
 // Gemini Pro 3 Preview - For complex safety analysis
 const GEMINI_MODEL = 'gemini-3-pro-preview';
@@ -6,9 +7,9 @@ const GEMINI_MODEL = 'gemini-3-pro-preview';
 // Gemini Flash - For fast classification (much faster, under 5 seconds)
 const GEMINI_FLASH_MODEL = 'gemini-2.0-flash';
 
-// Document classification result type
+// Document classification result type with expanded types
 export interface FastDocumentClassification {
-  detectedType: 'logbook' | 'maintenance' | 'poh' | 'unknown';
+  detectedType: DetectedDocumentType;
   confidence: number;
   suggestedName: string;
   pilotName?: string;
@@ -20,6 +21,9 @@ export interface FastDocumentClassification {
   isHandwritten: boolean;
   pageCount?: number;
   summary: string;
+  // For auto-attachment matching
+  matchedPilotName?: string;    // Exact pilot name found in document
+  matchedAircraftTails?: string[]; // Tail numbers found in document
 }
 
 /**
@@ -55,31 +59,54 @@ export async function classifyDocumentFast(
 
     const prompt = `You are an expert aviation document classifier. Analyze this document quickly and identify its type.
 
-DOCUMENT TYPES:
-1. PILOT LOGBOOK - Flight entries with dates, aircraft tail numbers, times (SEL, MEL, PIC, etc.), landings
-2. MAINTENANCE LOG - Aircraft maintenance records with dates, work descriptions, mechanic signatures
-3. POH - Pilot Operating Handbook with V-speeds, performance charts, emergency procedures
-4. UNKNOWN - Cannot determine
+DOCUMENT TYPES (choose the most specific match):
 
-QUICK INDICATORS:
-- Logbook: Columns like DATE, AIRCRAFT, FROM/TO, TOTAL TIME, PIC, landings columns
-- Maintenance: Work descriptions, hobbs/tach times, mechanic names, "annual inspection"
-- POH: Sections, performance tables, V-speeds, checklists
+PILOT-RELATED DOCUMENTS:
+- pilot_logbook: Personal pilot flight logbook with dates, aircraft, times (SEL, MEL, PIC), landings, remarks
+- medical: FAA medical certificate showing class, date, pilot name
+- certificate: Pilot certificate/license (PPL, CPL, ATP, Sport Pilot)
+- endorsement: Instructor endorsements for training (solo, checkride, etc.)
+- checkout: Aircraft checkout form or proficiency check record
+
+AIRCRAFT-RELATED DOCUMENTS:
+- aircraft_logbook: Aircraft's own flight/journey logbook tracking hours on the airframe
+- maintenance: Maintenance records with work descriptions, mechanic signatures
+- inspection: Specific inspection records (annual, 100-hour, progressive)
+- poh: Pilot Operating Handbook with V-speeds, performance, emergency procedures
+- weight_balance: Weight & balance sheets or calculations
+- insurance: Aircraft insurance documents
+- registration: FAA aircraft registration (N-number documentation)
+- ad_compliance: Airworthiness Directive compliance records
+- service_bulletin: Service bulletin compliance documentation
+
+OTHER:
+- logbook: Generic logbook if you can't distinguish pilot vs aircraft
+- other: Cannot determine or doesn't fit above categories
+- unknown: Completely unrecognizable
+
+CLASSIFICATION TIPS:
+- PILOT LOGBOOK has columns: DATE, AIRCRAFT IDENT, FROM/TO, TOTAL TIME, PIC, landings. Usually personal.
+- AIRCRAFT LOGBOOK tracks airframe/engine hours, often has "Aircraft Log" title and single tail number
+- Look for pilot NAME on cover of pilot logbooks
+- Look for TAIL NUMBER (N-number) prominently displayed on aircraft documents
+- Maintenance records have mechanic names, A&P numbers, work performed descriptions
 
 Output ONLY valid JSON (no markdown):
 {
-  "detectedType": "logbook" | "maintenance" | "poh" | "unknown",
+  "detectedType": "pilot_logbook" | "aircraft_logbook" | "maintenance" | "inspection" | "poh" | "weight_balance" | "insurance" | "registration" | "medical" | "certificate" | "endorsement" | "checkout" | "ad_compliance" | "service_bulletin" | "logbook" | "other" | "unknown",
   "confidence": 0.0-1.0,
-  "suggestedName": "Descriptive name",
-  "pilotName": "Name if visible on logbook cover",
-  "aircraftTailNumbers": ["N12345"],
+  "suggestedName": "Descriptive name based on content",
+  "pilotName": "Full pilot name if visible (for pilot documents)",
+  "aircraftTailNumbers": ["N12345", "N67890"],
   "dateRange": {"from": "YYYY-MM-DD", "to": "YYYY-MM-DD"},
   "estimatedEntryCount": 50,
   "documentQuality": "excellent" | "good" | "fair" | "poor",
-  "qualityNotes": ["Handwritten", "Some faded text"],
+  "qualityNotes": ["Handwritten", "Some faded text", "Multi-page scan"],
   "isHandwritten": true/false,
   "pageCount": 10,
-  "summary": "Brief 1-2 sentence description"
+  "summary": "Brief 1-2 sentence description",
+  "matchedPilotName": "Exact pilot name found (null if none)",
+  "matchedAircraftTails": ["N12345"]
 }`;
 
     const mimeType = fileType === 'pdf' ? 'application/pdf' : 'image/png';
@@ -103,6 +130,10 @@ Output ONLY valid JSON (no markdown):
     let classification: FastDocumentClassification;
     try {
       classification = JSON.parse(jsonString);
+      // Normalize legacy types to new types
+      if (classification.detectedType === 'logbook' && classification.pilotName) {
+        classification.detectedType = 'pilot_logbook';
+      }
     } catch (parseError) {
       console.error('[FastClassify] Failed to parse AI response:', text);
       // Return a fallback classification
@@ -114,7 +145,9 @@ Output ONLY valid JSON (no markdown):
         documentQuality: 'fair',
         qualityNotes: ['Could not fully analyze document'],
         isHandwritten: false,
-        summary: 'Document type could not be determined'
+        summary: 'Document type could not be determined',
+        matchedPilotName: undefined,
+        matchedAircraftTails: []
       };
     }
 

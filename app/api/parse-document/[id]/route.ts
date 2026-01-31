@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/db';
 import ParsedDocument from '@/lib/models/ParsedDocument';
+import Aircraft from '@/lib/models/Aircraft';
+import Pilot from '@/lib/models/Pilot';
 
 // GET: Get a single parsed document with full data
 export async function GET(
@@ -29,7 +31,7 @@ export async function GET(
     }
 }
 
-// PATCH: Update document (link to aircraft, etc.)
+// PATCH: Update document (link to aircraft, pilot, etc.)
 export async function PATCH(
     request: NextRequest,
     { params }: { params: { id: string } }
@@ -39,22 +41,68 @@ export async function PATCH(
         const body = await request.json();
         const { aircraftId, pilotId } = body;
 
-        const update: Record<string, any> = {};
-        if (aircraftId !== undefined) update.aircraft = aircraftId || null;
-        if (pilotId !== undefined) update.pilot = pilotId || null;
-
-        const doc = await ParsedDocument.findByIdAndUpdate(
-            params.id,
-            { $set: update },
-            { new: true }
-        ).lean();
-
-        if (!doc) {
+        // Get current document to check existing links
+        const currentDoc = await ParsedDocument.findById(params.id);
+        if (!currentDoc) {
             return NextResponse.json(
                 { success: false, error: 'Document not found' },
                 { status: 404 }
             );
         }
+
+        const update: Record<string, any> = {};
+
+        // Handle aircraft linking/unlinking
+        if (aircraftId !== undefined) {
+            const newAircraftId = aircraftId || null;
+            const oldAircraftId = currentDoc.aircraft?.toString();
+
+            update.aircraft = newAircraftId;
+
+            // Remove from old aircraft's linkedDocuments
+            if (oldAircraftId && oldAircraftId !== newAircraftId) {
+                await Aircraft.findByIdAndUpdate(oldAircraftId, {
+                    $pull: { linkedDocuments: params.id }
+                });
+            }
+
+            // Add to new aircraft's linkedDocuments
+            if (newAircraftId && newAircraftId !== oldAircraftId) {
+                await Aircraft.findByIdAndUpdate(newAircraftId, {
+                    $addToSet: { linkedDocuments: params.id }
+                });
+            }
+        }
+
+        // Handle pilot linking/unlinking
+        if (pilotId !== undefined) {
+            const newPilotId = pilotId || null;
+            const oldPilotId = currentDoc.pilot?.toString();
+
+            update.pilot = newPilotId;
+
+            // Remove from old pilot's linkedDocuments
+            if (oldPilotId && oldPilotId !== newPilotId) {
+                await Pilot.findByIdAndUpdate(oldPilotId, {
+                    $pull: { linkedDocuments: params.id }
+                });
+            }
+
+            // Add to new pilot's linkedDocuments
+            if (newPilotId && newPilotId !== oldPilotId) {
+                await Pilot.findByIdAndUpdate(newPilotId, {
+                    $addToSet: { linkedDocuments: params.id }
+                });
+            }
+        }
+
+        const doc = await ParsedDocument.findByIdAndUpdate(
+            params.id,
+            { $set: update },
+            { new: true }
+        ).populate('aircraft', 'tailNumber model')
+         .populate('pilot', 'name email')
+         .lean();
 
         return NextResponse.json({ success: true, data: doc });
     } catch (error) {

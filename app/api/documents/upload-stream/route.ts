@@ -6,6 +6,7 @@ import Pilot from '@/lib/models/Pilot';
 import { parseDocumentFast, StepLog } from '@/lib/services/reductoService';
 import { classifyDocumentFast } from '@/lib/services/aiService';
 import { saveFile } from '@/lib/services/fileStorage';
+import { suggestAttachments, mapDetectedTypeToStorageType, isPilotDocument, isAircraftDocument } from '@/lib/services/autoAttachService';
 
 // Allow longer timeout for large file processing
 export const maxDuration = 300;
@@ -110,9 +111,11 @@ export async function POST(request: NextRequest) {
         const isLargeFile = fileBase64.length > MONGODB_SAFE_SIZE;
 
         // Step 1: Analyze document to determine type and quality
-        let analysis = null;
+        let analysis: any = null;
         let documentType = requestedDocType || 'other';
         let suggestedName = originalFilename;
+        let autoAttachPilotId = pilotId;
+        let autoAttachAircraftId = aircraftId;
 
         if (!skipAnalysis) {
           sendLog({
@@ -133,12 +136,13 @@ export async function POST(request: NextRequest) {
               analysis = classificationResult.classification;
               // Use detected type if confidence is high enough
               if (analysis.confidence >= 0.7 && analysis.detectedType !== 'unknown') {
-                documentType = analysis.detectedType;
+                // Map detected type to storage type
+                documentType = mapDetectedTypeToStorageType(analysis.detectedType);
                 sendLog({
                   step: 'classifying',
                   message: `Document classified as: ${documentType} (${Math.round(analysis.confidence * 100)}% confidence) in ${(classifyDuration / 1000).toFixed(1)}s`,
                   timestamp: new Date(),
-                  progress: 35,
+                  progress: 30,
                   duration: classifyDuration,
                   details: {
                     detectedType: analysis.detectedType,
@@ -148,6 +152,74 @@ export async function POST(request: NextRequest) {
                     classificationTimeMs: classifyDuration
                   }
                 });
+
+                // Step 1b: Auto-suggest attachments based on classification
+                if (!pilotId && !aircraftId) {
+                  sendLog({
+                    step: 'analyzing',
+                    message: 'Matching document to existing pilots/aircraft...',
+                    timestamp: new Date(),
+                    progress: 32,
+                    duration: 0
+                  });
+
+                  try {
+                    const attachSuggestions = await suggestAttachments(analysis);
+
+                    if (attachSuggestions.attachmentConfidence >= 0.7) {
+                      // High confidence - auto-attach
+                      if (attachSuggestions.suggestedPilotId) {
+                        autoAttachPilotId = attachSuggestions.suggestedPilotId;
+                      }
+                      if (attachSuggestions.suggestedAircraftId) {
+                        autoAttachAircraftId = attachSuggestions.suggestedAircraftId;
+                      }
+
+                      sendLog({
+                        step: 'classifying',
+                        message: `Auto-linked: ${attachSuggestions.attachmentReason}`,
+                        timestamp: new Date(),
+                        progress: 35,
+                        duration: 0,
+                        details: {
+                          pilot: attachSuggestions.suggestedPilotName,
+                          aircraft: attachSuggestions.suggestedAircraftTail,
+                          confidence: Math.round(attachSuggestions.attachmentConfidence * 100)
+                        }
+                      });
+
+                      // Store suggestions in analysis for UI display
+                      analysis.suggestedPilotId = attachSuggestions.suggestedPilotId;
+                      analysis.suggestedAircraftId = attachSuggestions.suggestedAircraftId;
+                      analysis.attachmentConfidence = attachSuggestions.attachmentConfidence;
+                      analysis.attachmentReason = attachSuggestions.attachmentReason;
+                    } else if (attachSuggestions.suggestedPilotId || attachSuggestions.suggestedAircraftId) {
+                      // Low confidence - suggest but don't auto-attach
+                      sendLog({
+                        step: 'classifying',
+                        message: `Suggested match (${Math.round(attachSuggestions.attachmentConfidence * 100)}% confidence): ${attachSuggestions.attachmentReason}`,
+                        timestamp: new Date(),
+                        progress: 35,
+                        duration: 0,
+                        details: {
+                          pilot: attachSuggestions.suggestedPilotName,
+                          aircraft: attachSuggestions.suggestedAircraftTail,
+                          confidence: Math.round(attachSuggestions.attachmentConfidence * 100),
+                          autoAttached: false
+                        }
+                      });
+
+                      // Store suggestions for manual confirmation
+                      analysis.suggestedPilotId = attachSuggestions.suggestedPilotId;
+                      analysis.suggestedAircraftId = attachSuggestions.suggestedAircraftId;
+                      analysis.attachmentConfidence = attachSuggestions.attachmentConfidence;
+                      analysis.attachmentReason = attachSuggestions.attachmentReason;
+                    }
+                  } catch (attachError) {
+                    console.error('Auto-attachment error:', attachError);
+                    // Non-critical - continue without auto-attachment
+                  }
+                }
               } else {
                 sendLog({
                   step: 'classifying',
@@ -227,13 +299,27 @@ export async function POST(request: NextRequest) {
           progress: isLargeFile ? 10 : 0,
           progressStep: isLargeFile ? 'queued' : 'pending',
           retryCount: 0,
-          aircraft: aircraftId || undefined,
-          pilot: pilotId || undefined,
+          aircraft: autoAttachAircraftId || undefined,
+          pilot: autoAttachPilotId || undefined,
           analysis: analysis || undefined,
           filePath: storedFile?.relativePath,
           fileSize: storedFile?.size || fileSizeBytes,
           fileBase64: (!storedFile && !isLargeFile) ? fileBase64 : undefined,
         });
+
+        // If auto-attached, also update the pilot/aircraft linkedDocuments
+        if (autoAttachPilotId && autoAttachPilotId !== pilotId) {
+          await Pilot.findByIdAndUpdate(
+            autoAttachPilotId,
+            { $addToSet: { linkedDocuments: doc._id } }
+          );
+        }
+        if (autoAttachAircraftId && autoAttachAircraftId !== aircraftId) {
+          await Aircraft.findByIdAndUpdate(
+            autoAttachAircraftId,
+            { $addToSet: { linkedDocuments: doc._id } }
+          );
+        }
 
         sendLog({
           step: 'initializing',
@@ -319,8 +405,9 @@ export async function POST(request: NextRequest) {
               summary,
             });
 
-            // Update linked aircraft if maintenance type
-            if (aircraftId && documentType === 'maintenance' && entries.length > 0) {
+            // Update linked aircraft if aircraft-related document
+            const aircraftDocTypes = ['aircraft_logbook', 'maintenance', 'inspection', 'ad_compliance', 'service_bulletin'];
+            if (autoAttachAircraftId && aircraftDocTypes.includes(documentType) && entries.length > 0) {
               sendLog({
                 step: 'structuring',
                 message: 'Updating linked aircraft records...',
@@ -328,11 +415,12 @@ export async function POST(request: NextRequest) {
                 progress: 97,
                 duration: 0
               });
-              await updateAircraftFromParsedData(aircraftId, entries, result.data?.extractedData);
+              await updateAircraftFromParsedData(autoAttachAircraftId, entries, result.data?.extractedData);
             }
 
-            // Update linked pilot if logbook type
-            if (pilotId && documentType === 'logbook') {
+            // Update linked pilot if pilot logbook type
+            const pilotDocTypes = ['pilot_logbook', 'logbook'];
+            if (autoAttachPilotId && pilotDocTypes.includes(documentType) && entries.length > 0) {
               sendLog({
                 step: 'structuring',
                 message: 'Updating linked pilot records...',
@@ -340,7 +428,7 @@ export async function POST(request: NextRequest) {
                 progress: 98,
                 duration: 0
               });
-              await updatePilotFromParsedData(pilotId, entries);
+              await updatePilotFromParsedData(autoAttachPilotId, entries);
             }
 
             sendLog({
@@ -371,7 +459,11 @@ export async function POST(request: NextRequest) {
               summary,
               analysis: analysis || undefined,
               filePath: storedFile?.relativePath,
-              entryCount: entries.length
+              entryCount: entries.length,
+              autoAttached: {
+                pilotId: autoAttachPilotId !== pilotId ? autoAttachPilotId : undefined,
+                aircraftId: autoAttachAircraftId !== aircraftId ? autoAttachAircraftId : undefined
+              }
             });
 
           } catch (parseError) {

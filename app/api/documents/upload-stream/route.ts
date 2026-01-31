@@ -6,24 +6,19 @@ import Pilot from '@/lib/models/Pilot';
 import { parseDocumentUltraFast, StepLog } from '@/lib/services/reductoService';
 import { classifyDocumentFast } from '@/lib/services/aiService';
 import { saveFile } from '@/lib/services/fileStorage';
-import { suggestAttachments, mapDetectedTypeToStorageType, isPilotDocument, isAircraftDocument } from '@/lib/services/autoAttachService';
+import { suggestAttachments, mapDetectedTypeToStorageType } from '@/lib/services/autoAttachService';
 
-// Allow longer timeout for large file processing
 export const maxDuration = 300;
 
-// MongoDB has a 16MB document limit. Base64 adds ~33% overhead.
-const MONGODB_SAFE_SIZE = 10 * 1024 * 1024; // 10MB base64
+const MONGODB_SAFE_SIZE = 10 * 1024 * 1024;
 
-// SSE helper to format messages
 function formatSSE(event: string, data: any): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
-// Streaming upload endpoint with Server-Sent Events for real-time progress
 export async function POST(request: NextRequest) {
   const encoder = new TextEncoder();
 
-  // Create a readable stream for SSE
   const stream = new ReadableStream({
     async start(controller) {
       const sendEvent = (event: string, data: any) => {
@@ -42,7 +37,6 @@ export async function POST(request: NextRequest) {
       };
 
       try {
-        // Parse request body
         sendLog({
           step: 'initializing',
           message: 'Receiving upload request...',
@@ -55,13 +49,13 @@ export async function POST(request: NextRequest) {
         try {
           const rawBody = await request.text();
           body = JSON.parse(rawBody);
-        } catch (parseError) {
-          sendEvent('error', { message: 'Failed to parse request. File may be too large (max 50MB).' });
+        } catch {
+          sendEvent('error', { message: 'Failed to parse request.' });
           controller.close();
           return;
         }
 
-        const { fileBase64, fileType, documentType: requestedDocType, aircraftId, pilotId, filename, skipAnalysis } = body;
+        const { fileBase64, fileType, documentType: requestedDocType, aircraftId, pilotId, filename } = body;
 
         if (!fileBase64 || !fileType) {
           sendEvent('error', { message: 'Missing required fields: fileBase64, fileType' });
@@ -69,29 +63,16 @@ export async function POST(request: NextRequest) {
           return;
         }
 
-        // Validate file size
         const fileSizeBytes = Math.ceil((fileBase64.length * 3) / 4);
-        const maxSizeBytes = 50 * 1024 * 1024;
-
-        sendLog({
-          step: 'validating',
-          message: `Validating file (${(fileSizeBytes / 1024 / 1024).toFixed(2)} MB)...`,
-          timestamp: new Date(),
-          progress: 3,
-          duration: 0,
-          details: { sizeBytes: fileSizeBytes, sizeMB: (fileSizeBytes / 1024 / 1024).toFixed(2) }
-        });
-
-        if (fileSizeBytes > maxSizeBytes) {
-          sendEvent('error', { message: `File too large. Maximum size is 50MB. Your file is ${Math.round(fileSizeBytes / 1024 / 1024)}MB` });
+        if (fileSizeBytes > 50 * 1024 * 1024) {
+          sendEvent('error', { message: 'File too large. Maximum size is 50MB.' });
           controller.close();
           return;
         }
 
-        // Connect to database
         sendLog({
-          step: 'initializing',
-          message: 'Connecting to database...',
+          step: 'validating',
+          message: `Validating file (${(fileSizeBytes / 1024 / 1024).toFixed(2)} MB)...`,
           timestamp: new Date(),
           progress: 5,
           duration: 0
@@ -103,14 +84,14 @@ export async function POST(request: NextRequest) {
           step: 'initializing',
           message: 'Database connected',
           timestamp: new Date(),
-          progress: 7,
+          progress: 10,
           duration: 0
         });
 
         const originalFilename = filename || `document_${Date.now()}.${fileType === 'pdf' ? 'pdf' : 'png'}`;
         const isLargeFile = fileBase64.length > MONGODB_SAFE_SIZE;
 
-        // ULTRA-FAST PARALLEL PROCESSING: Run classification and file save simultaneously
+        // Classify document
         let analysis: any = null;
         let documentType = requestedDocType || 'other';
         let suggestedName = originalFilename;
@@ -120,117 +101,96 @@ export async function POST(request: NextRequest) {
 
         sendLog({
           step: 'analyzing',
-          message: 'Starting parallel processing (classification + file save)...',
+          message: 'Analyzing document with AI...',
           timestamp: new Date(),
-          progress: 10,
+          progress: 15,
           duration: 0
         });
 
-          try {
-            // Use fast Gemini Flash classification instead of slow Reducto analysis
-            const classifyStart = Date.now();
-            const classificationResult = await classifyDocumentFast(fileBase64, fileType);
-            const classifyDuration = Date.now() - classifyStart;
+        try {
+          const classifyStart = Date.now();
+          const classificationResult = await classifyDocumentFast(fileBase64, fileType);
+          const classifyDuration = Date.now() - classifyStart;
 
-            if (classificationResult.success && classificationResult.classification) {
-              analysis = classificationResult.classification;
+          if (classificationResult.success && classificationResult.classification) {
+            analysis = classificationResult.classification;
+            const confidenceThreshold = 0.5;
 
-              // Lower confidence threshold for logbook types (they're harder to classify from scans)
-              const logbookTypes = ['pilot_logbook', 'aircraft_logbook', 'logbook'];
-              const isLogbookType = logbookTypes.includes(analysis.detectedType);
-              const confidenceThreshold = isLogbookType ? 0.5 : 0.7;
+            if (analysis.confidence >= confidenceThreshold && analysis.detectedType !== 'unknown') {
+              documentType = mapDetectedTypeToStorageType(analysis.detectedType);
+              sendLog({
+                step: 'classifying',
+                message: `Classified as: ${documentType} (${Math.round(analysis.confidence * 100)}%)`,
+                timestamp: new Date(),
+                progress: 25,
+                duration: classifyDuration
+              });
 
-              // Map legacy 'logbook' type to 'pilot_logbook' if it looks like pilot logbook
-              if (analysis.detectedType === 'logbook') {
-                // If there are multiple tail numbers or pilot name, it's likely a pilot logbook
-                const hasMultipleTails = analysis.aircraftTailNumbers && analysis.aircraftTailNumbers.length > 1;
-                const hasPilotName = !!analysis.pilotName || !!analysis.matchedPilotName;
-                if (hasMultipleTails || hasPilotName || analysis.estimatedEntryCount > 5) {
-                  analysis.detectedType = 'pilot_logbook';
-                }
-              }
-
-              // Use detected type if confidence is high enough
-              if (analysis.confidence >= confidenceThreshold && analysis.detectedType !== 'unknown') {
-                // Map detected type to storage type
-                documentType = mapDetectedTypeToStorageType(analysis.detectedType);
-                sendLog({
-                  step: 'classifying',
-                  message: `Document classified as: ${documentType} (${Math.round(analysis.confidence * 100)}% confidence) in ${(classifyDuration / 1000).toFixed(1)}s`,
-                  timestamp: new Date(),
-                  progress: 30,
-                  duration: classifyDuration,
-                  details: {
-                    detectedType: analysis.detectedType,
-                    confidence: analysis.confidence,
-                    quality: analysis.documentQuality,
-                    isHandwritten: analysis.isHandwritten,
-                    classificationTimeMs: classifyDuration
+              // Try to auto-attach
+              try {
+                const attachSuggestions = await suggestAttachments(analysis);
+                if (attachSuggestions.attachmentConfidence >= 0.7) {
+                  if (attachSuggestions.suggestedPilotId) {
+                    autoAttachPilotId = attachSuggestions.suggestedPilotId;
                   }
-                });
-
+                  if (attachSuggestions.suggestedAircraftId) {
+                    autoAttachAircraftId = attachSuggestions.suggestedAircraftId;
+                  }
                   sendLog({
                     step: 'classifying',
                     message: `Auto-linked: ${attachSuggestions.attachmentReason}`,
                     timestamp: new Date(),
-                    progress: 35,
-                    duration: 0,
-                    details: {
-                      pilot: attachSuggestions.suggestedPilotName,
-                      aircraft: attachSuggestions.suggestedAircraftTail,
-                      confidence: Math.round(attachSuggestions.attachmentConfidence * 100)
-                    }
+                    progress: 30,
+                    duration: 0
                   });
-                } else if (attachSuggestions.suggestedPilotId || attachSuggestions.suggestedAircraftId) {
-                  analysis.suggestedPilotId = attachSuggestions.suggestedPilotId;
-                  analysis.suggestedAircraftId = attachSuggestions.suggestedAircraftId;
-                  analysis.attachmentConfidence = attachSuggestions.attachmentConfidence;
-                  analysis.attachmentReason = attachSuggestions.attachmentReason;
                 }
               } catch (attachError) {
                 console.error('Auto-attachment error:', attachError);
               }
             }
-          } else {
-            sendLog({
-              step: 'classifying',
-              message: `Classification done (low confidence: ${Math.round(analysis?.confidence * 100 || 0)}%)`,
-              timestamp: new Date(),
-              progress: 35,
-              duration: parallelDuration
-            });
+
+            if (analysis.suggestedName) {
+              suggestedName = analysis.suggestedName;
+            }
           }
-          if (analysis?.suggestedName) {
-            suggestedName = analysis.suggestedName;
-          }
-        } else {
-          sendLog({
-            step: 'uploading',
-            message: `File saved in ${(parallelDuration / 1000).toFixed(1)}s`,
-            timestamp: new Date(),
-            progress: 35,
-            duration: parallelDuration,
-            details: { path: storedFile?.relativePath }
-          });
+        } catch (classifyError) {
+          console.error('Classification error:', classifyError);
         }
 
-        // Create document record
+        // Save large files to disk
+        if (isLargeFile) {
+          sendLog({
+            step: 'uploading',
+            message: 'Saving file to disk...',
+            timestamp: new Date(),
+            progress: 35,
+            duration: 0
+          });
+          storedFile = await saveFile(
+            fileBase64,
+            originalFilename,
+            fileType,
+            'other'
+          );
+        }
+
         sendLog({
           step: 'initializing',
           message: 'Creating document record...',
           timestamp: new Date(),
-          progress: 44,
+          progress: 40,
           duration: 0
         });
 
+        // Create document record
         const doc = await ParsedDocument.create({
           filename: suggestedName,
           originalFilename,
           documentType,
           fileType,
-          status: isLargeFile ? 'parsing' : 'pending',
-          progress: isLargeFile ? 10 : 0,
-          progressStep: isLargeFile ? 'queued' : 'pending',
+          status: 'parsing',
+          progress: 40,
+          progressStep: 'processing',
           retryCount: 0,
           aircraft: autoAttachAircraftId || undefined,
           pilot: autoAttachPilotId || undefined,
@@ -240,219 +200,95 @@ export async function POST(request: NextRequest) {
           fileBase64: (!storedFile && !isLargeFile) ? fileBase64 : undefined,
         });
 
-        // If auto-attached, also update the pilot/aircraft linkedDocuments
+        // Update linked documents
         if (autoAttachPilotId && autoAttachPilotId !== pilotId) {
-          await Pilot.findByIdAndUpdate(
-            autoAttachPilotId,
-            { $addToSet: { linkedDocuments: doc._id } }
-          );
+          await Pilot.findByIdAndUpdate(autoAttachPilotId, { $addToSet: { linkedDocuments: doc._id } });
         }
         if (autoAttachAircraftId && autoAttachAircraftId !== aircraftId) {
-          await Aircraft.findByIdAndUpdate(
-            autoAttachAircraftId,
-            { $addToSet: { linkedDocuments: doc._id } }
-          );
+          await Aircraft.findByIdAndUpdate(autoAttachAircraftId, { $addToSet: { linkedDocuments: doc._id } });
         }
 
+        // Parse document
         sendLog({
-          step: 'initializing',
-          message: `Document record created (ID: ${doc._id})`,
+          step: 'extracting',
+          message: 'Extracting data from document...',
           timestamp: new Date(),
-          progress: 46,
-          duration: 0,
-          details: { documentId: doc._id.toString() }
+          progress: 45,
+          duration: 0
         });
 
-        // For large files or when we have a doc type, parse immediately
-        if (isLargeFile || documentType !== 'other') {
-          sendLog({
-            step: 'extracting',
-            message: 'Starting Reducto AI extraction...',
-            timestamp: new Date(),
-            progress: 48,
-            duration: 0
-          });
-
-          try {
-            // Update status in DB
-            await ParsedDocument.findByIdAndUpdate(doc._id, {
-              status: 'parsing',
-              progress: 50,
-              progressStep: 'processing',
-            });
-
-            // Parse with step logging (using ultra-fast direct Gemini vision)
-            // POH documents are treated as logbooks for extraction purposes
-            const parseType = documentType === 'poh' ? 'logbook' : documentType;
-            const result = await parseDocumentUltraFast(
-              fileBase64,
-              fileType,
-              parseType,
-              (log) => {
-                // Remap progress to 50-95 range
-                const mappedProgress = 50 + Math.round((log.progress / 100) * 45);
-                sendLog({
-                  ...log,
-                  progress: mappedProgress
-                });
-              }
-            );
-
-            if (!result.success) {
-              await ParsedDocument.findByIdAndUpdate(doc._id, {
-                status: 'failed',
-                progress: 0,
-                progressStep: 'failed',
-                error: result.error,
-              });
-              sendEvent('error', { message: result.error, documentId: doc._id.toString() });
-              controller.close();
-              return;
+        try {
+          const parseType = documentType === 'poh' ? 'logbook' : documentType;
+          const result = await parseDocumentUltraFast(
+            fileBase64,
+            fileType,
+            parseType,
+            (log) => {
+              const mappedProgress = 45 + Math.round((log.progress / 100) * 45);
+              sendLog({ ...log, progress: mappedProgress });
             }
+          );
 
-            // Extract entries from result
-            const entries = result.data?.extractedData?.entries ||
-              (Array.isArray(result.data?.extractedData) ? result.data?.extractedData : []);
-
-            const summary = calculateSummary(entries);
-
-            sendLog({
-              step: 'structuring',
-              message: `Extracted ${entries.length} entries`,
-              timestamp: new Date(),
-              progress: 96,
-              duration: 0,
-              details: {
-                entryCount: entries.length,
-                totalHours: summary.totalHours,
-                dateRange: summary.dateRange
-              }
-            });
-
-            // Update document with parsed data
-            await ParsedDocument.findByIdAndUpdate(doc._id, {
-              status: 'completed',
-              progress: 100,
-              progressStep: 'complete',
-              parsedAt: new Date(),
-              rawOutput: result.data?.extractedData,
-              entries,
-              summary,
-            });
-
-            // PARALLEL: Update linked aircraft AND pilot simultaneously
-            const aircraftDocTypes = ['aircraft_logbook', 'maintenance', 'inspection', 'ad_compliance', 'service_bulletin'];
-            const pilotDocTypes = ['pilot_logbook', 'logbook'];
-            const dbUpdatePromises: Promise<void>[] = [];
-
-            if (autoAttachAircraftId && aircraftDocTypes.includes(documentType) && entries.length > 0) {
-              dbUpdatePromises.push(
-                updateAircraftFromParsedData(autoAttachAircraftId, entries, result.data?.extractedData)
-              );
-            }
-
-            if (autoAttachPilotId && pilotDocTypes.includes(documentType) && entries.length > 0) {
-              dbUpdatePromises.push(
-                updatePilotFromParsedData(autoAttachPilotId, entries)
-              );
-            }
-
-            if (dbUpdatePromises.length > 0) {
-              sendLog({
-                step: 'structuring',
-                message: `Updating ${dbUpdatePromises.length} linked record(s) in parallel...`,
-                timestamp: new Date(),
-                progress: 97,
-                duration: 0
-              });
-              await Promise.all(dbUpdatePromises);
-            }
-
-            sendLog({
-              step: 'complete',
-              message: 'Document processing complete!',
-              timestamp: new Date(),
-              progress: 100,
-              duration: 0,
-              details: {
-                documentId: doc._id.toString(),
-                filename: suggestedName,
-                documentType,
-                status: 'completed',
-                entryCount: entries.length,
-                totalHours: summary.totalHours
-              }
-            });
-
-            sendEvent('complete', {
-              documentId: doc._id.toString(),
-              filename: suggestedName,
-              originalFilename,
-              documentType,
-              status: 'completed',
-              progress: 100,
-              progressStep: 'complete',
-              message: 'Document parsed successfully.',
-              summary,
-              analysis: analysis || undefined,
-              filePath: storedFile?.relativePath,
-              entryCount: entries.length,
-              autoAttached: {
-                pilotId: autoAttachPilotId !== pilotId ? autoAttachPilotId : undefined,
-                aircraftId: autoAttachAircraftId !== aircraftId ? autoAttachAircraftId : undefined
-              }
-            });
-
-          } catch (parseError) {
-            console.error('Parse error:', parseError);
+          if (!result.success) {
             await ParsedDocument.findByIdAndUpdate(doc._id, {
               status: 'failed',
-              progress: 0,
-              progressStep: 'failed',
-              error: (parseError as Error).message,
+              error: result.error,
             });
-
-            sendLog({
-              step: 'error',
-              message: `Processing failed: ${(parseError as Error).message}`,
-              timestamp: new Date(),
-              progress: 0,
-              duration: 0,
-              details: { error: (parseError as Error).message }
-            });
-
-            sendEvent('error', {
-              message: (parseError as Error).message,
-              documentId: doc._id.toString()
-            });
+            sendEvent('error', { message: result.error, documentId: doc._id.toString() });
+            controller.close();
+            return;
           }
-        } else {
-          // For small files without a specific type, store and return
+
+          const entries = result.data?.extractedData?.entries ||
+            (Array.isArray(result.data?.extractedData) ? result.data?.extractedData : []);
+
+          const summary = calculateSummary(entries);
+
+          await ParsedDocument.findByIdAndUpdate(doc._id, {
+            status: 'completed',
+            progress: 100,
+            progressStep: 'complete',
+            parsedAt: new Date(),
+            rawOutput: result.data?.extractedData,
+            entries,
+            summary,
+          });
+
+          // Update pilot experience if applicable
+          if (autoAttachPilotId && ['pilot_logbook', 'logbook'].includes(documentType)) {
+            await updatePilotFromEntries(autoAttachPilotId, entries);
+          }
+
+          // Update aircraft if applicable
+          if (autoAttachAircraftId && ['aircraft_logbook', 'maintenance', 'inspection'].includes(documentType)) {
+            await updateAircraftFromEntries(autoAttachAircraftId, entries);
+          }
+
           sendLog({
             step: 'complete',
-            message: 'File uploaded, ready for parsing',
+            message: 'Processing complete!',
             timestamp: new Date(),
             progress: 100,
-            duration: 0,
-            details: {
-              documentId: doc._id.toString(),
-              status: 'pending',
-              needsManualParsing: true
-            }
+            duration: 0
           });
 
           sendEvent('complete', {
             documentId: doc._id.toString(),
             filename: suggestedName,
-            originalFilename,
             documentType,
-            status: 'pending',
-            progress: 0,
-            progressStep: 'pending',
-            message: 'File uploaded successfully. Ready for parsing.',
+            status: 'completed',
+            entryCount: entries.length,
+            summary,
             analysis: analysis || undefined,
-            filePath: storedFile?.relativePath,
           });
+
+        } catch (parseError) {
+          console.error('Parse error:', parseError);
+          await ParsedDocument.findByIdAndUpdate(doc._id, {
+            status: 'failed',
+            error: (parseError as Error).message,
+          });
+          sendEvent('error', { message: (parseError as Error).message, documentId: doc._id.toString() });
         }
 
       } catch (error) {
@@ -477,13 +313,8 @@ function calculateSummary(entries: any[]) {
   if (!entries || entries.length === 0) {
     return { totalEntries: 0 };
   }
-
   const totalHours = entries.reduce((sum, e) => sum + (e.totalTime || e.duration || 0), 0);
-  const dates = entries
-    .map(e => e.date)
-    .filter(Boolean)
-    .sort();
-
+  const dates = entries.map(e => e.date).filter(Boolean).sort();
   return {
     totalEntries: entries.length,
     totalHours: Math.round(totalHours * 10) / 10,
@@ -491,106 +322,7 @@ function calculateSummary(entries: any[]) {
   };
 }
 
-async function updateAircraftFromParsedData(
-  aircraftId: string,
-  entries: any[],
-  extractedData: any
-) {
-  const aircraft = await Aircraft.findById(aircraftId);
-  if (!aircraft) return;
-
-  const newLogs = entries.map((entry: any) => {
-    const log: any = {
-      date: entry.date ? new Date(entry.date) : new Date(),
-      description: entry.description || entry.workPerformed || 'Maintenance entry',
-      mechanic: entry.mechanic || entry.signedBy,
-    };
-
-    if (entry.hobbsTime != null && !isNaN(entry.hobbsTime)) {
-      log.hobbsTime = entry.hobbsTime;
-    }
-    if (entry.tachTime != null && !isNaN(entry.tachTime)) {
-      log.tachTime = entry.tachTime;
-    }
-    if (entry.certificateNumber) {
-      log.certificateNumber = entry.certificateNumber;
-    }
-
-    return log;
-  }).filter(log => log.description && log.description !== 'Maintenance entry');
-
-  if (newLogs.length > 0) {
-    aircraft.logs.push(...newLogs);
-  }
-
-  let latestAnnual: Date | null = null;
-  let latestTransponder: Date | null = null;
-  let latestStatic: Date | null = null;
-  let latestHundredHour: Date | null = null;
-  let maxHobbs = aircraft.currentHours.hobbs;
-  let maxTach = aircraft.currentHours.tach;
-
-  for (const entry of entries) {
-    const entryDate = entry.date ? new Date(entry.date) : null;
-
-    if (entry.isInspection && entryDate) {
-      if (entry.inspectionType === 'annual') {
-        if (!latestAnnual || entryDate > latestAnnual) latestAnnual = entryDate;
-      } else if (entry.inspectionType === '100hour') {
-        if (!latestHundredHour || entryDate > latestHundredHour) latestHundredHour = entryDate;
-      } else if (entry.inspectionType === 'transponder') {
-        if (!latestTransponder || entryDate > latestTransponder) latestTransponder = entryDate;
-      } else if (entry.inspectionType === 'static') {
-        if (!latestStatic || entryDate > latestStatic) latestStatic = entryDate;
-      }
-    }
-
-    const desc = (entry.description || '').toLowerCase();
-    if (entryDate) {
-      if (desc.includes('annual inspection') || desc.includes('annual insp')) {
-        if (!latestAnnual || entryDate > latestAnnual) latestAnnual = entryDate;
-      }
-      if (desc.includes('100 hour') || desc.includes('100hr') || desc.includes('100-hour')) {
-        if (!latestHundredHour || entryDate > latestHundredHour) latestHundredHour = entryDate;
-      }
-      if (desc.includes('transponder') && (desc.includes('91.413') || desc.includes('check'))) {
-        if (!latestTransponder || entryDate > latestTransponder) latestTransponder = entryDate;
-      }
-      if (desc.includes('static') && desc.includes('91.411')) {
-        if (!latestStatic || entryDate > latestStatic) latestStatic = entryDate;
-      }
-    }
-
-    if (entry.hobbsTime && entry.hobbsTime > maxHobbs) maxHobbs = entry.hobbsTime;
-    if (entry.tachTime && entry.tachTime > maxTach) maxTach = entry.tachTime;
-  }
-
-  if (latestAnnual) aircraft.maintenanceDates.annual = latestAnnual;
-  if (latestTransponder) aircraft.maintenanceDates.transponder = latestTransponder;
-  if (latestStatic) aircraft.maintenanceDates.staticSystem = latestStatic;
-  if (latestHundredHour) aircraft.maintenanceDates.hundredHour = latestHundredHour;
-
-  if (extractedData?.annualDate) {
-    aircraft.maintenanceDates.annual = new Date(extractedData.annualDate);
-  }
-  if (extractedData?.transponderDate) {
-    aircraft.maintenanceDates.transponder = new Date(extractedData.transponderDate);
-  }
-  if (extractedData?.staticSystemDate) {
-    aircraft.maintenanceDates.staticSystem = new Date(extractedData.staticSystemDate);
-  }
-
-  if (maxHobbs > aircraft.currentHours.hobbs) {
-    aircraft.currentHours.hobbs = maxHobbs;
-  }
-  if (maxTach > aircraft.currentHours.tach) {
-    aircraft.currentHours.tach = maxTach;
-  }
-
-  await aircraft.save();
-}
-
-async function updatePilotFromParsedData(pilotId: string, entries: any[]) {
+async function updatePilotFromEntries(pilotId: string, entries: any[]) {
   const pilot = await Pilot.findById(pilotId);
   if (!pilot) return;
 
@@ -605,23 +337,13 @@ async function updatePilotFromParsedData(pilotId: string, entries: any[]) {
     aircraftType: e.aircraftType || '',
     from: e.from || '',
     to: e.to || '',
-    route: e.route || '',
     totalTime: e.totalTime || e.duration || 0,
     pic: e.pic || 0,
-    sic: e.sic || 0,
-    solo: e.solo || 0,
-    dualReceived: e.dualReceived || 0,
-    dualGiven: e.dualGiven || 0,
-    crossCountry: e.crossCountry || 0,
     night: e.night || 0,
     actualInstrument: e.actualInstrument || 0,
-    simulatedInstrument: e.simulatedInstrument || 0,
-    sel: e.sel || 0,
-    mel: e.mel || 0,
-    landingsDay: e.landingsFullStopDay || e.landingsDay || 0,
-    landingsNight: e.landingsFullStopNight || e.landingsNight || 0,
-    landingsTotal: e.landingsTotal || 0,
-    remarks: e.remarks || '',
+    crossCountry: e.crossCountry || 0,
+    landingsDay: e.landingsDay || 0,
+    landingsNight: e.landingsNight || 0,
   })).filter((e: any) => e.date && e.aircraftIdent);
 
   pilot.flightEntries = flightEntries;
@@ -637,7 +359,7 @@ async function updatePilotFromParsedData(pilotId: string, entries: any[]) {
     totalHours += entry.totalTime;
     picHours += entry.pic || 0;
     nightHours += entry.night || 0;
-    ifrHours += (entry.actualInstrument || 0) + (entry.simulatedInstrument || 0);
+    ifrHours += entry.actualInstrument || 0;
     crossCountryHours += entry.crossCountry || 0;
 
     if (entry.date) {
@@ -660,4 +382,34 @@ async function updatePilotFromParsedData(pilotId: string, entries: any[]) {
   };
 
   await pilot.save();
+}
+
+async function updateAircraftFromEntries(aircraftId: string, entries: any[]) {
+  const aircraft = await Aircraft.findById(aircraftId);
+  if (!aircraft) return;
+
+  let maxHobbs = aircraft.currentHours.hobbs;
+  let maxTach = aircraft.currentHours.tach;
+
+  for (const entry of entries) {
+    if (entry.hobbsTime && entry.hobbsTime > maxHobbs) maxHobbs = entry.hobbsTime;
+    if (entry.tachTime && entry.tachTime > maxTach) maxTach = entry.tachTime;
+  }
+
+  if (maxHobbs > aircraft.currentHours.hobbs) aircraft.currentHours.hobbs = maxHobbs;
+  if (maxTach > aircraft.currentHours.tach) aircraft.currentHours.tach = maxTach;
+
+  const newLogs = entries.map((entry: any) => ({
+    date: entry.date ? new Date(entry.date) : new Date(),
+    description: entry.description || entry.workPerformed || 'Entry',
+    hobbsTime: entry.hobbsTime || aircraft.currentHours.hobbs,
+    tachTime: entry.tachTime || aircraft.currentHours.tach,
+    mechanic: entry.mechanic || entry.signedBy,
+  })).filter(log => log.description !== 'Entry');
+
+  if (newLogs.length > 0) {
+    aircraft.logs.push(...newLogs);
+  }
+
+  await aircraft.save();
 }

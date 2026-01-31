@@ -4,7 +4,7 @@ import ParsedDocument from '@/lib/models/ParsedDocument';
 import Aircraft from '@/lib/models/Aircraft';
 import Pilot from '@/lib/models/Pilot';
 import { parseDocument } from '@/lib/services/reductoService';
-import { classifyDocumentFast } from '@/lib/services/aiService';
+import { classifyDocumentFast, FastDocumentClassification } from '@/lib/services/aiService';
 import { saveFile } from '@/lib/services/fileStorage';
 import { reconcileDocumentLinks } from '@/lib/services/reconciliationService';
 
@@ -57,42 +57,50 @@ export async function POST(request: NextRequest) {
     const isLargeFile = fileBase64.length > MONGODB_SAFE_SIZE;
 
     // ULTRA-FAST PARALLEL: Run classification + file save simultaneously
-    let analysis = null;
+    let analysis: FastDocumentClassification | null = null;
     let documentType = requestedDocType || 'other';
     let suggestedName = originalFilename;
+    let storedFile: { relativePath: string; size: number } | null = null;
 
-    if (!skipAnalysis) {
-      try {
-        // Use fast Gemini Flash classification instead of slow Reducto analysis
-        const classificationResult = await classifyDocumentFast(fileBase64, fileType);
-        if (classificationResult.success && classificationResult.classification) {
-          analysis = classificationResult.classification;
+    // Run classification and file save in parallel
+    const [classificationResult, savedFile] = await Promise.all([
+      // Classification (skip if requested)
+      !skipAnalysis ? classifyDocumentFast(fileBase64, fileType).catch(err => {
+        console.error('Classification error:', err);
+        return { success: false, error: err.message };
+      }) : Promise.resolve({ success: false }),
+      // File save for large files
+      isLargeFile ? saveFile(fileBase64, originalFilename, fileType, 'other').catch(err => {
+        console.error('File save error:', err);
+        return null;
+      }) : Promise.resolve(null)
+    ]);
 
-          // Lower confidence threshold for logbook types (they're harder to classify from scans)
-          const logbookTypes = ['pilot_logbook', 'aircraft_logbook', 'logbook'];
-          const isLogbookType = logbookTypes.includes(analysis.detectedType);
-          const confidenceThreshold = isLogbookType ? 0.5 : 0.7;
+    storedFile = savedFile;
 
-          // Map legacy 'logbook' type to 'pilot_logbook' if it looks like pilot logbook
-          if (analysis.detectedType === 'logbook') {
-            const hasMultipleTails = analysis.aircraftTailNumbers && analysis.aircraftTailNumbers.length > 1;
-            const hasPilotName = !!analysis.pilotName || !!analysis.matchedPilotName;
-            if (hasMultipleTails || hasPilotName || analysis.estimatedEntryCount > 5) {
-              analysis.detectedType = 'pilot_logbook';
-            }
-          }
+    if (!skipAnalysis && classificationResult.success && 'classification' in classificationResult && classificationResult.classification) {
+      analysis = classificationResult.classification as FastDocumentClassification;
 
-          // Use detected type if confidence is high enough
-          if (analysis.confidence >= confidenceThreshold && analysis.detectedType !== 'unknown') {
-            documentType = analysis.detectedType;
-          }
-          if (analysis.suggestedName) {
-            suggestedName = analysis.suggestedName;
-          }
+      // Lower confidence threshold for logbook types (they're harder to classify from scans)
+      const logbookTypes = ['pilot_logbook', 'aircraft_logbook', 'logbook'];
+      const isLogbookType = logbookTypes.includes(analysis.detectedType);
+      const confidenceThreshold = isLogbookType ? 0.5 : 0.7;
+
+      // Map legacy 'logbook' type to 'pilot_logbook' if it looks like pilot logbook
+      if (analysis.detectedType === 'logbook') {
+        const hasMultipleTails = analysis.aircraftTailNumbers && analysis.aircraftTailNumbers.length > 1;
+        const hasPilotName = !!analysis.pilotName || !!analysis.matchedPilotName;
+        if (hasMultipleTails || hasPilotName || analysis.estimatedEntryCount > 5) {
+          analysis.detectedType = 'pilot_logbook';
         }
-      } catch (analysisError) {
-        console.error('Fast classification error (continuing):', analysisError);
-        // Continue without classification
+      }
+
+      // Use detected type if confidence is high enough
+      if (analysis.confidence >= confidenceThreshold && analysis.detectedType !== 'unknown') {
+        documentType = analysis.detectedType;
+      }
+      if (analysis.suggestedName) {
+        suggestedName = analysis.suggestedName;
       }
     }
 

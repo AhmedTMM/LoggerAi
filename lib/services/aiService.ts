@@ -45,17 +45,29 @@ export async function classifyDocumentFast(
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({ model: GEMINI_FLASH_MODEL });
 
-    // For large files, we only need a sample for classification
-    // Gemini can handle up to ~20MB inline, but we limit for speed
-    const MAX_SAMPLE_SIZE = 4 * 1024 * 1024; // 4MB sample for classification
-    let sampleBase64 = fileBase64;
+    // For large files, skip classification - truncating PDFs creates invalid documents
+    // The file will be uploaded and can be manually classified later
+    const MAX_CLASSIFIABLE_SIZE = 15 * 1024 * 1024; // 15MB max for classification (~11MB actual file)
 
-    if (fileBase64.length > MAX_SAMPLE_SIZE) {
-      // For PDFs, take first portion (typically first pages)
-      // For images, this will just be a truncated image (may still work for header detection)
-      sampleBase64 = fileBase64.substring(0, MAX_SAMPLE_SIZE);
-      console.log(`[FastClassify] Sampling first ${(MAX_SAMPLE_SIZE / 1024 / 1024).toFixed(1)}MB of ${(fileBase64.length / 1024 / 1024).toFixed(1)}MB file`);
+    if (fileBase64.length > MAX_CLASSIFIABLE_SIZE) {
+      console.log(`[FastClassify] File too large for classification (${(fileBase64.length / 1024 / 1024).toFixed(1)}MB > ${(MAX_CLASSIFIABLE_SIZE / 1024 / 1024).toFixed(1)}MB). Skipping classification.`);
+      // Return a default classification for large files
+      return {
+        success: true,
+        classification: {
+          detectedType: 'other' as const,
+          confidence: 0.3,
+          suggestedName: `Large Document ${new Date().toISOString().split('T')[0]}`,
+          estimatedEntryCount: 0,
+          documentQuality: 'fair' as const,
+          qualityNotes: ['File too large for automatic classification'],
+          isHandwritten: false,
+          summary: 'Large document - manual classification recommended',
+        }
+      };
     }
+
+    const sampleBase64 = fileBase64;
 
     const prompt = `You are an expert aviation document classifier. Analyze this document quickly and identify its type.
 

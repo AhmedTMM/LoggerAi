@@ -53,17 +53,11 @@ import { useParsedDocuments, useDeleteParsedDocument, useLinkDocToAircraft, useL
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { cn } from '@/lib/utils';
-import { MagicImport } from '@/components/MagicImport';
-import { DocumentType, DOCUMENT_TYPE_META } from '@/lib/documentTypes';
 
-// Category filter type
-type CategoryFilter = 'all' | 'pilot' | 'aircraft' | 'general';
-
-interface ProcessingLog {
+interface UploadingFile {
   id: string;
-  step: string;
-  message: string;
-  timestamp: Date;
+  name: string;
+  status: 'uploading' | 'processing' | 'done' | 'error';
   progress: number;
   duration?: number;
   details?: Record<string, any>;
@@ -127,9 +121,6 @@ export default function FilesPage() {
   const { data: aircraft = [] } = useAircraft();
   const { data: pilots = [] } = usePilots();
   const deleteDocument = useDeleteParsedDocument();
-  const linkDocToAircraft = useLinkDocToAircraft();
-  const linkDocToPilot = useLinkDocToPilot();
-  const startParsing = useStartParsing();
 
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -223,23 +214,17 @@ export default function FilesPage() {
         reader.readAsDataURL(file);
       });
 
-      addLog({
-        step: 'preparing',
-        message: `File read: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`,
-        timestamp: new Date(),
-        progress: 5,
-        status: 'complete',
-        details: { filename: file.name, size: file.size }
-      });
+      setUploadingFiles(prev => prev.map(f =>
+        f.id === fileId ? { ...f, progress: 30, message: 'Uploading & analyzing...' } : f
+      ));
 
-      // Start SSE connection
-      const response = await fetch('/api/documents/upload-stream', {
+      // Call the smart upload endpoint
+      const response = await fetch('/api/documents/smart-upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fileBase64,
           fileType: file.type.includes('pdf') ? 'pdf' : 'image',
-          documentType: 'other',
           filename: file.name,
         }),
       });
@@ -248,6 +233,7 @@ export default function FilesPage() {
         throw new Error('Upload failed');
       }
 
+      // Handle SSE stream
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -260,49 +246,33 @@ export default function FilesPage() {
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
 
-        let currentEvent = '';
-        let currentData = '';
-
         for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            currentEvent = line.slice(7);
-          } else if (line.startsWith('data: ')) {
-            currentData = line.slice(6);
+          if (line.startsWith('data: ')) {
             try {
-              const data = JSON.parse(currentData);
+              const data = JSON.parse(line.slice(6));
 
-              if (currentEvent === 'log') {
-                setUploadProgress(data.progress);
-                addLog({
-                  step: data.step,
-                  message: data.message,
-                  timestamp: new Date(data.timestamp),
-                  progress: data.progress,
-                  duration: data.duration,
-                  details: data.details,
-                  status: data.step === 'error' ? 'error' : data.step === 'complete' ? 'complete' : 'active'
-                });
-              } else if (currentEvent === 'complete') {
-                setUploadProgress(100);
-                setUploadResult(data);
-                addLog({
-                  step: 'complete',
-                  message: 'Processing complete!',
-                  timestamp: new Date(),
-                  progress: 100,
-                  status: 'complete',
-                  details: data
-                });
+              if (data.type === 'progress') {
+                setUploadingFiles(prev => prev.map(f =>
+                  f.id === fileId ? {
+                    ...f,
+                    status: 'processing',
+                    progress: data.progress,
+                    message: data.message
+                  } : f
+                ));
+              } else if (data.type === 'complete') {
+                setUploadingFiles(prev => prev.map(f =>
+                  f.id === fileId ? {
+                    ...f,
+                    status: 'done',
+                    progress: 100,
+                    message: data.message,
+                    result: data
+                  } : f
+                ));
                 refetch();
-              } else if (currentEvent === 'error') {
-                setUploadError(data.message);
-                addLog({
-                  step: 'error',
-                  message: data.message,
-                  timestamp: new Date(),
-                  progress: 0,
-                  status: 'error'
-                });
+              } else if (data.type === 'error') {
+                throw new Error(data.message);
               }
             } catch (e) {
               // Ignore parse errors
@@ -310,35 +280,61 @@ export default function FilesPage() {
           }
         }
       }
-
     } catch (error) {
-      setUploadError((error as Error).message);
-      addLog({
-        step: 'error',
-        message: `Upload failed: ${(error as Error).message}`,
-        timestamp: new Date(),
-        progress: 0,
-        status: 'error'
-      });
-    } finally {
-      setIsUploading(false);
+      setUploadingFiles(prev => prev.map(f =>
+        f.id === fileId ? {
+          ...f,
+          status: 'error',
+          progress: 0,
+          message: (error as Error).message
+        } : f
+      ));
     }
-  }, [addLog, refetch]);
+  };
+
+  // Handle file upload (supports multiple files)
+  const handleUpload = useCallback(async (files: FileList | File[]) => {
+    const fileArray = Array.from(files).filter(f =>
+      f.type.includes('pdf') || f.type.includes('image')
+    );
+
+    if (fileArray.length === 0) return;
+
+    // Add all files to uploading state
+    const newFiles: UploadingFile[] = fileArray.map(file => ({
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      name: file.name,
+      status: 'uploading' as const,
+      progress: 0,
+      message: 'Queued...'
+    }));
+
+    setUploadingFiles(prev => [...prev, ...newFiles]);
+
+    // Process all files in parallel
+    await Promise.all(
+      fileArray.map((file, index) => processFile(file, newFiles[index].id))
+    );
+  }, [refetch]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file && (file.type.includes('pdf') || file.type.includes('image'))) {
-      handleUpload(file);
+    if (e.dataTransfer.files?.length) {
+      handleUpload(e.dataTransfer.files);
     }
   }, [handleUpload]);
 
   const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) handleUpload(file);
+    if (e.target.files?.length) {
+      handleUpload(e.target.files);
+    }
     e.target.value = '';
   }, [handleUpload]);
+
+  const clearCompleted = () => {
+    setUploadingFiles(prev => prev.filter(f => f.status !== 'done' && f.status !== 'error'));
+  };
 
   const handleDelete = (docId: string) => {
     if (confirm('Delete this document?')) {
@@ -420,21 +416,16 @@ export default function FilesPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-zinc-100 p-6">
-      <div className="max-w-6xl mx-auto space-y-6">
+    <div className="min-h-screen bg-slate-50 p-6">
+      <div className="max-w-4xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
-              <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-2 rounded-xl shadow-lg shadow-indigo-200">
-                <FileText className="w-6 h-6 text-white" />
-              </div>
-              Document Intelligence
-            </h1>
-            <p className="text-slate-500 mt-1">AI-powered aviation document processing with real-time progress</p>
+            <h1 className="text-2xl font-bold text-slate-900">Files</h1>
+            <p className="text-slate-500 text-sm">Drop files to auto-process, link, and audit</p>
           </div>
-          <Button onClick={() => refetch()} variant="outline" size="sm" className="gap-2">
-            <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
+          <Button onClick={() => refetch()} variant="outline" size="sm">
+            <RefreshCw className={cn("w-4 h-4 mr-2", isLoading && "animate-spin")} />
             Refresh
           </Button>
         </div>
@@ -519,21 +510,14 @@ export default function FilesPage() {
             )}
           </div>
 
-          {/* Live Processing Log */}
-          <div className="bg-slate-900 rounded-2xl p-4 shadow-xl overflow-hidden">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <Terminal className="w-4 h-4 text-green-400" />
-                <span className="text-sm font-mono text-slate-300">Processing Log</span>
-              </div>
-              {processingLogs.length > 0 && (
-                <button
-                  onClick={clearUploadState}
-                  className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
-                >
-                  Clear
-                </button>
-              )}
+        {/* Uploading Files */}
+        {uploadingFiles.length > 0 && (
+          <div className="bg-white rounded-xl border p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-medium text-slate-800">Processing</h3>
+              <button onClick={clearCompleted} className="text-sm text-slate-500 hover:text-slate-700">
+                Clear completed
+              </button>
             </div>
 
             <div
@@ -545,20 +529,32 @@ export default function FilesPage() {
                   <Terminal className="w-8 h-8 mb-2 opacity-50" />
                   <p>Upload a file to see processing logs</p>
                 </div>
-              ) : (
-                processingLogs.map((log, idx) => {
-                  const Icon = stepIcons[log.step] || Zap;
-                  const color = stepColors[log.step] || 'text-slate-400';
-                  const isLatest = idx === processingLogs.length - 1;
-
-                  return (
-                    <div
-                      key={log.id}
-                      className={cn(
-                        "flex items-start gap-2 py-1 px-2 rounded transition-all",
-                        log.status === 'error' && "bg-red-500/10",
-                        log.status === 'complete' && log.step === 'complete' && "bg-green-500/10",
-                        isLatest && log.status === 'active' && "bg-slate-800"
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-slate-800 truncate">{file.name}</p>
+                  <p className="text-sm text-slate-500">{file.message}</p>
+                  {file.result?.created && (
+                    <div className="flex gap-2 mt-1">
+                      {file.result.created.pilot && (
+                        <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                          + New Pilot
+                        </Badge>
+                      )}
+                      {file.result.created.aircraft && (
+                        <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                          + New Aircraft
+                        </Badge>
+                      )}
+                      {file.result.auditStatus && (
+                        <Badge
+                          variant="outline"
+                          className={cn("text-xs",
+                            file.result.auditStatus === 'go' ? "bg-green-50 text-green-700 border-green-200" :
+                            file.result.auditStatus === 'caution' ? "bg-yellow-50 text-yellow-700 border-yellow-200" :
+                            "bg-red-50 text-red-700 border-red-200"
+                          )}
+                        >
+                          Audit: {file.result.auditStatus.toUpperCase()}
+                        </Badge>
                       )}
                     >
                       <Icon className={cn("w-3.5 h-3.5 mt-0.5 flex-shrink-0", color, log.status === 'active' && "animate-pulse")} />
@@ -594,6 +590,16 @@ export default function FilesPage() {
                     <span className="text-emerald-400">{uploadResult.entryCount || uploadResult.summary?.totalEntries || 0}</span>
                   </div>
                 </div>
+                {file.status !== 'done' && file.status !== 'error' && (
+                  <div className="w-20">
+                    <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                        style={{ width: `${file.progress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -647,6 +653,7 @@ export default function FilesPage() {
               ))}
             </div>
           </div>
+        )}
 
           {/* Document type filter chips */}
           <div className="flex flex-wrap gap-2">
@@ -687,35 +694,26 @@ export default function FilesPage() {
 
         {/* Documents Grid */}
         {isLoading ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
           </div>
-        ) : filteredDocs.length === 0 ? (
-          <div className="text-center py-20 bg-white rounded-xl border border-slate-100 shadow-sm">
+        ) : documents.length === 0 ? (
+          <div className="text-center py-12 bg-white rounded-xl border">
             <FileText className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-            <p className="text-slate-500 font-medium">No documents found</p>
-            <p className="text-slate-400 text-sm mt-1">
-              {documents.length === 0 ? 'Upload your first document above' : 'Try adjusting your filters'}
-            </p>
+            <p className="text-slate-500">No documents yet</p>
           </div>
         ) : (
-          <div className="grid gap-4">
-            {filteredDocs.map((doc: any) => {
-              const linkedAircraft = aircraft.find((a: any) => a._id === doc.aircraft);
-              const linkedPilot = pilots.find((p: any) => p._id === doc.pilot);
-              const isExpanded = expandedDocs.has(doc._id);
-              const hasAnalysis = doc.analysis && Object.keys(doc.analysis).length > 0;
+          <div className="space-y-2">
+            {documents.map((doc: any) => {
+              const { linkedAircraft, linkedPilot } = getLinkedInfo(doc);
 
               return (
                 <div
                   key={doc._id}
                   className={cn(
-                    "bg-white rounded-xl border transition-all shadow-sm hover:shadow-md",
-                    doc.status === 'parsing' && "border-amber-200 bg-amber-50/30",
-                    doc.status === 'analyzing' && "border-purple-200 bg-purple-50/30",
-                    doc.status === 'failed' && "border-red-200 bg-red-50/30",
-                    doc.status === 'completed' && "border-slate-100",
-                    isExpanded && "shadow-lg"
+                    "flex items-center gap-4 p-4 bg-white rounded-xl border transition-all",
+                    doc.status === 'parsing' && "border-amber-200 bg-amber-50/50",
+                    doc.status === 'failed' && "border-red-200 bg-red-50/50"
                   )}
                 >
                   {/* Main Card Content */}

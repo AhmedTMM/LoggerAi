@@ -47,17 +47,18 @@ export async function runSystemOnboarding(
             console.log(`[MagicOnboarding] Processing ${file.name}...`);
 
             // Save file
-            const buffer = Buffer.from(file.base64, 'base64');
-            const fileUrl = await saveFile(buffer, file.name, file.type);
+            const fileType = file.type.includes('pdf') ? 'pdf' : 'image';
+            const storedFile = await saveFile(file.base64, file.name, fileType as 'pdf' | 'image', 'other');
 
             // Create Document Record
             const doc = new ParsedDocument({
                 filename: file.name,
                 originalFilename: file.name,
-                fileUrl,
-                uploadDate: new Date(),
+                filePath: storedFile.relativePath,
+                fileSize: storedFile.size,
+                uploadedAt: new Date(),
                 status: 'parsing', // Start as parsing
-                fileType: file.type.includes('pdf') ? 'pdf' : 'image',
+                fileType: fileType as 'pdf' | 'image',
                 documentType: 'other' // Placeholder
             });
             await doc.save();
@@ -136,8 +137,8 @@ export async function runSystemOnboarding(
 
     // 2. Magic "Flight Generation"
     // If we found both a pilot and an aircraft in this batch (or linked to existing), create a demo flight.
-    const uniquePilots = [...new Set(results.pilots)];
-    const uniqueAircraft = [...new Set(results.aircraft)];
+    const uniquePilots = Array.from(new Set(results.pilots));
+    const uniqueAircraft = Array.from(new Set(results.aircraft));
 
     if (uniquePilots.length > 0 && uniqueAircraft.length > 0) {
         // Pick the first pair

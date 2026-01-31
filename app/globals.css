@@ -13,3 +13,27 @@
     text-wrap: balance;
   }
 }
+
+/* Leaflet map customizations */
+.custom-flight-marker {
+  background: transparent;
+  border: none;
+}
+
+.leaflet-popup-content-wrapper {
+  border-radius: 12px;
+  padding: 0;
+  overflow: hidden;
+}
+
+.leaflet-popup-content {
+  margin: 12px;
+}
+
+.leaflet-popup-tip {
+  background: white;
+}
+
+.leaflet-container {
+  font-family: inherit;
+}

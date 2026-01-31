@@ -3,7 +3,8 @@ import dbConnect from '@/lib/db';
 import ParsedDocument from '@/lib/models/ParsedDocument';
 import Aircraft from '@/lib/models/Aircraft';
 import Pilot from '@/lib/models/Pilot';
-import { parseDocument, analyzeDocument, StepLog } from '@/lib/services/reductoService';
+import { parseDocument, StepLog } from '@/lib/services/reductoService';
+import { classifyDocumentFast } from '@/lib/services/aiService';
 import { saveFile } from '@/lib/services/fileStorage';
 
 // Allow longer timeout for large file processing
@@ -116,30 +117,48 @@ export async function POST(request: NextRequest) {
         if (!skipAnalysis) {
           sendLog({
             step: 'analyzing',
-            message: 'Starting AI document analysis...',
+            message: 'Starting fast AI classification (Gemini Flash)...',
             timestamp: new Date(),
             progress: 10,
             duration: 0
           });
 
           try {
-            const analysisResult = await analyzeDocument(fileBase64, fileType, sendLog);
-            if (analysisResult.success && analysisResult.analysis) {
-              analysis = analysisResult.analysis;
+            // Use fast Gemini Flash classification instead of slow Reducto analysis
+            const classifyStart = Date.now();
+            const classificationResult = await classifyDocumentFast(fileBase64, fileType);
+            const classifyDuration = Date.now() - classifyStart;
+
+            if (classificationResult.success && classificationResult.classification) {
+              analysis = classificationResult.classification;
               // Use detected type if confidence is high enough
               if (analysis.confidence >= 0.7 && analysis.detectedType !== 'unknown') {
                 documentType = analysis.detectedType;
                 sendLog({
                   step: 'classifying',
-                  message: `Document classified as: ${documentType} (${Math.round(analysis.confidence * 100)}% confidence)`,
+                  message: `Document classified as: ${documentType} (${Math.round(analysis.confidence * 100)}% confidence) in ${(classifyDuration / 1000).toFixed(1)}s`,
                   timestamp: new Date(),
                   progress: 35,
-                  duration: 0,
+                  duration: classifyDuration,
                   details: {
                     detectedType: analysis.detectedType,
                     confidence: analysis.confidence,
                     quality: analysis.documentQuality,
-                    isHandwritten: analysis.isHandwritten
+                    isHandwritten: analysis.isHandwritten,
+                    classificationTimeMs: classifyDuration
+                  }
+                });
+              } else {
+                sendLog({
+                  step: 'classifying',
+                  message: `Classification complete in ${(classifyDuration / 1000).toFixed(1)}s (low confidence: ${Math.round(analysis.confidence * 100)}%)`,
+                  timestamp: new Date(),
+                  progress: 35,
+                  duration: classifyDuration,
+                  details: {
+                    detectedType: analysis.detectedType,
+                    confidence: analysis.confidence,
+                    classificationTimeMs: classifyDuration
                   }
                 });
               }
@@ -150,7 +169,7 @@ export async function POST(request: NextRequest) {
           } catch (analysisError) {
             sendLog({
               step: 'analyzing',
-              message: 'Analysis skipped (non-critical error)',
+              message: 'Fast classification skipped (non-critical error)',
               timestamp: new Date(),
               progress: 35,
               duration: 0,

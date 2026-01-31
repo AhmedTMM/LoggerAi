@@ -3,7 +3,8 @@ import dbConnect from '@/lib/db';
 import ParsedDocument from '@/lib/models/ParsedDocument';
 import Aircraft from '@/lib/models/Aircraft';
 import Pilot from '@/lib/models/Pilot';
-import { parseDocument, analyzeDocument } from '@/lib/services/reductoService';
+import { parseDocument } from '@/lib/services/reductoService';
+import { classifyDocumentFast } from '@/lib/services/aiService';
 import { saveFile } from '@/lib/services/fileStorage';
 
 // Allow longer timeout for large file processing
@@ -61,9 +62,10 @@ export async function POST(request: NextRequest) {
 
     if (!skipAnalysis) {
       try {
-        const analysisResult = await analyzeDocument(fileBase64, fileType);
-        if (analysisResult.success && analysisResult.analysis) {
-          analysis = analysisResult.analysis;
+        // Use fast Gemini Flash classification instead of slow Reducto analysis
+        const classificationResult = await classifyDocumentFast(fileBase64, fileType);
+        if (classificationResult.success && classificationResult.classification) {
+          analysis = classificationResult.classification;
           // Use detected type if confidence is high enough
           if (analysis.confidence >= 0.7 && analysis.detectedType !== 'unknown') {
             documentType = analysis.detectedType;
@@ -73,8 +75,8 @@ export async function POST(request: NextRequest) {
           }
         }
       } catch (analysisError) {
-        console.error('Analysis error (continuing):', analysisError);
-        // Continue without analysis
+        console.error('Fast classification error (continuing):', analysisError);
+        // Continue without classification
       }
     }
 

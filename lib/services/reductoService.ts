@@ -1,5 +1,6 @@
 // Reducto Document Intelligence Service
 // For parsing handwritten pilot logbooks and maintenance PDFs
+// Optimized for large, cluttered documents with OCR support
 
 interface ReductoResponse {
   success: boolean;
@@ -29,6 +30,22 @@ interface MaintenanceEntry {
   tachTime?: number;
   mechanic?: string;
   signOff?: boolean;
+}
+
+// Document analysis result for classification
+export interface DocumentAnalysis {
+  detectedType: 'logbook' | 'maintenance' | 'poh' | 'unknown';
+  confidence: number;
+  suggestedName: string;
+  pilotName?: string;
+  aircraftTailNumbers?: string[];
+  dateRange?: { from: string; to: string };
+  estimatedEntryCount: number;
+  documentQuality: 'excellent' | 'good' | 'fair' | 'poor';
+  qualityNotes: string[];
+  isHandwritten: boolean;
+  pageCount?: number;
+  summary: string;
 }
 
 import { Reducto, toFile } from 'reductoai';
@@ -226,56 +243,85 @@ function parseMaintenanceData(
 }
 
 // Extraction prompts for different document types
-const LOGBOOK_EXTRACTION_PROMPT = `
-You are an expert at parsing pilot logbook pages. Extract EVERY flight entry from the table.
+// OPTIMIZED FOR LARGE, CLUTTERED LOGBOOKS WITH OCR/HANDWRITTEN TEXT
 
-IMPORTANT: Logbooks have many columns for different hour types. Look for ALL of these:
+const LOGBOOK_EXTRACTION_PROMPT = `
+You are an expert aviation logbook parser specializing in difficult OCR and handwritten documents.
+
+CRITICAL INSTRUCTIONS FOR CLUTTERED/HANDWRITTEN LOGBOOKS:
+1. This document may be SCANNED, PHOTOCOPIED, or HANDWRITTEN - expect OCR artifacts
+2. Pages may have MULTIPLE LAYOUTS - look for column headers to understand structure
+3. CONTINUE READING every row even if data quality degrades - make best effort guesses
+4. Some pages may be SIDEWAYS or have mixed orientations - adapt accordingly
+5. Look for RUNNING TOTALS at page bottoms - these confirm extracted data
+6. If a number is ambiguous (1/7, 0/O, 5/S), use context from other entries to decide
+
+IDENTIFYING LOGBOOK STRUCTURE:
+- Look for header row containing: DATE, AIRCRAFT, FROM/TO, ROUTE, and various HOUR columns
+- Standard Jeppesen/ASA logbooks have specific column layouts
+- Electronic logbooks (ForeFlight, LogTen) have different formats
+- Military logbooks use different terminology (sorties, etc.)
 
 REQUIRED FIELDS (extract if visible):
-- date: Flight date (YYYY-MM-DD format)
-- aircraftIdent: Tail number (e.g., N12345, N5392R)
-- aircraftType: Make/model (e.g., C172, PA-28, SR22)
-- from: Departure airport (4-letter ICAO preferred, e.g., KJFK)
+- date: Flight date (YYYY-MM-DD format). Parse various formats: MM/DD/YY, DD-MMM-YYYY, etc.
+- aircraftIdent: Tail number (N-numbers start with N, international varies)
+- aircraftType: Make/model abbreviations (C172=Cessna 172, PA28=Piper Cherokee, etc.)
+- from: Departure airport (3-4 letter code, may be handwritten)
 - to: Destination airport
-- route: Full route if multi-leg (e.g., "KJFK-KBOS-KJFK")
+- route: Multi-leg route or round-robin flights
 
-HOUR COLUMNS (extract ALL that are visible, use decimal hours like 1.5):
-- totalTime: Total flight time (SEL, MEL, or total column)
-- sel: Single Engine Land time
-- mel: Multi Engine Land time
-- pic: Pilot In Command time
-- sic: Second In Command time
+HOUR COLUMNS (extract ALL visible, use decimal hours):
+- totalTime: Total duration (this is the PRIMARY time field)
+- sel: Single Engine Land
+- mel: Multi Engine Land
+- ses: Single Engine Sea
+- mes: Multi Engine Sea
+- pic: Pilot In Command
+- sic: Second In Command
+- cfi: CFI/Instruction Given
 - solo: Solo flight time
-- dualReceived: Instruction received time
-- dualGiven: Instruction given (CFI) time
-- crossCountry: Cross-country time (XC)
-- night: Night flying time
-- actualInstrument: Actual IMC time
-- simulatedInstrument: Simulated/hood instrument time
-- flightSim: Simulator/AATD/BATD time
-- groundTrainer: Ground trainer time
+- dualReceived: Dual/Instruction received
+- dualGiven: Instruction given (CFI time)
+- crossCountry: XC time (flights > 50nm)
+- night: Night flying
+- actualInstrument: Actual IMC/IFR
+- simulatedInstrument: Hood/foggles time
+- flightSim: Simulator (AATD/BATD/FTD)
+- turbine: Turbine/Jet time
+- complex: Complex aircraft time
+- highPerformance: High performance aircraft time
+- tailwheel: Tailwheel/conventional gear
 
-LANDINGS (look for day/night columns):
-- landingsDay: Number of day landings
-- landingsNight: Number of night landings
-- landingsFullStop: Full stop landings if separate
+LANDINGS (integers only):
+- landingsDay: Day landings
+- landingsNight: Night landings
+- landingsFullStop: Full stop landings
+- landingsTouch: Touch and goes
 
-REMARKS (critical - capture everything):
-- remarks: ALL text from remarks column including:
-  - Instructor signatures/names
-  - Endorsements given/received
-  - Approach types (ILS, VOR, GPS, LOC)
-  - Number of approaches
-  - Holds
-  - Night currency note
-  - Checkride notes
-  - Any other comments
+APPROACHES AND HOLDS:
+- approaches: Array of approach types flown, e.g. ["ILS 4R", "VOR 27"]
+- holds: Number of holding patterns
+
+REMARKS (VERY IMPORTANT - capture ALL text):
+- remarks: Everything in remarks/comments column including:
+  - Instructor names and signatures
+  - Endorsements (solo, XC, checkride)
+  - Approach details
+  - Weather conditions mentioned
+  - Passengers names
+  - Checkride results
+  - Any other notes
+
+DEALING WITH POOR QUALITY:
+- If a tail number is partially visible, include what you can read with a ? (e.g., "N539?R")
+- If dates are unclear, use surrounding entries to infer correct year
+- For smudged times, round to nearest 0.1
+- Include a "dataQuality" field: "clear", "readable", "degraded", or "guessed"
 
 OUTPUT FORMAT:
-Return a JSON array where each flight is an object. Include ONLY fields that have values.
-Parse EVERY row - do not skip any entries. If handwriting is unclear, make your best guess.
+Return a JSON array. Include ONLY fields that have actual values.
+Parse EVERY visible row - do not skip entries even if quality is poor.
 
-Example:
 [
   {
     "date": "2024-01-15",
@@ -288,42 +334,67 @@ Example:
     "pic": 2.5,
     "crossCountry": 2.5,
     "landingsDay": 1,
-    "remarks": "XC to Boston. 1 ILS approach RWY 4R. J. Smith - CFI"
-  },
-  {
-    "date": "2024-01-16",
-    "aircraftIdent": "N5392R",
-    "aircraftType": "C172",
-    "from": "KBOS",
-    "to": "KJFK",
-    "totalTime": 2.3,
-    "sel": 2.3,
-    "pic": 2.3,
-    "night": 1.5,
-    "actualInstrument": 0.5,
-    "crossCountry": 2.3,
-    "landingsNight": 1,
-    "remarks": "Night XC return. 2 VOR approaches. IMC for 30 min"
+    "approaches": ["ILS 4R"],
+    "remarks": "XC to Boston. J. Smith - CFI",
+    "dataQuality": "clear"
   }
 ]
 `;
 
 const MAINTENANCE_EXTRACTION_PROMPT = `
-Extract aircraft maintenance log entries from this document. For each maintenance entry, identify:
-- Date of maintenance
-- Description of work performed
-- Hobbs time (if listed)
-- Tach time (if listed)
-- Mechanic name or signature
-- Sign-off/approval status
+You are an expert aircraft maintenance log parser specializing in FAA Part 91/135 documentation.
 
-Also extract any inspection dates such as:
-- Annual inspection date
-- 100-hour inspection date
-- Transponder check date
-- Static system check date
+CRITICAL: This may be SCANNED, HANDWRITTEN, or PHOTOCOPIED - expect OCR artifacts.
 
-Return structured data with all entries and dates found.
+MAINTENANCE LOG STRUCTURE:
+- Aircraft maintenance logs are chronological records of all maintenance performed
+- Each entry must have a date, description, and mechanic signature/approval
+- Entries may span multiple lines for complex work
+
+FOR EACH MAINTENANCE ENTRY, EXTRACT:
+- date: Date work was performed (YYYY-MM-DD format)
+- description: Full description of work performed
+- hobbsTime: Aircraft hobbs time at maintenance (if recorded)
+- tachTime: Tachometer time at maintenance
+- ttaf: Total Time Airframe (if recorded)
+- ttsn: Time Since New
+- tso: Time Since Overhaul
+- mechanic: Mechanic name or A&P certificate number
+- ia: IA name if inspection approval
+- certificateNumber: A&P/IA certificate number
+- signedOff: true if properly signed off
+- workOrderNumber: Work order/invoice number
+- partNumbers: Array of part numbers replaced
+- isInspection: true if this is an inspection entry
+- inspectionType: "annual" | "100hour" | "progressive" | "condition" | "transponder" | "static" | "elt"
+
+INSPECTION DATES TO SPECIFICALLY EXTRACT:
+- Annual inspection (14 CFR 91.409)
+- 100-hour inspection (14 CFR 91.409)
+- Transponder check (14 CFR 91.413) - every 24 months
+- Static system/altimeter check (14 CFR 91.411) - every 24 months
+- ELT inspection (14 CFR 91.207) - every 12 months
+- ADs (Airworthiness Directives) compliance
+
+DEALING WITH POOR QUALITY:
+- If a date is unclear, note uncertainty in description
+- Capture partial certificate numbers
+- Include "unclear:" prefix for illegible portions
+
+OUTPUT FORMAT:
+Return JSON object with:
+{
+  "entries": [...],
+  "annualDate": "YYYY-MM-DD",
+  "hundredHourDate": "YYYY-MM-DD",
+  "transponderDate": "YYYY-MM-DD",
+  "staticDate": "YYYY-MM-DD",
+  "eltDate": "YYYY-MM-DD",
+  "currentHobbs": 1234.5,
+  "currentTach": 1234.5,
+  "aircraftIdent": "N12345",
+  "aircraftMakeModel": "Cessna 172S"
+}
 `;
 
 const POH_EXTRACTION_PROMPT = `
@@ -463,4 +534,170 @@ export function aggregateLogbookHours(entries: LogbookEntry[]): {
     last90DaysHours,
     last30DaysHours
   };
+}
+
+// Document Analysis Prompt - for quick classification before full parsing
+const DOCUMENT_ANALYSIS_PROMPT = `
+You are an expert aviation document classifier. Analyze this document and provide a quick assessment.
+
+DOCUMENT TYPES TO IDENTIFY:
+1. PILOT LOGBOOK - Contains flight entries with dates, aircraft, times, landings
+   - Look for: DATE columns, AIRCRAFT/TAIL columns, TIME columns (SEL, MEL, PIC, etc.)
+   - Page layout is typically tabular with many columns
+   - May have "PILOT LOGBOOK" header or standard Jeppesen/ASA format
+
+2. MAINTENANCE LOG - Aircraft maintenance records
+   - Look for: Date, Description of work, Hobbs/Tach times, Mechanic signatures
+   - References to inspections, parts, ADs (Airworthiness Directives)
+   - May have "AIRCRAFT MAINTENANCE LOG" or "ENGINE LOG" headers
+
+3. POH (Pilot Operating Handbook) - Aircraft operating manual
+   - Sections for performance, limitations, emergency procedures
+   - V-speeds, weight & balance, checklists
+   - Usually has manufacturer branding and model designation
+
+4. UNKNOWN - Cannot determine document type
+
+QUALITY ASSESSMENT:
+- EXCELLENT: Clear print/type, easy to read
+- GOOD: Minor quality issues, still clearly readable
+- FAIR: Some OCR/handwriting challenges, partially degraded
+- POOR: Significant quality issues, many unclear portions
+
+OUTPUT JSON:
+{
+  "detectedType": "logbook" | "maintenance" | "poh" | "unknown",
+  "confidence": 0.0-1.0,
+  "suggestedName": "Descriptive name for this document",
+  "pilotName": "Name if found on logbook cover/pages",
+  "aircraftTailNumbers": ["N12345", "N67890"],
+  "dateRange": {"from": "YYYY-MM-DD", "to": "YYYY-MM-DD"},
+  "estimatedEntryCount": 50,
+  "documentQuality": "excellent" | "good" | "fair" | "poor",
+  "qualityNotes": ["Handwritten entries", "Some faded text"],
+  "isHandwritten": true/false,
+  "pageCount": 10,
+  "summary": "Brief 1-2 sentence description of what this document contains"
+}
+`;
+
+// Analyze a document to determine type and quality before full parsing
+export async function analyzeDocument(
+  fileBase64: string,
+  fileType: 'pdf' | 'image'
+): Promise<{ success: boolean; analysis?: DocumentAnalysis; error?: string }> {
+  const apiKey = process.env.REDUCTO_API_KEY;
+
+  if (!apiKey) {
+    console.warn('Reducto API key not configured');
+    return {
+      success: false,
+      error: 'Reducto API key not configured',
+    };
+  }
+
+  try {
+    const client = new Reducto({ apiKey });
+
+    // Upload file
+    const fileBuffer = Buffer.from(fileBase64, 'base64');
+    const upload = await client.upload({
+      file: await toFile(fileBuffer, fileType === 'image' ? 'document.png' : 'document.pdf'),
+      extension: fileType === 'image' ? 'png' : 'pdf',
+    });
+
+    // Run analysis extraction
+    const extraction = await client.extract.run({
+      input: upload,
+      instructions: {
+        system_prompt: DOCUMENT_ANALYSIS_PROMPT,
+      },
+      settings: {
+        optimize_for_latency: true
+      }
+    });
+
+    if ('job_id' in extraction && !('result' in extraction)) {
+      return { success: false, error: 'Received async job id but expected sync result' };
+    }
+
+    const items = (extraction as any).result || [];
+    const analysisResult = items.length > 0 ? items[0] : null;
+
+    if (!analysisResult) {
+      // Fallback analysis if extraction returns empty
+      return {
+        success: true,
+        analysis: {
+          detectedType: 'unknown',
+          confidence: 0.3,
+          suggestedName: `Document_${Date.now()}`,
+          estimatedEntryCount: 0,
+          documentQuality: 'fair',
+          qualityNotes: ['Unable to fully analyze document'],
+          isHandwritten: false,
+          summary: 'Document could not be fully analyzed'
+        }
+      };
+    }
+
+    // Build the analysis object from the extraction result
+    const analysis: DocumentAnalysis = {
+      detectedType: analysisResult.detectedType || 'unknown',
+      confidence: analysisResult.confidence || 0.5,
+      suggestedName: analysisResult.suggestedName || generateSuggestedName(analysisResult),
+      pilotName: analysisResult.pilotName,
+      aircraftTailNumbers: analysisResult.aircraftTailNumbers,
+      dateRange: analysisResult.dateRange,
+      estimatedEntryCount: analysisResult.estimatedEntryCount || 0,
+      documentQuality: analysisResult.documentQuality || 'fair',
+      qualityNotes: analysisResult.qualityNotes || [],
+      isHandwritten: analysisResult.isHandwritten || false,
+      pageCount: analysisResult.pageCount,
+      summary: analysisResult.summary || 'Aviation document'
+    };
+
+    return {
+      success: true,
+      analysis
+    };
+
+  } catch (error) {
+    console.error('Document analysis error:', error);
+    return {
+      success: false,
+      error: (error as Error).message,
+    };
+  }
+}
+
+// Generate a suggested name based on analysis results
+function generateSuggestedName(analysis: any): string {
+  const type = analysis.detectedType || 'document';
+  const typeLabel = type === 'logbook' ? 'Pilot Logbook'
+    : type === 'maintenance' ? 'Maintenance Log'
+    : type === 'poh' ? 'POH'
+    : 'Aviation Document';
+
+  const parts: string[] = [typeLabel];
+
+  if (analysis.pilotName) {
+    parts.push(`- ${analysis.pilotName}`);
+  }
+
+  if (analysis.aircraftTailNumbers?.length > 0) {
+    parts.push(`(${analysis.aircraftTailNumbers.slice(0, 2).join(', ')})`);
+  }
+
+  if (analysis.dateRange?.from) {
+    const fromYear = analysis.dateRange.from.split('-')[0];
+    const toYear = analysis.dateRange.to?.split('-')[0] || fromYear;
+    if (fromYear === toYear) {
+      parts.push(fromYear);
+    } else {
+      parts.push(`${fromYear}-${toYear}`);
+    }
+  }
+
+  return parts.join(' ');
 }

@@ -215,6 +215,59 @@ export const documentApi = {
     const data = await fetchAPI<ApiResponse<any>>(`/documents/${documentId}/parse`);
     return data.data;
   },
+
+  // Stream upload with real-time progress via SSE
+  // Returns an async generator that yields progress events
+  uploadStream: async function* (params: {
+    fileBase64: string;
+    fileType: 'pdf' | 'image';
+    documentType: 'logbook' | 'maintenance' | 'poh' | 'other';
+    aircraftId?: string;
+    pilotId?: string;
+    filename?: string;
+  }): AsyncGenerator<{
+    type: 'log' | 'complete' | 'error';
+    data: any;
+  }> {
+    const response = await fetch(`${API_BASE}/documents/upload-stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+
+    if (!response.ok) {
+      yield { type: 'error', data: { message: 'Upload failed' } };
+      return;
+    }
+
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (reader) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      let currentEvent = '';
+
+      for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          currentEvent = line.slice(7);
+        } else if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            yield { type: currentEvent as 'log' | 'complete' | 'error', data };
+          } catch (e) {
+            // Ignore parse errors
+          }
+        }
+      }
+    }
+  },
 };
 
 // Pilot Profile Generation API

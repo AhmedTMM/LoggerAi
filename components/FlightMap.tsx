@@ -214,11 +214,13 @@ export default function FlightMap({ flights, aircraft, pilots }: FlightMapProps)
 
     return flights
       .filter((f) => {
-        if (f.status === 'cancelled' || f.status === 'completed') return false;
+        // Only exclude cancelled flights - show all others including completed
+        if (f.status === 'cancelled') return false;
         const isFlying = f.status === 'go' || f.status === 'caution' || f.status === 'no-go';
         const isPlanned = f.status === 'planned';
+        const isCompleted = f.status === 'completed';
         if (isFlying && !showFlying) return false;
-        if (isPlanned && !showPlanned) return false;
+        if ((isPlanned || isCompleted) && !showPlanned) return false;
         return true;
       })
       .map((flight) => {
@@ -428,16 +430,17 @@ export default function FlightMap({ flights, aircraft, pilots }: FlightMapProps)
 
           return (
             <div key={flight._id}>
-              {/* Flight path line for active flights */}
-              {isActive && arrivalPos && (
+              {/* Flight path line from departure to destination for all flights */}
+              {arrivalPos && departurePos && (
                 <Polyline
-                  positions={[departurePos!, arrivalPos]}
+                  positions={[departurePos, arrivalPos]}
                   pathOptions={{
-                    color: flight.overallStatus === 'go' ? '#10b981' :
+                    color: flight.status === 'completed' ? '#6b7280' : // gray for completed
+                           flight.overallStatus === 'go' ? '#10b981' :
                            flight.overallStatus === 'caution' ? '#f59e0b' : '#ef4444',
-                    weight: 2,
-                    opacity: 0.6,
-                    dashArray: '10, 10',
+                    weight: isActive ? 3 : 2,
+                    opacity: flight.status === 'completed' ? 0.4 : 0.7,
+                    dashArray: isActive ? '10, 10' : undefined, // dashed for active, solid for others
                   }}
                 />
               )}

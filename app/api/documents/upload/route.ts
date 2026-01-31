@@ -6,6 +6,7 @@ import Pilot from '@/lib/models/Pilot';
 import { parseDocument } from '@/lib/services/reductoService';
 import { classifyDocumentFast } from '@/lib/services/aiService';
 import { saveFile } from '@/lib/services/fileStorage';
+import { reconcileDocumentLinks } from '@/lib/services/reconciliationService';
 
 // Allow longer timeout for large file processing
 export const maxDuration = 300;
@@ -107,6 +108,15 @@ export async function POST(request: NextRequest) {
       // Only store base64 for small files if file storage failed
       fileBase64: (!storedFile && !isLargeFile) ? fileBase64 : undefined,
     });
+
+    // Step 3: Auto-reconcile document with pilot/aircraft
+    if (!aircraftId && !pilotId) {
+      try {
+        await reconcileDocumentLinks(doc._id.toString());
+      } catch (reconError) {
+        console.error('Auto-reconciliation error:', reconError);
+      }
+    }
 
     // For large files, parse immediately instead of storing
     if (isLargeFile) {

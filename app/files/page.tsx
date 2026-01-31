@@ -53,7 +53,8 @@ import { useParsedDocuments, useDeleteParsedDocument, useLinkDocToAircraft, useL
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { cn } from '@/lib/utils';
-import { DocumentType, DOCUMENT_TYPE_META } from '@/lib/models/ParsedDocument';
+import { MagicImport } from '@/components/MagicImport';
+import { DocumentType, DOCUMENT_TYPE_META } from '@/lib/documentTypes';
 
 // Category filter type
 type CategoryFilter = 'all' | 'pilot' | 'aircraft' | 'general';
@@ -137,7 +138,7 @@ export default function FilesPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadResult, setUploadResult] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [showLinkModal, setShowLinkModal] = useState<{docId: string; mode: 'aircraft' | 'pilot'} | null>(null);
+  const [showLinkModal, setShowLinkModal] = useState<{ docId: string; mode: 'aircraft' | 'pilot' } | null>(null);
   const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
   const [selectedDoc, setSelectedDoc] = useState<any>(null);
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all');
@@ -459,6 +460,9 @@ export default function FilesPage() {
           </Button>
         </div>
 
+        {/* Magic Onboarding Zone */}
+        <MagicImport />
+
         {/* Upload Zone with Live Processing Log */}
         <div className="grid gap-6 lg:grid-cols-2">
           {/* Upload Area */}
@@ -764,9 +768,9 @@ export default function FilesPage() {
                           className={cn(
                             "p-3 rounded-xl flex-shrink-0 transition-transform hover:scale-105",
                             doc.status === 'parsing' ? "bg-gradient-to-br from-amber-100 to-orange-100" :
-                            doc.status === 'analyzing' ? "bg-gradient-to-br from-purple-100 to-violet-100" :
-                            doc.status === 'failed' ? "bg-gradient-to-br from-red-100 to-rose-100" :
-                            "bg-gradient-to-br from-slate-100 to-slate-50"
+                              doc.status === 'analyzing' ? "bg-gradient-to-br from-purple-100 to-violet-100" :
+                                doc.status === 'failed' ? "bg-gradient-to-br from-red-100 to-rose-100" :
+                                  "bg-gradient-to-br from-slate-100 to-slate-50"
                           )}
                         >
                           {doc.status === 'parsing' ? (
@@ -801,8 +805,8 @@ export default function FilesPage() {
                                 className={cn(
                                   "text-xs gap-1",
                                   doc.analysis.confidence >= 0.8 ? "bg-green-50 text-green-700 border-green-200" :
-                                  doc.analysis.confidence >= 0.5 ? "bg-yellow-50 text-yellow-700 border-yellow-200" :
-                                  "bg-red-50 text-red-700 border-red-200"
+                                    doc.analysis.confidence >= 0.5 ? "bg-yellow-50 text-yellow-700 border-yellow-200" :
+                                      "bg-red-50 text-red-700 border-red-200"
                                 )}
                               >
                                 <Star className="w-3 h-3" />
@@ -1207,22 +1211,6 @@ export default function FilesPage() {
         )}
       </div>
 
-      {/* Custom scrollbar styles */}
-      <style jsx global>{`
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 6px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: #475569;
-          border-radius: 3px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: #64748b;
-        }
-      `}</style>
     </div>
   );
 }

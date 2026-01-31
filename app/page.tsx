@@ -110,7 +110,7 @@ export default function Dashboard() {
               >
                 <div className="flex items-center gap-3">
                   <div className={`w-2 h-2 rounded-full ${flight.overallStatus === 'go' ? 'bg-emerald-500' :
-                      flht.overallStatus === 'caution' ? 'bg-amber-500' : 'bg-red-500'
+                      flight.overallStatus === 'caution' ? 'bg-amber-500' : 'bg-red-500'
                     }`} />
                   <div>
                     <p className="font-medium text-zinc-900 dark:text-zinc-100">

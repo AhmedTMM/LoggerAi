@@ -11,6 +11,8 @@ import {
   analyzeWeatherVsPilot,
   IEnhancedWeatherData,
 } from './weatherService';
+import { sendPreFlightAgenticAlert } from './emailService';
+import mongoose from 'mongoose';
 
 // Risk scenario interface
 interface IRiskScenario {
@@ -53,18 +55,18 @@ export async function runComprehensiveSafetyAnalysis(
   // 3. Analyze weather vs pilot capabilities
   const weatherVsPilot = routeWeather.departure
     ? analyzeWeatherVsPilot(routeWeather.departure, {
-        certificates: pilot.certificates,
-        experience: pilot.experience,
-        endorsements: pilot.endorsements,
-      })
+      certificates: pilot.certificates,
+      experience: pilot.experience,
+      endorsements: pilot.endorsements,
+    })
     : { legal: true, safeRecommendation: true, warnings: [], recommendations: [] };
 
   // 4. Analyze weather vs aircraft performance
   const weatherVsAircraft = routeWeather.departure
     ? analyzeWeatherVsAircraft(routeWeather.departure, {
-        operatingLimits: aircraft.operatingLimits,
-        model: aircraft.model,
-      })
+      operatingLimits: aircraft.operatingLimits,
+      model: aircraft.model,
+    })
     : { safeToOperate: true, warnings: [], recommendations: [] };
 
   // 5. Analyze pilot currency and experience
@@ -125,9 +127,30 @@ export async function runComprehensiveSafetyAnalysis(
   };
 
   // 11. Update flight document
-  flight.legalityChecks = legalityChecks;
   flight.overallStatus = goNoGoRecommendation;
   flight.safetyAnalysisSnapshot = analysis;
+
+  // AUTOMATED AGENTIC TRIGGER:
+  // If the flight is high-risk and we haven't alerted yet, send the pre-flight agentic alert.
+  if (goNoGoRecommendation === 'no-go' || goNoGoRecommendation === 'caution') {
+    if (!flight.preFlightAlertSent) {
+      try {
+        console.log(`[SafetyAgent] High risk detected for flight ${flight._id}. Triggering agentic alert...`);
+        // Use flight ID as token for the demo action links
+        const emailPilotToken = flight._id.toString();
+        const emailMechanicToken = flight._id.toString();
+
+        await sendPreFlightAgenticAlert(flight, { emailPilotToken, emailMechanicToken });
+        flight.preFlightAlertSent = true;
+        console.log(`[SafetyAgent] Alert sent successfully.`);
+      } catch (emailError) {
+        console.error('[SafetyAgent] Failed to send alert:', emailError);
+      }
+    }
+  } else {
+    // If status returns to 'go', reset the flag so we can alert again if it degrades
+    flight.preFlightAlertSent = false;
+  }
 
   // Store weather data
   if (routeWeather.departure) {
@@ -343,8 +366,8 @@ function generateLegalityChecks(
       message: !weatherVsPilot.legal
         ? `Pilot not qualified for ${departureWeather.flightCategory} conditions`
         : weatherVsPilot.warnings.length > 0
-        ? weatherVsPilot.warnings[0]
-        : `Conditions acceptable for pilot qualifications`,
+          ? weatherVsPilot.warnings[0]
+          : `Conditions acceptable for pilot qualifications`,
       details: weatherVsPilot.recommendations.join('; '),
     });
 
@@ -365,8 +388,8 @@ function generateLegalityChecks(
       item: 'Departure Weather',
       status: departureWeather.flightCategory === 'LIFR' ? 'fail'
         : departureWeather.flightCategory === 'IFR' && !pilot.certificates?.instrumentRated ? 'fail'
-        : departureWeather.flightCategory !== 'VFR' ? 'warning'
-        : 'pass',
+          : departureWeather.flightCategory !== 'VFR' ? 'warning'
+            : 'pass',
       message: `${departureWeather.flightCategory} - Ceiling ${departureWeather.ceiling || 'CLR'}, Vis ${departureWeather.visibility}SM`,
       details: departureWeather.metar,
     });
@@ -379,8 +402,8 @@ function generateLegalityChecks(
       item: 'Destination Weather',
       status: arrivalWeather.flightCategory === 'LIFR' ? 'fail'
         : arrivalWeather.flightCategory === 'IFR' && !pilot.certificates?.instrumentRated ? 'fail'
-        : arrivalWeather.flightCategory !== 'VFR' ? 'warning'
-        : 'pass',
+          : arrivalWeather.flightCategory !== 'VFR' ? 'warning'
+            : 'pass',
       message: `${arrivalWeather.flightCategory} - Ceiling ${arrivalWeather.ceiling || 'CLR'}, Vis ${arrivalWeather.visibility}SM`,
       details: arrivalWeather.metar,
     });
@@ -393,7 +416,7 @@ function generateLegalityChecks(
       item: 'Density Altitude',
       status: departureWeather.densityAltitude > 9000 ? 'fail'
         : departureWeather.densityAltitude > 7000 ? 'warning'
-        : 'pass',
+          : 'pass',
       message: `${departureWeather.densityAltitude}ft density altitude`,
       details: departureWeather.densityAltitude > 7000
         ? 'Expect reduced aircraft performance'
@@ -459,9 +482,8 @@ function calculateRiskScenarios(
       title: 'Weather Deterioration',
       probability: Math.min(wxRisk, 80),
       severity: wxSeverity,
-      description: `${departureWeather.flightCategory} conditions${departureWeather.trend ? ` (${departureWeather.trend})` : ''}.${
-        !isIRPilot && wxRisk >= 20 ? ' VFR pilot - inadvertent IMC could be fatal.' : ''
-      }`,
+      description: `${departureWeather.flightCategory} conditions${departureWeather.trend ? ` (${departureWeather.trend})` : ''}.${!isIRPilot && wxRisk >= 20 ? ' VFR pilot - inadvertent IMC could be fatal.' : ''
+        }`,
       mitigations: isIRPilot
         ? ['File IFR flight plan', 'Review approach plates', 'Check alternates']
         : ['Get VFR weather briefing', 'Plan 180° turn procedure', 'Know escape routes'],

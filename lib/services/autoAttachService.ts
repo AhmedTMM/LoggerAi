@@ -13,6 +13,42 @@ export interface AutoAttachmentResult {
   documentType: DocumentType;
 }
 
+// ============ ULTRA-FAST CACHING LAYER ============
+// Cache pilot/aircraft data for rapid lookups (avoids DB round-trips)
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+}
+
+const CACHE_TTL = 60 * 1000; // 1 minute cache (fast invalidation for hackathon demo)
+let pilotCache: CacheEntry<any[]> | null = null;
+let aircraftCache: CacheEntry<any[]> | null = null;
+
+async function getCachedPilots(): Promise<any[]> {
+  const now = Date.now();
+  if (pilotCache && (now - pilotCache.timestamp) < CACHE_TTL) {
+    return pilotCache.data;
+  }
+  const pilots = await Pilot.find({}).select('_id name email').lean();
+  pilotCache = { data: pilots, timestamp: now };
+  return pilots;
+}
+
+async function getCachedAircraft(): Promise<any[]> {
+  const now = Date.now();
+  if (aircraftCache && (now - aircraftCache.timestamp) < CACHE_TTL) {
+    return aircraftCache.data;
+  }
+  const aircraft = await Aircraft.find({}).select('_id tailNumber').lean();
+  aircraftCache = { data: aircraft, timestamp: now };
+  return aircraft;
+}
+
+// Export cache invalidation for when data changes
+export function invalidatePilotCache() { pilotCache = null; }
+export function invalidateAircraftCache() { aircraftCache = null; }
+export function invalidateAllCaches() { pilotCache = null; aircraftCache = null; }
+
 /**
  * Maps detected document types to storage document types
  * Handles legacy 'logbook' type and 'unknown' type
@@ -48,6 +84,7 @@ export function isAircraftDocument(type: DetectedDocumentType): boolean {
 /**
  * Fuzzy match a pilot name against existing pilots
  * Returns the best match if confidence is high enough
+ * NOW WITH CACHING for ultra-fast lookups!
  */
 async function matchPilot(pilotName: string | undefined): Promise<{
   pilotId: string;
@@ -57,7 +94,7 @@ async function matchPilot(pilotName: string | undefined): Promise<{
   if (!pilotName || pilotName.trim().length < 2) return null;
 
   const normalizedSearch = pilotName.toLowerCase().trim();
-  const pilots = await Pilot.find({}).select('_id name email').lean();
+  const pilots = await getCachedPilots(); // Use cached data!
 
   let bestMatch: { pilotId: string; pilotName: string; confidence: number } | null = null;
 
@@ -92,7 +129,7 @@ async function matchPilot(pilotName: string | undefined): Promise<{
 
     let partsMatched = 0;
     for (const searchPart of searchParts) {
-      if (nameParts.some(np => np === searchPart || np.startsWith(searchPart))) {
+      if (nameParts.some((np: string) => np === searchPart || np.startsWith(searchPart))) {
         partsMatched++;
       }
     }
@@ -116,6 +153,7 @@ async function matchPilot(pilotName: string | undefined): Promise<{
 /**
  * Match aircraft tail numbers against existing aircraft
  * Returns the best match
+ * NOW WITH CACHING for ultra-fast lookups!
  */
 async function matchAircraft(tailNumbers: string[] | undefined): Promise<{
   aircraftId: string;
@@ -124,7 +162,7 @@ async function matchAircraft(tailNumbers: string[] | undefined): Promise<{
 } | null> {
   if (!tailNumbers || tailNumbers.length === 0) return null;
 
-  const aircraft = await Aircraft.find({}).select('_id tailNumber').lean();
+  const aircraft = await getCachedAircraft(); // Use cached data!
 
   for (const tail of tailNumbers) {
     const normalizedTail = tail.toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -158,6 +196,7 @@ async function matchAircraft(tailNumbers: string[] | undefined): Promise<{
 /**
  * Automatically suggest attachments for a document based on AI classification
  * This queries existing pilots and aircraft to find matches
+ * ULTRA-FAST: Runs pilot + aircraft matching in PARALLEL with caching!
  */
 export async function suggestAttachments(
   classification: FastDocumentClassification
@@ -173,15 +212,11 @@ export async function suggestAttachments(
   const isPilotDoc = isPilotDocument(classification.detectedType);
   const isAircraftDoc = isAircraftDocument(classification.detectedType);
 
-  // Try to match pilot
-  const pilotMatch = await matchPilot(
-    classification.matchedPilotName || classification.pilotName
-  );
-
-  // Try to match aircraft
-  const aircraftMatch = await matchAircraft(
-    classification.matchedAircraftTails || classification.aircraftTailNumbers
-  );
+  // PARALLEL: Match pilot AND aircraft simultaneously for maximum speed!
+  const [pilotMatch, aircraftMatch] = await Promise.all([
+    matchPilot(classification.matchedPilotName || classification.pilotName),
+    matchAircraft(classification.matchedAircraftTails || classification.aircraftTailNumbers)
+  ]);
 
   // Build result based on document type and matches
   if (isPilotDoc && pilotMatch) {

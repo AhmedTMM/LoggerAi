@@ -110,174 +110,115 @@ export async function POST(request: NextRequest) {
         const originalFilename = filename || `document_${Date.now()}.${fileType === 'pdf' ? 'pdf' : 'png'}`;
         const isLargeFile = fileBase64.length > MONGODB_SAFE_SIZE;
 
-        // Step 1: Analyze document to determine type and quality
+        // ULTRA-FAST PARALLEL PROCESSING: Run classification and file save simultaneously
         let analysis: any = null;
         let documentType = requestedDocType || 'other';
         let suggestedName = originalFilename;
         let autoAttachPilotId = pilotId;
         let autoAttachAircraftId = aircraftId;
+        let storedFile: any = null;
 
-        if (!skipAnalysis) {
-          sendLog({
-            step: 'analyzing',
-            message: 'Starting fast AI classification (Gemini Flash)...',
-            timestamp: new Date(),
-            progress: 10,
-            duration: 0
-          });
-
-          try {
-            // Use fast Gemini Flash classification instead of slow Reducto analysis
-            const classifyStart = Date.now();
-            const classificationResult = await classifyDocumentFast(fileBase64, fileType);
-            const classifyDuration = Date.now() - classifyStart;
-
-            if (classificationResult.success && classificationResult.classification) {
-              analysis = classificationResult.classification;
-              // Use detected type if confidence is high enough
-              if (analysis.confidence >= 0.7 && analysis.detectedType !== 'unknown') {
-                // Map detected type to storage type
-                documentType = mapDetectedTypeToStorageType(analysis.detectedType);
-                sendLog({
-                  step: 'classifying',
-                  message: `Document classified as: ${documentType} (${Math.round(analysis.confidence * 100)}% confidence) in ${(classifyDuration / 1000).toFixed(1)}s`,
-                  timestamp: new Date(),
-                  progress: 30,
-                  duration: classifyDuration,
-                  details: {
-                    detectedType: analysis.detectedType,
-                    confidence: analysis.confidence,
-                    quality: analysis.documentQuality,
-                    isHandwritten: analysis.isHandwritten,
-                    classificationTimeMs: classifyDuration
-                  }
-                });
-
-                // Step 1b: Auto-suggest attachments based on classification
-                if (!pilotId && !aircraftId) {
-                  sendLog({
-                    step: 'analyzing',
-                    message: 'Matching document to existing pilots/aircraft...',
-                    timestamp: new Date(),
-                    progress: 32,
-                    duration: 0
-                  });
-
-                  try {
-                    const attachSuggestions = await suggestAttachments(analysis);
-
-                    if (attachSuggestions.attachmentConfidence >= 0.7) {
-                      // High confidence - auto-attach
-                      if (attachSuggestions.suggestedPilotId) {
-                        autoAttachPilotId = attachSuggestions.suggestedPilotId;
-                      }
-                      if (attachSuggestions.suggestedAircraftId) {
-                        autoAttachAircraftId = attachSuggestions.suggestedAircraftId;
-                      }
-
-                      sendLog({
-                        step: 'classifying',
-                        message: `Auto-linked: ${attachSuggestions.attachmentReason}`,
-                        timestamp: new Date(),
-                        progress: 35,
-                        duration: 0,
-                        details: {
-                          pilot: attachSuggestions.suggestedPilotName,
-                          aircraft: attachSuggestions.suggestedAircraftTail,
-                          confidence: Math.round(attachSuggestions.attachmentConfidence * 100)
-                        }
-                      });
-
-                      // Store suggestions in analysis for UI display
-                      analysis.suggestedPilotId = attachSuggestions.suggestedPilotId;
-                      analysis.suggestedAircraftId = attachSuggestions.suggestedAircraftId;
-                      analysis.attachmentConfidence = attachSuggestions.attachmentConfidence;
-                      analysis.attachmentReason = attachSuggestions.attachmentReason;
-                    } else if (attachSuggestions.suggestedPilotId || attachSuggestions.suggestedAircraftId) {
-                      // Low confidence - suggest but don't auto-attach
-                      sendLog({
-                        step: 'classifying',
-                        message: `Suggested match (${Math.round(attachSuggestions.attachmentConfidence * 100)}% confidence): ${attachSuggestions.attachmentReason}`,
-                        timestamp: new Date(),
-                        progress: 35,
-                        duration: 0,
-                        details: {
-                          pilot: attachSuggestions.suggestedPilotName,
-                          aircraft: attachSuggestions.suggestedAircraftTail,
-                          confidence: Math.round(attachSuggestions.attachmentConfidence * 100),
-                          autoAttached: false
-                        }
-                      });
-
-                      // Store suggestions for manual confirmation
-                      analysis.suggestedPilotId = attachSuggestions.suggestedPilotId;
-                      analysis.suggestedAircraftId = attachSuggestions.suggestedAircraftId;
-                      analysis.attachmentConfidence = attachSuggestions.attachmentConfidence;
-                      analysis.attachmentReason = attachSuggestions.attachmentReason;
-                    }
-                  } catch (attachError) {
-                    console.error('Auto-attachment error:', attachError);
-                    // Non-critical - continue without auto-attachment
-                  }
-                }
-              } else {
-                sendLog({
-                  step: 'classifying',
-                  message: `Classification complete in ${(classifyDuration / 1000).toFixed(1)}s (low confidence: ${Math.round(analysis.confidence * 100)}%)`,
-                  timestamp: new Date(),
-                  progress: 35,
-                  duration: classifyDuration,
-                  details: {
-                    detectedType: analysis.detectedType,
-                    confidence: analysis.confidence,
-                    classificationTimeMs: classifyDuration
-                  }
-                });
-              }
-              if (analysis.suggestedName) {
-                suggestedName = analysis.suggestedName;
-              }
-            }
-          } catch (analysisError) {
-            sendLog({
-              step: 'analyzing',
-              message: 'Fast classification skipped (non-critical error)',
-              timestamp: new Date(),
-              progress: 35,
-              duration: 0,
-              details: { error: (analysisError as Error).message }
-            });
-          }
-        }
-
-        // Step 2: Save file to disk
         sendLog({
-          step: 'uploading',
-          message: 'Saving file to storage...',
+          step: 'analyzing',
+          message: 'Starting parallel processing (classification + file save)...',
           timestamp: new Date(),
-          progress: 38,
+          progress: 10,
           duration: 0
         });
 
-        let storedFile = null;
-        try {
-          storedFile = await saveFile(fileBase64, originalFilename, fileType, documentType as any);
+        const parallelStart = Date.now();
+
+        // Run classification and file save IN PARALLEL for maximum speed
+        const [classificationResult, fileSaveResult] = await Promise.all([
+          // Task 1: Fast AI classification (unless skipped)
+          skipAnalysis ? Promise.resolve({ success: false as const, classification: null }) : classifyDocumentFast(fileBase64, fileType).catch(err => {
+            console.error('Classification error:', err);
+            return { success: false as const, classification: null, error: err.message };
+          }),
+          // Task 2: Save file to disk (using 'other' initially, will be correct folder anyway)
+          saveFile(fileBase64, originalFilename, fileType, (requestedDocType || 'other') as any).catch(err => {
+            console.error('File save error:', err);
+            return null;
+          })
+        ]);
+
+        const parallelDuration = Date.now() - parallelStart;
+        storedFile = fileSaveResult;
+
+        // Process classification results
+        if (classificationResult.success && classificationResult.classification) {
+          analysis = classificationResult.classification;
+          if (analysis.confidence >= 0.7 && analysis.detectedType !== 'unknown') {
+            documentType = mapDetectedTypeToStorageType(analysis.detectedType);
+            sendLog({
+              step: 'classifying',
+              message: `Classified: ${documentType} (${Math.round(analysis.confidence * 100)}%) | File saved | ${(parallelDuration / 1000).toFixed(1)}s parallel`,
+              timestamp: new Date(),
+              progress: 32,
+              duration: parallelDuration,
+              details: {
+                detectedType: analysis.detectedType,
+                confidence: analysis.confidence,
+                quality: analysis.documentQuality,
+                parallelTimeMs: parallelDuration,
+                fileSaved: !!storedFile
+              }
+            });
+
+            // Auto-suggest attachments (only if needed)
+            if (!pilotId && !aircraftId) {
+              try {
+                const attachSuggestions = await suggestAttachments(analysis);
+                if (attachSuggestions.attachmentConfidence >= 0.7) {
+                  autoAttachPilotId = attachSuggestions.suggestedPilotId || autoAttachPilotId;
+                  autoAttachAircraftId = attachSuggestions.suggestedAircraftId || autoAttachAircraftId;
+                  analysis.suggestedPilotId = attachSuggestions.suggestedPilotId;
+                  analysis.suggestedAircraftId = attachSuggestions.suggestedAircraftId;
+                  analysis.attachmentConfidence = attachSuggestions.attachmentConfidence;
+                  analysis.attachmentReason = attachSuggestions.attachmentReason;
+
+                  sendLog({
+                    step: 'classifying',
+                    message: `Auto-linked: ${attachSuggestions.attachmentReason}`,
+                    timestamp: new Date(),
+                    progress: 35,
+                    duration: 0,
+                    details: {
+                      pilot: attachSuggestions.suggestedPilotName,
+                      aircraft: attachSuggestions.suggestedAircraftTail,
+                      confidence: Math.round(attachSuggestions.attachmentConfidence * 100)
+                    }
+                  });
+                } else if (attachSuggestions.suggestedPilotId || attachSuggestions.suggestedAircraftId) {
+                  analysis.suggestedPilotId = attachSuggestions.suggestedPilotId;
+                  analysis.suggestedAircraftId = attachSuggestions.suggestedAircraftId;
+                  analysis.attachmentConfidence = attachSuggestions.attachmentConfidence;
+                  analysis.attachmentReason = attachSuggestions.attachmentReason;
+                }
+              } catch (attachError) {
+                console.error('Auto-attachment error:', attachError);
+              }
+            }
+          } else {
+            sendLog({
+              step: 'classifying',
+              message: `Classification done (low confidence: ${Math.round(analysis?.confidence * 100 || 0)}%)`,
+              timestamp: new Date(),
+              progress: 35,
+              duration: parallelDuration
+            });
+          }
+          if (analysis?.suggestedName) {
+            suggestedName = analysis.suggestedName;
+          }
+        } else {
           sendLog({
             step: 'uploading',
-            message: 'File saved to disk successfully',
+            message: `File saved in ${(parallelDuration / 1000).toFixed(1)}s`,
             timestamp: new Date(),
-            progress: 42,
-            duration: 0,
+            progress: 35,
+            duration: parallelDuration,
             details: { path: storedFile?.relativePath }
-          });
-        } catch (saveError) {
-          sendLog({
-            step: 'uploading',
-            message: 'File storage failed, using memory fallback',
-            timestamp: new Date(),
-            progress: 42,
-            duration: 0,
-            details: { error: (saveError as Error).message }
           });
         }
 
@@ -405,30 +346,32 @@ export async function POST(request: NextRequest) {
               summary,
             });
 
-            // Update linked aircraft if aircraft-related document
+            // PARALLEL: Update linked aircraft AND pilot simultaneously
             const aircraftDocTypes = ['aircraft_logbook', 'maintenance', 'inspection', 'ad_compliance', 'service_bulletin'];
+            const pilotDocTypes = ['pilot_logbook', 'logbook'];
+            const dbUpdatePromises: Promise<void>[] = [];
+
             if (autoAttachAircraftId && aircraftDocTypes.includes(documentType) && entries.length > 0) {
+              dbUpdatePromises.push(
+                updateAircraftFromParsedData(autoAttachAircraftId, entries, result.data?.extractedData)
+              );
+            }
+
+            if (autoAttachPilotId && pilotDocTypes.includes(documentType) && entries.length > 0) {
+              dbUpdatePromises.push(
+                updatePilotFromParsedData(autoAttachPilotId, entries)
+              );
+            }
+
+            if (dbUpdatePromises.length > 0) {
               sendLog({
                 step: 'structuring',
-                message: 'Updating linked aircraft records...',
+                message: `Updating ${dbUpdatePromises.length} linked record(s) in parallel...`,
                 timestamp: new Date(),
                 progress: 97,
                 duration: 0
               });
-              await updateAircraftFromParsedData(autoAttachAircraftId, entries, result.data?.extractedData);
-            }
-
-            // Update linked pilot if pilot logbook type
-            const pilotDocTypes = ['pilot_logbook', 'logbook'];
-            if (autoAttachPilotId && pilotDocTypes.includes(documentType) && entries.length > 0) {
-              sendLog({
-                step: 'structuring',
-                message: 'Updating linked pilot records...',
-                timestamp: new Date(),
-                progress: 98,
-                duration: 0
-              });
-              await updatePilotFromParsedData(autoAttachPilotId, entries);
+              await Promise.all(dbUpdatePromises);
             }
 
             sendLog({

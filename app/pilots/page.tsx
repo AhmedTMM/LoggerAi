@@ -7,7 +7,10 @@ import type { Pilot, Aircraft } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { MetricCard } from '@/components/ui/MetricCard';
-import { cn } from '@/lib/utils';
+import { CurrencyItem } from '@/components/ui/MaintenanceStatus';
+import { LoadingSpinner } from '@/components/ui/LoadingSkeleton';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { cn, getDaysUntil, getCertificateLabel } from '@/lib/utils';
 
 type TabType = 'overview' | 'logbook' | 'safety';
 
@@ -133,9 +136,6 @@ export default function PilotsPage() {
     reader.readAsDataURL(file);
   };
 
-  const getDaysUntil = (date: Date | string) => Math.ceil((new Date(date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-  const getCertificateLabel = (type: string) => ({ Student: 'Student Pilot', PPL: 'Private Pilot', CPL: 'Commercial Pilot', ATP: 'Airline Transport Pilot', Sport: 'Sport Pilot' }[type] || type);
-
   // Safety Gap Analysis
   const getSafetyGaps = (pilot: Pilot) => {
     const gaps: { type: 'warning' | 'info'; label: string; detail: string }[] = [];
@@ -189,8 +189,8 @@ export default function PilotsPage() {
     );
   };
 
-  if (isLoading) return <div className="flex items-center justify-center h-screen"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900"></div></div>;
-  if (error) return <div className="text-center py-12"><AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" /><p className="text-zinc-600">Failed to load pilots.</p></div>;
+  if (isLoading) return <LoadingSpinner className="h-screen" />;
+  if (error) return <EmptyState icon={AlertTriangle} title="Failed to load pilots" className="py-12" />;
 
   return (
     <div className="space-y-6">
@@ -855,26 +855,6 @@ export default function PilotsPage() {
         />
       )}
     </div >
-  );
-}
-
-function CurrencyItem({ label, expiration }: { label: string; expiration: Date | string }) {
-  const daysLeft = Math.ceil((new Date(expiration).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-  const status = daysLeft < 0 ? 'expired' : daysLeft < 30 ? 'warning' : 'valid';
-
-  return (
-    <div className="p-4 bg-white rounded-lg border border-zinc-200 shadow-sm">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          {status === 'valid' ? <CheckCircle className="w-4 h-4 text-emerald-500" /> : <AlertTriangle className="w-4 h-4 text-amber-500" />}
-          <span className="text-sm font-medium text-zinc-900">{label}</span>
-        </div>
-        <Badge variant={status === 'valid' ? 'secondary' : status === 'warning' ? 'warning' : 'destructive'} className="text-xs">
-          {daysLeft < 0 ? 'Expired' : `${daysLeft}d left`}
-        </Badge>
-      </div>
-      <p className="text-xs text-zinc-500 mt-1 ml-6">{new Date(expiration).toLocaleDateString()}</p>
-    </div>
   );
 }
 

@@ -7,7 +7,10 @@ import type { Aircraft } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { MetricCard } from '@/components/ui/MetricCard';
-import { cn } from '@/lib/utils';
+import { MaintenanceItem } from '@/components/ui/MaintenanceStatus';
+import { LoadingSpinner } from '@/components/ui/LoadingSkeleton';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { cn, getDaysUntil } from '@/lib/utils';
 
 type LogbookCategory = 'engine' | 'airframe' | 'propeller' | 'avionics';
 
@@ -66,8 +69,6 @@ export default function AircraftPage() {
     const filteredLogs = logbookYear === 'All'
         ? currentCategoryLogs
         : currentCategoryLogs.filter((l: any) => new Date(l.date).getFullYear() === parseInt(logbookYear));
-
-    const getDaysUntil = (date: Date | string) => Math.ceil((new Date(date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
 
     const handleLogbookUpload = async (file: File) => {
         if (!file || !selectedAircraft) return;
@@ -642,26 +643,6 @@ export default function AircraftPage() {
                     </div>
                 </div>
             )}
-        </div>
-    );
-}
-
-function MaintenanceItem({ label, date }: { label: string; date: Date | string }) {
-    const daysLeft = Math.ceil((new Date(date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-    const status = daysLeft < 0 ? 'expired' : daysLeft < 30 ? 'warning' : 'valid';
-
-    return (
-        <div className="flex items-center justify-between p-3 bg-white border border-zinc-200 rounded-lg">
-            <div>
-                <div className="flex items-center gap-2">
-                    {status === 'valid' ? <CheckCircle className="w-3.5 h-3.5 text-emerald-500" /> : <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />}
-                    <span className="text-sm font-medium text-zinc-900">{label}</span>
-                </div>
-                <p className="text-xs text-zinc-500 mt-0.5 ml-5.5">{new Date(date).toLocaleDateString()}</p>
-            </div>
-            <Badge variant={status === 'valid' ? 'secondary' : status === 'warning' ? 'warning' : 'destructive'} className="text-[10px]">
-                {daysLeft < 0 ? `Expired` : `${daysLeft}d left`}
-            </Badge>
         </div>
     );
 }

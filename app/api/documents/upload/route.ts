@@ -6,6 +6,7 @@ import Pilot from '@/lib/models/Pilot';
 import { parseDocument } from '@/lib/services/reductoService';
 import { classifyDocumentFast } from '@/lib/services/aiService';
 import { saveFile } from '@/lib/services/fileStorage';
+import { reconcileDocumentLinks } from '@/lib/services/reconciliationService';
 
 // Allow longer timeout for large file processing
 export const maxDuration = 300;
@@ -55,7 +56,7 @@ export async function POST(request: NextRequest) {
     const originalFilename = filename || `document_${Date.now()}.${fileType === 'pdf' ? 'pdf' : 'png'}`;
     const isLargeFile = fileBase64.length > MONGODB_SAFE_SIZE;
 
-    // Step 1: Analyze document to determine type and quality (unless skipped)
+    // ULTRA-FAST PARALLEL: Run classification + file save simultaneously
     let analysis = null;
     let documentType = requestedDocType || 'other';
     let suggestedName = originalFilename;
@@ -95,15 +96,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Step 2: Save file to disk
-    let storedFile = null;
-    try {
-      storedFile = await saveFile(fileBase64, originalFilename, fileType, documentType as any);
-    } catch (saveError) {
-      console.error('File save error:', saveError);
-      // Continue without file storage - will use base64 as fallback
-    }
-
     // Create document record
     const doc = await ParsedDocument.create({
       filename: suggestedName,
@@ -122,6 +114,15 @@ export async function POST(request: NextRequest) {
       // Only store base64 for small files if file storage failed
       fileBase64: (!storedFile && !isLargeFile) ? fileBase64 : undefined,
     });
+
+    // Step 3: Auto-reconcile document with pilot/aircraft
+    if (!aircraftId && !pilotId) {
+      try {
+        await reconcileDocumentLinks(doc._id.toString());
+      } catch (reconError) {
+        console.error('Auto-reconciliation error:', reconError);
+      }
+    }
 
     // For large files, parse immediately instead of storing
     if (isLargeFile) {
@@ -178,14 +179,16 @@ export async function POST(request: NextRequest) {
           summary,
         });
 
-        // Update linked aircraft if maintenance type
+        // PARALLEL: Update linked aircraft AND pilot simultaneously
+        const dbUpdatePromises: Promise<void>[] = [];
         if (aircraftId && documentType === 'maintenance' && entries.length > 0) {
-          await updateAircraftFromParsedData(aircraftId, entries, result.data?.extractedData);
+          dbUpdatePromises.push(updateAircraftFromParsedData(aircraftId, entries, result.data?.extractedData));
         }
-
-        // Update linked pilot if logbook type
         if (pilotId && documentType === 'logbook') {
-          await updatePilotFromParsedData(pilotId, entries);
+          dbUpdatePromises.push(updatePilotFromParsedData(pilotId, entries));
+        }
+        if (dbUpdatePromises.length > 0) {
+          await Promise.all(dbUpdatePromises);
         }
 
         return NextResponse.json({

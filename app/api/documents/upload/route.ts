@@ -56,38 +56,34 @@ export async function POST(request: NextRequest) {
     const originalFilename = filename || `document_${Date.now()}.${fileType === 'pdf' ? 'pdf' : 'png'}`;
     const isLargeFile = fileBase64.length > MONGODB_SAFE_SIZE;
 
-    // Step 1: Analyze document to determine type and quality (unless skipped)
+    // ULTRA-FAST PARALLEL: Run classification + file save simultaneously
     let analysis = null;
     let documentType = requestedDocType || 'other';
     let suggestedName = originalFilename;
 
-    if (!skipAnalysis) {
-      try {
-        // Use fast Gemini Flash classification instead of slow Reducto analysis
-        const classificationResult = await classifyDocumentFast(fileBase64, fileType);
-        if (classificationResult.success && classificationResult.classification) {
-          analysis = classificationResult.classification;
-          // Use detected type if confidence is high enough
-          if (analysis.confidence >= 0.7 && analysis.detectedType !== 'unknown') {
-            documentType = analysis.detectedType;
-          }
-          if (analysis.suggestedName) {
-            suggestedName = analysis.suggestedName;
-          }
-        }
-      } catch (analysisError) {
-        console.error('Fast classification error (continuing):', analysisError);
-        // Continue without classification
-      }
-    }
+    // Run classification and file save IN PARALLEL for maximum speed
+    const [classificationResult, storedFile] = await Promise.all([
+      // Task 1: Fast AI classification (unless skipped)
+      skipAnalysis ? Promise.resolve({ success: false as const, classification: null }) : classifyDocumentFast(fileBase64, fileType).catch(err => {
+        console.error('Classification error:', err);
+        return { success: false as const, classification: null, error: err.message };
+      }),
+      // Task 2: Save file to disk
+      saveFile(fileBase64, originalFilename, fileType, (requestedDocType || 'other') as any).catch(err => {
+        console.error('File save error:', err);
+        return null;
+      })
+    ]);
 
-    // Step 2: Save file to disk
-    let storedFile = null;
-    try {
-      storedFile = await saveFile(fileBase64, originalFilename, fileType, documentType as any);
-    } catch (saveError) {
-      console.error('File save error:', saveError);
-      // Continue without file storage - will use base64 as fallback
+    // Process classification results
+    if (classificationResult.success && classificationResult.classification) {
+      analysis = classificationResult.classification;
+      if (analysis.confidence >= 0.7 && analysis.detectedType !== 'unknown') {
+        documentType = analysis.detectedType;
+      }
+      if (analysis.suggestedName) {
+        suggestedName = analysis.suggestedName;
+      }
     }
 
     // Create document record
@@ -171,14 +167,16 @@ export async function POST(request: NextRequest) {
           summary,
         });
 
-        // Update linked aircraft if maintenance type
+        // PARALLEL: Update linked aircraft AND pilot simultaneously
+        const dbUpdatePromises: Promise<void>[] = [];
         if (aircraftId && documentType === 'maintenance' && entries.length > 0) {
-          await updateAircraftFromParsedData(aircraftId, entries, result.data?.extractedData);
+          dbUpdatePromises.push(updateAircraftFromParsedData(aircraftId, entries, result.data?.extractedData));
         }
-
-        // Update linked pilot if logbook type
         if (pilotId && documentType === 'logbook') {
-          await updatePilotFromParsedData(pilotId, entries);
+          dbUpdatePromises.push(updatePilotFromParsedData(pilotId, entries));
+        }
+        if (dbUpdatePromises.length > 0) {
+          await Promise.all(dbUpdatePromises);
         }
 
         return NextResponse.json({

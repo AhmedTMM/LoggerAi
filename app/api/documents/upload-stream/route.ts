@@ -3,7 +3,7 @@ import dbConnect from '@/lib/db';
 import ParsedDocument from '@/lib/models/ParsedDocument';
 import Aircraft from '@/lib/models/Aircraft';
 import Pilot from '@/lib/models/Pilot';
-import { parseDocument, analyzeDocument, StepLog } from '@/lib/services/reductoService';
+import { parseDocument, StepLog } from '@/lib/services/reductoService';
 import { saveFile } from '@/lib/services/fileStorage';
 
 // Allow longer timeout for large file processing
@@ -17,9 +17,48 @@ function formatSSE(event: string, data: any): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
+// Fast filename-based document type detection (instant, no API call)
+function detectDocumentTypeFromFilename(filename: string): {
+  type: 'logbook' | 'maintenance' | 'poh' | 'other';
+  confidence: number;
+  reason: string;
+} {
+  const lower = filename.toLowerCase();
+
+  // Maintenance log patterns (airframe, engine, propeller logs)
+  if (lower.includes('airframe') || lower.includes('engine-log') || lower.includes('prop-log') ||
+      lower.includes('maintenance') || lower.includes('mx-log') || lower.includes('aircraft-log') ||
+      lower.includes('maint') || lower.includes('annual') || lower.includes('100-hour') ||
+      lower.includes('100hr') || lower.includes('squawk') || lower.includes('discrepancy')) {
+    return { type: 'maintenance', confidence: 0.95, reason: 'Filename indicates maintenance record' };
+  }
+
+  // Pilot logbook patterns
+  if (lower.includes('logbook') || lower.includes('pilot-log') || lower.includes('flight-log') ||
+      lower.includes('flying-log') || lower.includes('pilot_log') || lower.includes('flight_log') ||
+      lower.includes('flightlog') || lower.includes('pilotlog')) {
+    return { type: 'logbook', confidence: 0.95, reason: 'Filename indicates pilot logbook' };
+  }
+
+  // POH patterns
+  if (lower.includes('poh') || lower.includes('pilot-operating') || lower.includes('operating-handbook') ||
+      lower.includes('afm') || lower.includes('aircraft-flight-manual') || lower.includes('checklist')) {
+    return { type: 'poh', confidence: 0.90, reason: 'Filename indicates POH/AFM' };
+  }
+
+  // N-number at start often indicates aircraft-related document (likely maintenance)
+  if (/^n\d{1,5}[a-z]{0,2}[-_\s]/i.test(filename)) {
+    return { type: 'maintenance', confidence: 0.80, reason: 'Filename starts with N-number (aircraft document)' };
+  }
+
+  // Default - but still try to parse as maintenance since that's most common for aircraft docs
+  return { type: 'maintenance', confidence: 0.60, reason: 'Default - will attempt maintenance extraction' };
+}
+
 // Streaming upload endpoint with Server-Sent Events for real-time progress
 export async function POST(request: NextRequest) {
   const encoder = new TextEncoder();
+  const startTime = Date.now();
 
   // Create a readable stream for SSE
   const stream = new ReadableStream({
@@ -28,13 +67,13 @@ export async function POST(request: NextRequest) {
         controller.enqueue(encoder.encode(formatSSE(event, data)));
       };
 
-      const sendLog = (log: StepLog) => {
+      const sendLog = (log: Partial<StepLog> & { step: string; message: string; progress: number }) => {
         sendEvent('log', {
           step: log.step,
           message: log.message,
           progress: log.progress,
-          timestamp: log.timestamp.toISOString(),
-          duration: log.duration,
+          timestamp: new Date().toISOString(),
+          duration: Date.now() - startTime,
           details: log.details
         });
       };
@@ -43,10 +82,8 @@ export async function POST(request: NextRequest) {
         // Parse request body
         sendLog({
           step: 'initializing',
-          message: 'Receiving upload request...',
-          timestamp: new Date(),
-          progress: 1,
-          duration: 0
+          message: 'Receiving upload...',
+          progress: 2
         });
 
         let body;
@@ -59,7 +96,7 @@ export async function POST(request: NextRequest) {
           return;
         }
 
-        const { fileBase64, fileType, documentType: requestedDocType, aircraftId, pilotId, filename, skipAnalysis } = body;
+        const { fileBase64, fileType, documentType: requestedDocType, aircraftId, pilotId, filename } = body;
 
         if (!fileBase64 || !fileType) {
           sendEvent('error', { message: 'Missing required fields: fileBase64, fileType' });
@@ -70,102 +107,52 @@ export async function POST(request: NextRequest) {
         // Validate file size
         const fileSizeBytes = Math.ceil((fileBase64.length * 3) / 4);
         const maxSizeBytes = 50 * 1024 * 1024;
+        const fileSizeMB = (fileSizeBytes / 1024 / 1024).toFixed(1);
 
         sendLog({
           step: 'validating',
-          message: `Validating file (${(fileSizeBytes / 1024 / 1024).toFixed(2)} MB)...`,
-          timestamp: new Date(),
-          progress: 3,
-          duration: 0,
-          details: { sizeBytes: fileSizeBytes, sizeMB: (fileSizeBytes / 1024 / 1024).toFixed(2) }
+          message: `File validated: ${fileSizeMB} MB`,
+          progress: 5,
+          details: { sizeBytes: fileSizeBytes, sizeMB: fileSizeMB }
         });
 
         if (fileSizeBytes > maxSizeBytes) {
-          sendEvent('error', { message: `File too large. Maximum size is 50MB. Your file is ${Math.round(fileSizeBytes / 1024 / 1024)}MB` });
+          sendEvent('error', { message: `File too large. Maximum size is 50MB.` });
           controller.close();
           return;
         }
+
+        const originalFilename = filename || `document_${Date.now()}.${fileType === 'pdf' ? 'pdf' : 'png'}`;
+
+        // FAST: Detect document type from filename (instant - no API call!)
+        const detection = detectDocumentTypeFromFilename(originalFilename);
+        let documentType = requestedDocType !== 'other' ? requestedDocType : detection.type;
+
+        sendLog({
+          step: 'classifying',
+          message: `Type detected: ${documentType} (${Math.round(detection.confidence * 100)}%)`,
+          progress: 8,
+          details: {
+            detectedType: documentType,
+            confidence: detection.confidence,
+            reason: detection.reason
+          }
+        });
 
         // Connect to database
         sendLog({
           step: 'initializing',
           message: 'Connecting to database...',
-          timestamp: new Date(),
-          progress: 5,
-          duration: 0
+          progress: 10
         });
 
         await dbConnect();
 
-        sendLog({
-          step: 'initializing',
-          message: 'Database connected',
-          timestamp: new Date(),
-          progress: 7,
-          duration: 0
-        });
-
-        const originalFilename = filename || `document_${Date.now()}.${fileType === 'pdf' ? 'pdf' : 'png'}`;
-        const isLargeFile = fileBase64.length > MONGODB_SAFE_SIZE;
-
-        // Step 1: Analyze document to determine type and quality
-        let analysis = null;
-        let documentType = requestedDocType || 'other';
-        let suggestedName = originalFilename;
-
-        if (!skipAnalysis) {
-          sendLog({
-            step: 'analyzing',
-            message: 'Starting AI document analysis...',
-            timestamp: new Date(),
-            progress: 10,
-            duration: 0
-          });
-
-          try {
-            const analysisResult = await analyzeDocument(fileBase64, fileType, sendLog);
-            if (analysisResult.success && analysisResult.analysis) {
-              analysis = analysisResult.analysis;
-              // Use detected type if confidence is high enough
-              if (analysis.confidence >= 0.7 && analysis.detectedType !== 'unknown') {
-                documentType = analysis.detectedType;
-                sendLog({
-                  step: 'classifying',
-                  message: `Document classified as: ${documentType} (${Math.round(analysis.confidence * 100)}% confidence)`,
-                  timestamp: new Date(),
-                  progress: 35,
-                  duration: 0,
-                  details: {
-                    detectedType: analysis.detectedType,
-                    confidence: analysis.confidence,
-                    quality: analysis.documentQuality,
-                    isHandwritten: analysis.isHandwritten
-                  }
-                });
-              }
-              if (analysis.suggestedName) {
-                suggestedName = analysis.suggestedName;
-              }
-            }
-          } catch (analysisError) {
-            sendLog({
-              step: 'analyzing',
-              message: 'Analysis skipped (non-critical error)',
-              timestamp: new Date(),
-              progress: 35,
-              duration: 0,
-              details: { error: (analysisError as Error).message }
-            });
-          }
-        }
-
-        // Step 2: Save file to disk
+        // Save file to disk
         sendLog({
           step: 'uploading',
           message: 'Saving file to storage...',
-          timestamp: new Date(),
-          progress: 38,
-          duration: 0
+          progress: 12
         });
 
         let storedFile = null;
@@ -173,237 +160,183 @@ export async function POST(request: NextRequest) {
           storedFile = await saveFile(fileBase64, originalFilename, fileType, documentType as any);
           sendLog({
             step: 'uploading',
-            message: 'File saved to disk successfully',
-            timestamp: new Date(),
-            progress: 42,
-            duration: 0,
+            message: 'File saved successfully',
+            progress: 15,
             details: { path: storedFile?.relativePath }
           });
         } catch (saveError) {
           sendLog({
             step: 'uploading',
-            message: 'File storage failed, using memory fallback',
-            timestamp: new Date(),
-            progress: 42,
-            duration: 0,
-            details: { error: (saveError as Error).message }
+            message: 'Using memory storage (disk save failed)',
+            progress: 15
           });
         }
 
         // Create document record
-        sendLog({
-          step: 'initializing',
-          message: 'Creating document record...',
-          timestamp: new Date(),
-          progress: 44,
-          duration: 0
-        });
-
         const doc = await ParsedDocument.create({
-          filename: suggestedName,
+          filename: originalFilename,
           originalFilename,
           documentType,
           fileType,
-          status: isLargeFile ? 'parsing' : 'pending',
-          progress: isLargeFile ? 10 : 0,
-          progressStep: isLargeFile ? 'queued' : 'pending',
+          status: 'parsing',
+          progress: 15,
+          progressStep: 'processing',
           retryCount: 0,
           aircraft: aircraftId || undefined,
           pilot: pilotId || undefined,
-          analysis: analysis || undefined,
+          analysis: {
+            detectedType: documentType,
+            confidence: detection.confidence,
+            suggestedName: originalFilename,
+            documentQuality: 'good',
+            qualityNotes: [detection.reason],
+            isHandwritten: false,
+            summary: `${documentType} document`
+          },
           filePath: storedFile?.relativePath,
           fileSize: storedFile?.size || fileSizeBytes,
-          fileBase64: (!storedFile && !isLargeFile) ? fileBase64 : undefined,
         });
 
         sendLog({
           step: 'initializing',
-          message: `Document record created (ID: ${doc._id})`,
-          timestamp: new Date(),
-          progress: 46,
-          duration: 0,
+          message: `Document created (${doc._id.toString().slice(-6)})`,
+          progress: 18,
           details: { documentId: doc._id.toString() }
         });
 
-        // For large files or when we have a doc type, parse immediately
-        if (isLargeFile || documentType !== 'other') {
-          sendLog({
-            step: 'extracting',
-            message: 'Starting Reducto AI extraction...',
-            timestamp: new Date(),
-            progress: 48,
-            duration: 0
-          });
+        // Start Reducto extraction
+        sendLog({
+          step: 'extracting',
+          message: 'Starting AI extraction with Reducto...',
+          progress: 20
+        });
 
-          try {
-            // Update status in DB
-            await ParsedDocument.findByIdAndUpdate(doc._id, {
-              status: 'parsing',
-              progress: 50,
-              progressStep: 'processing',
-            });
-
-            // Parse with step logging
-            const result = await parseDocument(
-              fileBase64,
-              fileType,
-              documentType === 'poh' ? 'logbook' : (documentType as 'logbook' | 'maintenance'),
-              (log) => {
-                // Remap progress to 50-95 range
-                const mappedProgress = 50 + Math.round((log.progress / 100) * 45);
-                sendLog({
-                  ...log,
-                  progress: mappedProgress
-                });
-              }
-            );
-
-            if (!result.success) {
-              await ParsedDocument.findByIdAndUpdate(doc._id, {
-                status: 'failed',
-                progress: 0,
-                progressStep: 'failed',
-                error: result.error,
-              });
-              sendEvent('error', { message: result.error, documentId: doc._id.toString() });
-              controller.close();
-              return;
-            }
-
-            // Extract entries from result
-            const entries = result.data?.extractedData?.entries ||
-              (Array.isArray(result.data?.extractedData) ? result.data?.extractedData : []);
-
-            const summary = calculateSummary(entries);
-
-            sendLog({
-              step: 'structuring',
-              message: `Extracted ${entries.length} entries`,
-              timestamp: new Date(),
-              progress: 96,
-              duration: 0,
-              details: {
-                entryCount: entries.length,
-                totalHours: summary.totalHours,
-                dateRange: summary.dateRange
-              }
-            });
-
-            // Update document with parsed data
-            await ParsedDocument.findByIdAndUpdate(doc._id, {
-              status: 'completed',
-              progress: 100,
-              progressStep: 'complete',
-              parsedAt: new Date(),
-              rawOutput: result.data?.extractedData,
-              entries,
-              summary,
-            });
-
-            // Update linked aircraft if maintenance type
-            if (aircraftId && documentType === 'maintenance' && entries.length > 0) {
+        try {
+          // Parse with step logging - this is the main processing
+          const result = await parseDocument(
+            fileBase64,
+            fileType,
+            documentType === 'poh' ? 'maintenance' : (documentType as 'logbook' | 'maintenance'),
+            (log) => {
+              // Remap progress: 20-90 for extraction
+              const mappedProgress = 20 + Math.round((log.progress / 100) * 70);
               sendLog({
-                step: 'structuring',
-                message: 'Updating linked aircraft records...',
-                timestamp: new Date(),
-                progress: 97,
-                duration: 0
+                step: log.step,
+                message: log.message,
+                progress: mappedProgress,
+                details: log.details
               });
-              await updateAircraftFromParsedData(aircraftId, entries, result.data?.extractedData);
             }
+          );
 
-            // Update linked pilot if logbook type
-            if (pilotId && documentType === 'logbook') {
-              sendLog({
-                step: 'structuring',
-                message: 'Updating linked pilot records...',
-                timestamp: new Date(),
-                progress: 98,
-                duration: 0
-              });
-              await updatePilotFromParsedData(pilotId, entries);
-            }
-
-            sendLog({
-              step: 'complete',
-              message: 'Document processing complete!',
-              timestamp: new Date(),
-              progress: 100,
-              duration: 0,
-              details: {
-                documentId: doc._id.toString(),
-                filename: suggestedName,
-                documentType,
-                status: 'completed',
-                entryCount: entries.length,
-                totalHours: summary.totalHours
-              }
-            });
-
-            sendEvent('complete', {
-              documentId: doc._id.toString(),
-              filename: suggestedName,
-              originalFilename,
-              documentType,
-              status: 'completed',
-              progress: 100,
-              progressStep: 'complete',
-              message: 'Document parsed successfully.',
-              summary,
-              analysis: analysis || undefined,
-              filePath: storedFile?.relativePath,
-              entryCount: entries.length
-            });
-
-          } catch (parseError) {
-            console.error('Parse error:', parseError);
+          if (!result.success) {
             await ParsedDocument.findByIdAndUpdate(doc._id, {
               status: 'failed',
               progress: 0,
               progressStep: 'failed',
-              error: (parseError as Error).message,
+              error: result.error,
             });
-
-            sendLog({
-              step: 'error',
-              message: `Processing failed: ${(parseError as Error).message}`,
-              timestamp: new Date(),
-              progress: 0,
-              duration: 0,
-              details: { error: (parseError as Error).message }
-            });
-
-            sendEvent('error', {
-              message: (parseError as Error).message,
-              documentId: doc._id.toString()
-            });
+            sendEvent('error', { message: result.error, documentId: doc._id.toString() });
+            controller.close();
+            return;
           }
-        } else {
-          // For small files without a specific type, store and return
+
+          // Extract entries from result
+          const entries = result.data?.extractedData?.entries ||
+            (Array.isArray(result.data?.extractedData) ? result.data?.extractedData : []);
+
+          const summary = calculateSummary(entries);
+
+          sendLog({
+            step: 'structuring',
+            message: `Extracted ${entries.length} entries`,
+            progress: 92,
+            details: {
+              entryCount: entries.length,
+              totalHours: summary.totalHours,
+              dateRange: summary.dateRange
+            }
+          });
+
+          // Update document with parsed data
+          await ParsedDocument.findByIdAndUpdate(doc._id, {
+            status: 'completed',
+            progress: 100,
+            progressStep: 'complete',
+            parsedAt: new Date(),
+            rawOutput: result.data?.extractedData,
+            entries,
+            summary,
+          });
+
+          // Update linked aircraft if maintenance type
+          if (aircraftId && documentType === 'maintenance' && entries.length > 0) {
+            sendLog({
+              step: 'structuring',
+              message: 'Updating aircraft records...',
+              progress: 95
+            });
+            await updateAircraftFromParsedData(aircraftId, entries, result.data?.extractedData);
+          }
+
+          // Update linked pilot if logbook type
+          if (pilotId && documentType === 'logbook') {
+            sendLog({
+              step: 'structuring',
+              message: 'Updating pilot records...',
+              progress: 97
+            });
+            await updatePilotFromParsedData(pilotId, entries);
+          }
+
+          const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
+
           sendLog({
             step: 'complete',
-            message: 'File uploaded, ready for parsing',
-            timestamp: new Date(),
+            message: `Done! ${entries.length} entries in ${totalTime}s`,
             progress: 100,
-            duration: 0,
             details: {
               documentId: doc._id.toString(),
-              status: 'pending',
-              needsManualParsing: true
+              documentType,
+              entryCount: entries.length,
+              totalHours: summary.totalHours,
+              processingTime: totalTime
             }
           });
 
           sendEvent('complete', {
             documentId: doc._id.toString(),
-            filename: suggestedName,
+            filename: originalFilename,
             originalFilename,
             documentType,
-            status: 'pending',
-            progress: 0,
-            progressStep: 'pending',
-            message: 'File uploaded successfully. Ready for parsing.',
-            analysis: analysis || undefined,
+            status: 'completed',
+            progress: 100,
+            progressStep: 'complete',
+            message: 'Document parsed successfully.',
+            summary,
             filePath: storedFile?.relativePath,
+            entryCount: entries.length
+          });
+
+        } catch (parseError) {
+          console.error('Parse error:', parseError);
+          await ParsedDocument.findByIdAndUpdate(doc._id, {
+            status: 'failed',
+            progress: 0,
+            progressStep: 'failed',
+            error: (parseError as Error).message,
+          });
+
+          sendLog({
+            step: 'error',
+            message: `Failed: ${(parseError as Error).message}`,
+            progress: 0,
+            details: { error: (parseError as Error).message }
+          });
+
+          sendEvent('error', {
+            message: (parseError as Error).message,
+            documentId: doc._id.toString()
           });
         }
 

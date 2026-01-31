@@ -3,7 +3,8 @@ import dbConnect from '@/lib/db';
 import ParsedDocument from '@/lib/models/ParsedDocument';
 import Aircraft from '@/lib/models/Aircraft';
 import Pilot from '@/lib/models/Pilot';
-import { parseDocument } from '@/lib/services/reductoService';
+import { parseDocument, analyzeDocument } from '@/lib/services/reductoService';
+import { saveFile } from '@/lib/services/fileStorage';
 
 // Allow longer timeout for large file processing
 export const maxDuration = 300;
@@ -28,11 +29,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { fileBase64, fileType, documentType, aircraftId, pilotId, filename } = body;
+    const { fileBase64, fileType, documentType: requestedDocType, aircraftId, pilotId, filename, skipAnalysis } = body;
 
-    if (!fileBase64 || !fileType || !documentType) {
+    if (!fileBase64 || !fileType) {
       return NextResponse.json(
-        { success: false, error: 'Missing required fields: fileBase64, fileType, documentType' },
+        { success: false, error: 'Missing required fields: fileBase64, fileType' },
         { status: 400 }
       );
     }
@@ -50,11 +51,46 @@ export async function POST(request: NextRequest) {
 
     await dbConnect();
 
+    const originalFilename = filename || `document_${Date.now()}.${fileType === 'pdf' ? 'pdf' : 'png'}`;
     const isLargeFile = fileBase64.length > MONGODB_SAFE_SIZE;
+
+    // Step 1: Analyze document to determine type and quality (unless skipped)
+    let analysis = null;
+    let documentType = requestedDocType || 'other';
+    let suggestedName = originalFilename;
+
+    if (!skipAnalysis) {
+      try {
+        const analysisResult = await analyzeDocument(fileBase64, fileType);
+        if (analysisResult.success && analysisResult.analysis) {
+          analysis = analysisResult.analysis;
+          // Use detected type if confidence is high enough
+          if (analysis.confidence >= 0.7 && analysis.detectedType !== 'unknown') {
+            documentType = analysis.detectedType;
+          }
+          if (analysis.suggestedName) {
+            suggestedName = analysis.suggestedName;
+          }
+        }
+      } catch (analysisError) {
+        console.error('Analysis error (continuing):', analysisError);
+        // Continue without analysis
+      }
+    }
+
+    // Step 2: Save file to disk
+    let storedFile = null;
+    try {
+      storedFile = await saveFile(fileBase64, originalFilename, fileType, documentType as any);
+    } catch (saveError) {
+      console.error('File save error:', saveError);
+      // Continue without file storage - will use base64 as fallback
+    }
 
     // Create document record
     const doc = await ParsedDocument.create({
-      filename: filename || `${documentType}_${Date.now()}.${fileType}`,
+      filename: suggestedName,
+      originalFilename,
       documentType,
       fileType,
       status: isLargeFile ? 'parsing' : 'pending',
@@ -63,8 +99,11 @@ export async function POST(request: NextRequest) {
       retryCount: 0,
       aircraft: aircraftId || undefined,
       pilot: pilotId || undefined,
-      // Only store file for small files - large files will be parsed inline
-      fileBase64: isLargeFile ? undefined : fileBase64,
+      analysis: analysis || undefined,
+      filePath: storedFile?.relativePath,
+      fileSize: storedFile?.size || fileSizeBytes,
+      // Only store base64 for small files if file storage failed
+      fileBase64: (!storedFile && !isLargeFile) ? fileBase64 : undefined,
     });
 
     // For large files, parse immediately instead of storing
@@ -135,11 +174,15 @@ export async function POST(request: NextRequest) {
           data: {
             documentId: doc._id,
             filename: doc.filename,
+            originalFilename: doc.originalFilename,
+            documentType,
             status: 'completed',
             progress: 100,
             progressStep: 'complete',
             message: 'Document parsed successfully.',
             summary,
+            analysis: analysis || undefined,
+            filePath: storedFile?.relativePath,
           },
         });
       } catch (parseError) {
@@ -163,10 +206,14 @@ export async function POST(request: NextRequest) {
       data: {
         documentId: doc._id,
         filename: doc.filename,
+        originalFilename: doc.originalFilename,
+        documentType,
         status: 'pending',
         progress: 0,
         progressStep: 'pending',
         message: 'File uploaded successfully. Ready for parsing.',
+        analysis: analysis || undefined,
+        filePath: storedFile?.relativePath,
       },
     });
   } catch (error) {

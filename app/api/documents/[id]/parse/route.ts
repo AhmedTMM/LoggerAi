@@ -4,6 +4,7 @@ import dbConnect from '@/lib/db';
 import Aircraft from '@/lib/models/Aircraft';
 import Pilot from '@/lib/models/Pilot';
 import ParsedDocument from '@/lib/models/ParsedDocument';
+import { readFileAsBase64, fileExists } from '@/lib/services/fileStorage';
 
 // Increase timeout to 5 minutes for large document processing
 export const maxDuration = 300;
@@ -48,8 +49,22 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
-    // Check if file data exists
-    if (!doc.fileBase64) {
+    // Check if file data exists (either on disk or base64)
+    let fileBase64 = doc.fileBase64;
+
+    // Try to load from disk if we have a file path
+    if (!fileBase64 && doc.filePath) {
+      const exists = await fileExists(doc.filePath);
+      if (exists) {
+        try {
+          fileBase64 = await readFileAsBase64(doc.filePath);
+        } catch (readError) {
+          console.error('Error reading file from disk:', readError);
+        }
+      }
+    }
+
+    if (!fileBase64) {
       return NextResponse.json(
         { success: false, error: 'No file data found. Please re-upload the document.' },
         { status: 400 }
@@ -75,7 +90,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       // Progress: 50% - Processing document
       await updateProgress(docId, 50, 'processing');
 
-      const result = await parseDocument(doc.fileBase64, doc.fileType, doc.documentType as 'logbook' | 'maintenance');
+      const result = await parseDocument(fileBase64, doc.fileType, doc.documentType as 'logbook' | 'maintenance');
 
       // Progress: 80% - Extracting entries
       await updateProgress(docId, 80, 'extracting');

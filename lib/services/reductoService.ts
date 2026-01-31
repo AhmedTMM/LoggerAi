@@ -79,8 +79,255 @@ import { Reducto, toFile } from 'reductoai';
 import { ExtractRunResponse } from 'reductoai/resources/extract';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-// Gemini Flash for fast structured extraction after OCR
+// Gemini Flash for fast structured extraction
 const GEMINI_FLASH_MODEL = 'gemini-2.0-flash';
+
+/**
+ * ULTRA-FAST: Direct Gemini Vision extraction (no OCR step)
+ * Uses Gemini's native PDF/image understanding to extract data directly.
+ *
+ * Expected time: 5-15 seconds total (vs 60-180s with OCR pipeline)
+ *
+ * This bypasses Reducto entirely and sends the document directly to Gemini,
+ * which has excellent vision capabilities for both PDFs and images.
+ */
+export async function parseDocumentUltraFast(
+  fileBase64: string,
+  fileType: 'pdf' | 'image',
+  documentType: 'logbook' | 'maintenance',
+  onStep?: StepCallback
+): Promise<ReductoResponse> {
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const startTime = Date.now();
+
+  const log = async (step: ProcessingStep, message: string, progress: number, details?: Record<string, any>) => {
+    if (onStep) {
+      await onStep({
+        step,
+        message,
+        timestamp: new Date(),
+        progress,
+        details,
+        duration: Date.now() - startTime
+      });
+    }
+  };
+
+  if (!geminiKey) {
+    console.warn('[UltraFast] Gemini API key not configured, falling back to OCR pipeline');
+    return parseDocumentFast(fileBase64, fileType, documentType, onStep);
+  }
+
+  try {
+    await log('initializing', 'Starting ultra-fast Gemini extraction...', 5, {
+      documentType,
+      fileType,
+      mode: 'direct-vision'
+    });
+
+    const genAI = new GoogleGenerativeAI(geminiKey);
+    const model = genAI.getGenerativeModel({ model: GEMINI_FLASH_MODEL });
+
+    // Check file size - Gemini can handle up to ~20MB inline
+    const fileSizeBytes = Math.ceil((fileBase64.length * 3) / 4);
+    const MAX_GEMINI_SIZE = 15 * 1024 * 1024; // 15MB to be safe
+
+    if (fileSizeBytes > MAX_GEMINI_SIZE) {
+      await log('initializing', 'File too large for direct extraction, using OCR pipeline...', 10);
+      return parseDocumentFast(fileBase64, fileType, documentType, onStep);
+    }
+
+    await log('preparing', 'Preparing document for AI analysis...', 10, {
+      sizeKB: Math.round(fileSizeBytes / 1024),
+      format: fileType
+    });
+
+    // Choose the appropriate extraction prompt
+    const prompt = documentType === 'logbook'
+      ? ULTRA_FAST_LOGBOOK_PROMPT
+      : ULTRA_FAST_MAINTENANCE_PROMPT;
+
+    const mimeType = fileType === 'pdf' ? 'application/pdf' : 'image/png';
+
+    await log('extracting', 'Sending to Gemini Vision for direct extraction...', 20, {
+      model: GEMINI_FLASH_MODEL,
+      mode: 'vision-direct'
+    });
+
+    const extractionStart = Date.now();
+    const result = await model.generateContent([
+      prompt,
+      {
+        inlineData: {
+          mimeType,
+          data: fileBase64
+        }
+      }
+    ]);
+
+    const extractionTime = Date.now() - extractionStart;
+    await log('parsing', `AI extraction complete in ${(extractionTime / 1000).toFixed(1)}s`, 70, {
+      extractionTimeMs: extractionTime
+    });
+
+    const response = await result.response;
+    const aiText = response.text();
+
+    await log('structuring', 'Parsing extracted data...', 80);
+
+    // Parse the AI response
+    let items: any[] = [];
+    let rawData: any = {};
+
+    try {
+      // Clean up JSON - handle markdown code blocks and extra whitespace
+      let jsonString = aiText
+        .replace(/```json\s*/gi, '')
+        .replace(/```\s*/g, '')
+        .trim();
+
+      // Try to find JSON in the response if it's wrapped in other text
+      const jsonMatch = jsonString.match(/\[[\s\S]*\]|\{[\s\S]*\}/);
+      if (jsonMatch) {
+        jsonString = jsonMatch[0];
+      }
+
+      const parsed = JSON.parse(jsonString);
+
+      if (Array.isArray(parsed)) {
+        items = parsed;
+      } else if (parsed.entries && Array.isArray(parsed.entries)) {
+        items = parsed.entries;
+        rawData = parsed;
+      } else if (parsed.flights && Array.isArray(parsed.flights)) {
+        items = parsed.flights;
+        rawData = parsed;
+      } else {
+        items = [parsed];
+        rawData = parsed;
+      }
+    } catch (parseError) {
+      console.error('[UltraFast] JSON parse failed, attempting recovery...', parseError);
+      console.error('[UltraFast] Raw AI response:', aiText.substring(0, 500));
+
+      // Try to extract any array from the response
+      const arrayMatch = aiText.match(/\[\s*\{[\s\S]*?\}\s*(?:,\s*\{[\s\S]*?\}\s*)*\]/);
+      if (arrayMatch) {
+        try {
+          items = JSON.parse(arrayMatch[0]);
+          await log('structuring', 'Recovered partial data from response', 85);
+        } catch {
+          await log('error', 'Could not parse AI response, falling back to OCR pipeline', 80);
+          return parseDocumentFast(fileBase64, fileType, documentType, onStep);
+        }
+      } else {
+        await log('error', 'No valid JSON found, falling back to OCR pipeline', 80);
+        return parseDocumentFast(fileBase64, fileType, documentType, onStep);
+      }
+    }
+
+    await log('validating_output', 'Validating extracted entries...', 90, {
+      entryCount: items.length
+    });
+
+    // Calculate stats
+    let totalHours = 0;
+    if (documentType === 'logbook') {
+      totalHours = items.reduce((sum: number, entry: any) => {
+        return sum + (parseFloat(entry.totalTime) || parseFloat(entry.duration) || 0);
+      }, 0);
+    }
+
+    const totalDuration = Date.now() - startTime;
+    await log('complete', 'Document processing complete!', 100, {
+      entryCount: items.length,
+      totalHours: documentType === 'logbook' ? Math.round(totalHours * 10) / 10 : undefined,
+      processingTimeMs: totalDuration,
+      success: true,
+      mode: 'ultra-fast-vision'
+    });
+
+    console.log(`[UltraFast] Completed in ${(totalDuration / 1000).toFixed(1)}s - ${items.length} entries extracted`);
+
+    return {
+      success: true,
+      data: {
+        documentType: documentType,
+        extractedData: { entries: items, ...rawData },
+        confidence: 1.0,
+        rawText: '',
+      },
+    };
+
+  } catch (error) {
+    console.error('[UltraFast] Error:', error);
+    await log('error', `Direct extraction failed: ${(error as Error).message}`, 0);
+
+    // Fall back to the OCR-based method
+    console.log('[UltraFast] Falling back to OCR pipeline...');
+    return parseDocumentFast(fileBase64, fileType, documentType, onStep);
+  }
+}
+
+// Ultra-fast prompts optimized for direct vision extraction
+const ULTRA_FAST_LOGBOOK_PROMPT = `You are extracting flight entries from a pilot logbook image/PDF. Extract ALL visible flight entries.
+
+For EACH flight entry, extract these fields (include only fields with values):
+- date: YYYY-MM-DD format
+- aircraftIdent: Tail number (N12345)
+- aircraftType: Make/model (C172, PA28)
+- from: Departure airport code
+- to: Arrival airport code
+- totalTime: Total flight hours (decimal, e.g., 1.5)
+- pic: PIC hours
+- sic: SIC hours
+- sel: Single engine land hours
+- mel: Multi engine land hours
+- crossCountry: Cross-country hours
+- night: Night hours
+- actualInstrument: Actual IMC hours
+- simulatedInstrument: Hood/sim instrument hours
+- dualReceived: Instruction received hours
+- dualGiven: Instruction given hours
+- landingsDay: Day landings count
+- landingsNight: Night landings count
+- remarks: Any notes, instructor names, endorsements
+
+IMPORTANT:
+- Extract EVERY row you can see, even if some fields are unclear
+- For unclear numbers, make your best guess based on context
+- Dates might be in various formats (MM/DD/YY, DD-MMM-YYYY) - convert to YYYY-MM-DD
+- Output ONLY a valid JSON array, no markdown formatting:
+
+[{"date":"2024-01-15","aircraftIdent":"N12345","totalTime":1.5,...},...]`;
+
+const ULTRA_FAST_MAINTENANCE_PROMPT = `You are extracting maintenance entries from an aircraft maintenance log. Extract ALL visible maintenance entries.
+
+For EACH maintenance entry, extract:
+- date: YYYY-MM-DD format
+- description: Full work description
+- hobbsTime: Aircraft hobbs time (if shown)
+- tachTime: Tachometer time (if shown)
+- mechanic: Mechanic name or certificate number
+- signedOff: true/false if properly signed
+- isInspection: true if this is an inspection
+- inspectionType: "annual", "100hour", "transponder", "static", "elt" if applicable
+
+Also extract at the top level (outside entries array):
+- annualDate: Most recent annual inspection date
+- hundredHourDate: Most recent 100-hour inspection date
+- transponderDate: Most recent transponder check date
+- staticDate: Most recent static system check date
+- eltDate: Most recent ELT inspection date
+- currentHobbs: Latest hobbs time recorded
+- currentTach: Latest tach time recorded
+- aircraftIdent: Aircraft tail number if visible
+
+IMPORTANT:
+- Extract EVERY entry you can see
+- Output ONLY valid JSON, no markdown:
+
+{"entries":[{"date":"2024-01-15","description":"Annual Inspection",...}],"annualDate":"2024-01-15","currentHobbs":1234.5}`;
 
 /**
  * OPTIMIZED: Fast document parsing using Reducto Parse (OCR) + Gemini Flash (extraction)

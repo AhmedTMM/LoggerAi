@@ -3,7 +3,7 @@ import dbConnect from '@/lib/db';
 import Flight from '@/lib/models/Flight';
 import { runLegalityAudit } from '@/lib/services/legalityService';
 import { runComprehensiveSafetyAnalysis } from '@/lib/services/comprehensiveSafetyService';
-import { sendAuditEmail } from '@/lib/services/emailService';
+import { sendAuditEmail, sendOwnerDangerAlert } from '@/lib/services/emailService';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // Allow up to 60 seconds for comprehensive analysis
@@ -37,33 +37,57 @@ export async function POST(
       result = await runLegalityAudit(flightId, false);
     }
 
-    // If no-go, send email alert
-    if (result.overallStatus === 'no-go') {
+    // If no-go or caution, send email alerts
+    let emailNotifications: { pilotNotified: boolean; ownerNotified: boolean; ownerEmail?: string } = {
+      pilotNotified: false,
+      ownerNotified: false,
+    };
+
+    if (result.overallStatus === 'no-go' || result.overallStatus === 'caution') {
       const flight = await Flight.findById(flightId)
         .populate('pilot')
         .populate('aircraft')
         .exec();
-      if (flight && !flight.emailSent) {
-        try {
-          await sendAuditEmail(flight);
-          flight.emailSent = true;
-          await flight.save();
-        } catch (emailErr) {
-          console.warn('Email send failed:', emailErr);
+      if (flight) {
+        // Send pilot email (only on no-go, and only once)
+        if (result.overallStatus === 'no-go' && !flight.emailSent) {
+          try {
+            const pilotResult = await sendAuditEmail(flight);
+            if (pilotResult.success) {
+              emailNotifications.pilotNotified = true;
+              flight.emailSent = true;
+            }
+          } catch (emailErr) {
+            console.warn('Pilot email send failed:', emailErr);
+          }
         }
+
+        // Send owner danger alert (no-go or caution)
+        try {
+          const ownerResult = await sendOwnerDangerAlert(flight);
+          if (ownerResult.success) {
+            emailNotifications.ownerNotified = true;
+            emailNotifications.ownerEmail = (flight.aircraft as any)?.owner?.email;
+          }
+        } catch (emailErr) {
+          console.warn('Owner alert send failed:', emailErr);
+        }
+
+        await flight.save();
       }
     }
 
     // Return populated flight
     const populatedFlight = await Flight.findById(flightId)
       .populate('pilot', 'name email certificates experience safetyAnalysis')
-      .populate('aircraft', 'tailNumber model maintenanceDates currentHours operatingLimits safetyAnalysis');
+      .populate('aircraft', 'tailNumber model maintenanceDates currentHours operatingLimits safetyAnalysis owner');
 
     return NextResponse.json({
       success: true,
       data: populatedFlight,
       audit: result,
       comprehensiveAnalysis: comprehensive ? comprehensiveAnalysis : undefined,
+      emailNotifications,
     });
   } catch (error) {
     console.error('Audit error:', error);
@@ -85,7 +109,7 @@ export async function GET(
 
     const flight = await Flight.findById(flightId)
       .populate('pilot', 'name email certificates experience safetyAnalysis')
-      .populate('aircraft', 'tailNumber model maintenanceDates currentHours operatingLimits safetyAnalysis');
+      .populate('aircraft', 'tailNumber model maintenanceDates currentHours operatingLimits safetyAnalysis owner');
 
     if (!flight) {
       return NextResponse.json(

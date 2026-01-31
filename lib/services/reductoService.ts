@@ -230,27 +230,136 @@ export async function parseDocumentUltraFast(
     } catch (parseError) {
       console.error('[UltraFast] ❌ JSON PARSE FAILED');
       console.error('[UltraFast] Error:', parseError);
-      console.error('[UltraFast] Full AI response:', aiText);
+      console.error('[UltraFast] Full AI response (first 2000 chars):', aiText.substring(0, 2000));
+      console.error('[UltraFast] Full AI response (last 1000 chars):', aiText.substring(Math.max(0, aiText.length - 1000)));
 
-      // Try to extract any array from the response
+      // Try multiple recovery strategies for truncated/malformed JSON
+      let recovered = false;
+
+      // Strategy 1: Try to find complete JSON object with entries
+      const objectMatch = aiText.match(/\{[\s\S]*"entries"[\s\S]*\}/);
+      if (objectMatch && !recovered) {
+        console.log('[UltraFast] Found object pattern with entries, attempting to parse...');
+        try {
+          const cleanJson = objectMatch[0].replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+          const parsedObj = JSON.parse(cleanJson);
+          if (parsedObj.entries && Array.isArray(parsedObj.entries)) {
+            items = parsedObj.entries;
+            const { entries: _, ...rest } = parsedObj;
+            rawData = rest;
+            console.log(`[UltraFast] ✓ Recovered ${items.length} entries from object pattern`);
+            recovered = true;
+          }
+        } catch (e) {
+          console.error('[UltraFast] Object pattern parse failed:', e);
+        }
+      }
+
+      // Strategy 2: Try to find complete JSON array
       const arrayMatch = aiText.match(/\[\s*\{[\s\S]*?\}\s*(?:,\s*\{[\s\S]*?\}\s*)*\]/);
-      if (arrayMatch) {
+      if (arrayMatch && !recovered) {
         console.log('[UltraFast] Found array pattern, attempting to parse...');
         try {
           items = JSON.parse(arrayMatch[0]);
           console.log(`[UltraFast] ✓ Recovered ${items.length} entries from array pattern`);
-          await log('structuring', 'Recovered partial data from response', 85);
-        } catch (recoveryError) {
-          console.error('[UltraFast] ❌ Recovery failed:', recoveryError);
-          console.log('[UltraFast] Falling back to OCR pipeline...');
-          await log('error', 'Could not parse AI response, falling back to OCR pipeline', 80);
-          return parseDocumentFast(fileBase64, fileType, documentType, onStep);
+          recovered = true;
+        } catch (e) {
+          console.error('[UltraFast] Array pattern parse failed:', e);
         }
-      } else {
-        console.error('[UltraFast] ❌ No valid JSON pattern found in response');
+      }
+
+      // Strategy 3: Extract individual complete entries from truncated JSON using brace counting
+      // This handles cases where the AI response was cut off mid-stream
+      if (!recovered) {
+        console.log('[UltraFast] Attempting truncated JSON recovery with brace counting...');
+        const entriesMatch = aiText.match(/"entries"\s*:\s*\[([\s\S]*)/);
+        const arrayStart = aiText.match(/^\s*\[([\s\S]*)/);
+        const entriesText = entriesMatch ? entriesMatch[1] : (arrayStart ? arrayStart[1] : null);
+
+        if (entriesText) {
+          const completeEntries: any[] = [];
+          let currentEntry = '';
+          let braceCount = 0;
+          let inString = false;
+          let escapeNext = false;
+
+          for (let i = 0; i < entriesText.length; i++) {
+            const char = entriesText[i];
+
+            if (escapeNext) {
+              currentEntry += char;
+              escapeNext = false;
+              continue;
+            }
+
+            if (char === '\\') {
+              escapeNext = true;
+              currentEntry += char;
+              continue;
+            }
+
+            if (char === '"') {
+              inString = !inString;
+            }
+
+            currentEntry += char;
+
+            if (!inString) {
+              if (char === '{') {
+                braceCount++;
+              } else if (char === '}') {
+                braceCount--;
+                if (braceCount === 0 && currentEntry.trim().length > 0) {
+                  // We have a complete entry
+                  try {
+                    const entry = JSON.parse(currentEntry.trim());
+                    if (entry.date) { // Only add if it has a date
+                      completeEntries.push(entry);
+                    }
+                  } catch (e) {
+                    // Skip malformed entry
+                  }
+                  currentEntry = '';
+                }
+              }
+            }
+          }
+
+          if (completeEntries.length > 0) {
+            items = completeEntries;
+            console.log(`[UltraFast] ✓ Recovered ${items.length} complete entries from truncated JSON!`);
+            recovered = true;
+
+            // Try to extract top-level fields too
+            const annualMatch = aiText.match(/"annualDate"\s*:\s*"([^"]+)"/);
+            const hundredHourMatch = aiText.match(/"hundredHourDate"\s*:\s*"([^"]+)"/);
+            const transponderMatch = aiText.match(/"transponderDate"\s*:\s*"([^"]+)"/);
+            const staticMatch = aiText.match(/"staticDate"\s*:\s*"([^"]+)"/);
+            const eltMatch = aiText.match(/"eltDate"\s*:\s*"([^"]+)"/);
+            const tachMatch = aiText.match(/"currentTach"\s*:\s*([0-9.]+)/);
+            const hobbsMatch = aiText.match(/"currentHobbs"\s*:\s*([0-9.]+)/);
+
+            rawData = {
+              annualDate: annualMatch?.[1],
+              hundredHourDate: hundredHourMatch?.[1],
+              transponderDate: transponderMatch?.[1],
+              staticDate: staticMatch?.[1],
+              eltDate: eltMatch?.[1],
+              currentTach: tachMatch ? parseFloat(tachMatch[1]) : undefined,
+              currentHobbs: hobbsMatch ? parseFloat(hobbsMatch[1]) : undefined,
+            };
+            console.log('[UltraFast] Extracted additional fields:', Object.keys(rawData).filter(k => rawData[k] !== undefined));
+          }
+        }
+      }
+
+      if (!recovered) {
+        console.error('[UltraFast] ❌ All recovery attempts failed');
         console.log('[UltraFast] Falling back to OCR pipeline...');
-        await log('error', 'No valid JSON found, falling back to OCR pipeline', 80);
+        await log('error', 'Could not parse AI response, falling back to OCR pipeline', 80);
         return parseDocumentFast(fileBase64, fileType, documentType, onStep);
+      } else {
+        await log('structuring', `Recovered ${items.length} entries from partial response`, 85);
       }
     }
 
@@ -610,119 +719,132 @@ export async function parseDocumentFast(
       console.error('[FastParse] Full response (first 2000 chars):', aiText.substring(0, 2000));
       console.error('[FastParse] Full response (last 1000 chars):', aiText.substring(Math.max(0, aiText.length - 1000)));
 
-      // Try to extract any valid JSON object or array
-      const objectMatch = aiText.match(/\{[\s\S]*"entries"[\s\S]*\}/);
-      const arrayMatch = aiText.match(/\[\s*\{[\s\S]*?\}\s*(?:,\s*\{[\s\S]*?\}\s*)*\]/);
+      // Try multiple recovery strategies for truncated/malformed JSON
+      let recovered = false;
 
-      if (objectMatch) {
+      // Strategy 1: Try to find complete JSON object with entries
+      const objectMatch = aiText.match(/\{[\s\S]*"entries"[\s\S]*\}/);
+      if (objectMatch && !recovered) {
         console.log('[FastParse] Found object pattern with entries, attempting to parse...');
         try {
           const cleanJson = objectMatch[0].replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
-          const recovered = JSON.parse(cleanJson);
-          if (recovered.entries && Array.isArray(recovered.entries)) {
-            items = recovered.entries;
-            const { entries: _, ...rest } = recovered;
+          const parsedObj = JSON.parse(cleanJson);
+          if (parsedObj.entries && Array.isArray(parsedObj.entries)) {
+            items = parsedObj.entries;
+            const { entries: _, ...rest } = parsedObj;
             rawData = rest;
             console.log(`[FastParse] ✓ Recovered ${items.length} entries from object pattern`);
+            recovered = true;
           }
-        } catch (recoveryError) {
-          console.error('[FastParse] ❌ Object recovery failed:', recoveryError);
-
-          // Try to extract entries array even from truncated JSON
-          console.log('[FastParse] Attempting truncated JSON recovery...');
-          const entriesMatch = aiText.match(/"entries"\s*:\s*\[([\s\S]*)/);
-          if (entriesMatch) {
-            // Extract individual complete entry objects using brace counting
-            const entriesText = entriesMatch[1];
-            const completeEntries: any[] = [];
-            let currentEntry = '';
-            let braceCount = 0;
-            let inString = false;
-            let escapeNext = false;
-
-            for (let i = 0; i < entriesText.length; i++) {
-              const char = entriesText[i];
-
-              if (escapeNext) {
-                currentEntry += char;
-                escapeNext = false;
-                continue;
-              }
-
-              if (char === '\\') {
-                escapeNext = true;
-                currentEntry += char;
-                continue;
-              }
-
-              if (char === '"') {
-                inString = !inString;
-              }
-
-              currentEntry += char;
-
-              if (!inString) {
-                if (char === '{') {
-                  braceCount++;
-                } else if (char === '}') {
-                  braceCount--;
-                  if (braceCount === 0 && currentEntry.trim().length > 0) {
-                    // We have a complete entry
-                    try {
-                      const entry = JSON.parse(currentEntry.trim());
-                      if (entry.date) { // Only add if it has a date
-                        completeEntries.push(entry);
-                      }
-                    } catch (e) {
-                      // Skip malformed entry
-                    }
-                    currentEntry = '';
-                  }
-                }
-              }
-            }
-
-            if (completeEntries.length > 0) {
-              items = completeEntries;
-              console.log(`[FastParse] ✓ Recovered ${items.length} entries from truncated JSON!`);
-
-              // Try to extract top-level fields too
-              const annualMatch = aiText.match(/"annualDate"\s*:\s*"([^"]+)"/);
-              const hundredHourMatch = aiText.match(/"hundredHourDate"\s*:\s*"([^"]+)"/);
-              const transponderMatch = aiText.match(/"transponderDate"\s*:\s*"([^"]+)"/);
-              const staticMatch = aiText.match(/"staticDate"\s*:\s*"([^"]+)"/);
-              const eltMatch = aiText.match(/"eltDate"\s*:\s*"([^"]+)"/);
-              const tachMatch = aiText.match(/"currentTach"\s*:\s*([0-9.]+)/);
-              const hobbsMatch = aiText.match(/"currentHobbs"\s*:\s*([0-9.]+)/);
-
-              rawData = {
-                annualDate: annualMatch?.[1],
-                hundredHourDate: hundredHourMatch?.[1],
-                transponderDate: transponderMatch?.[1],
-                staticDate: staticMatch?.[1],
-                eltDate: eltMatch?.[1],
-                currentTach: tachMatch ? parseFloat(tachMatch[1]) : undefined,
-                currentHobbs: hobbsMatch ? parseFloat(hobbsMatch[1]) : undefined,
-              };
-              console.log('[FastParse] Extracted additional fields:', Object.keys(rawData).filter(k => rawData[k] !== undefined));
-            }
-          }
+        } catch (e) {
+          console.error('[FastParse] Object pattern parse failed:', e);
         }
-      } else if (arrayMatch) {
+      }
+
+      // Strategy 2: Try to find complete JSON array
+      const arrayMatch = aiText.match(/\[\s*\{[\s\S]*?\}\s*(?:,\s*\{[\s\S]*?\}\s*)*\]/);
+      if (arrayMatch && !recovered) {
         console.log('[FastParse] Found array pattern, attempting to parse...');
         try {
           items = JSON.parse(arrayMatch[0]);
           console.log(`[FastParse] ✓ Recovered ${items.length} entries from array pattern`);
-        } catch (recoveryError) {
-          console.error('[FastParse] ❌ Array recovery failed:', recoveryError);
+          recovered = true;
+        } catch (e) {
+          console.error('[FastParse] Array pattern parse failed:', e);
         }
       }
 
-      if (items.length === 0) {
-        console.error('[FastParse] ❌ All recovery attempts failed, returning empty array');
+      // Strategy 3: Extract individual complete entries from truncated JSON using brace counting
+      // This handles cases where the AI response was cut off mid-stream
+      if (!recovered) {
+        console.log('[FastParse] Attempting truncated JSON recovery with brace counting...');
+        const entriesMatch = aiText.match(/"entries"\s*:\s*\[([\s\S]*)/);
+        const arrayStart = aiText.match(/^\s*\[([\s\S]*)/);
+        const entriesText = entriesMatch ? entriesMatch[1] : (arrayStart ? arrayStart[1] : null);
+
+        if (entriesText) {
+          const completeEntries: any[] = [];
+          let currentEntry = '';
+          let braceCount = 0;
+          let inString = false;
+          let escapeNext = false;
+
+          for (let i = 0; i < entriesText.length; i++) {
+            const char = entriesText[i];
+
+            if (escapeNext) {
+              currentEntry += char;
+              escapeNext = false;
+              continue;
+            }
+
+            if (char === '\\') {
+              escapeNext = true;
+              currentEntry += char;
+              continue;
+            }
+
+            if (char === '"') {
+              inString = !inString;
+            }
+
+            currentEntry += char;
+
+            if (!inString) {
+              if (char === '{') {
+                braceCount++;
+              } else if (char === '}') {
+                braceCount--;
+                if (braceCount === 0 && currentEntry.trim().length > 0) {
+                  // We have a complete entry
+                  try {
+                    const entry = JSON.parse(currentEntry.trim());
+                    if (entry.date) { // Only add if it has a date
+                      completeEntries.push(entry);
+                    }
+                  } catch (e) {
+                    // Skip malformed entry
+                  }
+                  currentEntry = '';
+                }
+              }
+            }
+          }
+
+          if (completeEntries.length > 0) {
+            items = completeEntries;
+            console.log(`[FastParse] ✓ Recovered ${items.length} complete entries from truncated JSON!`);
+            recovered = true;
+
+            // Try to extract top-level fields too
+            const annualMatch = aiText.match(/"annualDate"\s*:\s*"([^"]+)"/);
+            const hundredHourMatch = aiText.match(/"hundredHourDate"\s*:\s*"([^"]+)"/);
+            const transponderMatch = aiText.match(/"transponderDate"\s*:\s*"([^"]+)"/);
+            const staticMatch = aiText.match(/"staticDate"\s*:\s*"([^"]+)"/);
+            const eltMatch = aiText.match(/"eltDate"\s*:\s*"([^"]+)"/);
+            const tachMatch = aiText.match(/"currentTach"\s*:\s*([0-9.]+)/);
+            const hobbsMatch = aiText.match(/"currentHobbs"\s*:\s*([0-9.]+)/);
+
+            rawData = {
+              annualDate: annualMatch?.[1],
+              hundredHourDate: hundredHourMatch?.[1],
+              transponderDate: transponderMatch?.[1],
+              staticDate: staticMatch?.[1],
+              eltDate: eltMatch?.[1],
+              currentTach: tachMatch ? parseFloat(tachMatch[1]) : undefined,
+              currentHobbs: hobbsMatch ? parseFloat(hobbsMatch[1]) : undefined,
+            };
+            console.log('[FastParse] Extracted additional fields:', Object.keys(rawData).filter(k => rawData[k] !== undefined));
+          }
+        }
       }
 
-      await log('error', 'Failed to parse AI extraction response', 80);
+      if (!recovered) {
+        console.error('[FastParse] ❌ All recovery attempts failed, returning empty array');
+        await log('error', 'Failed to parse AI extraction response', 80);
+      } else {
+        await log('structuring', `Recovered ${items.length} entries from partial response`, 85);
+      }
     }
 
     await log('validating_output', 'Validating extracted data...', 90, {

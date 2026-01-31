@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import dbConnect from '@/lib/db';
 import ParsedDocument from '@/lib/models/ParsedDocument';
-import Aircraft from '@/lib/models/Aircraft';
+import Aircraft, { LogbookCategory } from '@/lib/models/Aircraft';
 import Pilot from '@/lib/models/Pilot';
 import { parseDocumentUltraFast } from '@/lib/services/reductoService';
 import { classifyDocumentFast } from '@/lib/services/aiService';
@@ -17,6 +17,37 @@ import {
 export const maxDuration = 300;
 
 const MONGODB_SAFE_SIZE = 10 * 1024 * 1024;
+
+// ============ FILENAME-BASED FALLBACK EXTRACTION ============
+// Extract tail number from filename (e.g., "N6196P-Airframe-Log-1.pdf" -> "N6196P")
+function extractTailFromFilename(filename: string): string | null {
+  if (!filename) return null;
+  // Pattern: N followed by up to 5 alphanumeric chars
+  const match = filename.match(/\b(N[0-9A-Z]{1,5})\b/i);
+  return match ? match[1].toUpperCase() : null;
+}
+
+// Extract logbook category from filename
+function extractCategoryFromFilename(filename: string): LogbookCategory | null {
+  if (!filename) return null;
+  const lower = filename.toLowerCase();
+  if (lower.includes('engine')) return 'engine';
+  if (lower.includes('airframe')) return 'airframe';
+  if (lower.includes('propeller') || lower.includes('prop')) return 'propeller';
+  if (lower.includes('avionics')) return 'avionics';
+  return null;
+}
+
+// Detect entry category from description content
+function detectEntryCategory(description: string): LogbookCategory {
+  const lower = (description || '').toLowerCase();
+  if (lower.includes('engine') || lower.includes('cylinder') || lower.includes('magneto') ||
+      lower.includes('spark plug') || lower.includes('oil change') || lower.includes('compression')) return 'engine';
+  if (lower.includes('propeller') || lower.includes('prop ')) return 'propeller';
+  if (lower.includes('avionics') || lower.includes('radio') || lower.includes('transponder') ||
+      lower.includes('gps') || lower.includes('gia') || lower.includes('gdu') || lower.includes('comm')) return 'avionics';
+  return 'airframe'; // default
+}
 
 function formatSSE(data: any): string {
   return `data: ${JSON.stringify(data)}\n\n`;
@@ -75,6 +106,16 @@ export async function POST(request: NextRequest) {
           if (analysis.confidence >= 0.5) {
             documentType = mapDetectedTypeToStorageType(analysis.detectedType);
           }
+        }
+
+        // Filename-based fallback for large files or when classification fails
+        const tailFromFilename = extractTailFromFilename(filename);
+        const categoryFromFilename = extractCategoryFromFilename(filename);
+
+        if (documentType === 'other' && (tailFromFilename || categoryFromFilename)) {
+          // Treat as maintenance document if filename suggests aircraft logbook
+          documentType = 'maintenance';
+          progress(20, `Filename suggests maintenance log for ${tailFromFilename || 'aircraft'}`);
         }
 
         progress(25, `Detected: ${documentType}`);
@@ -148,8 +189,18 @@ export async function POST(request: NextRequest) {
         }
 
         // Try to match or create aircraft
-        const tailNumbers = analysis?.aircraftTailNumbers || [];
-        if ((aircraftTypes || tailNumbers.length > 0) && tailNumbers.length > 0) {
+        // IMPORTANT: Only link aircraft to aircraft documents, NOT pilot logbooks
+        // Pilot logbooks reference many aircraft but belong to the pilot
+        let tailNumbers = analysis?.aircraftTailNumbers || [];
+
+        // Fallback: extract tail number from filename if AI didn't find any
+        if (tailNumbers.length === 0 && tailFromFilename) {
+          tailNumbers = [tailFromFilename];
+        }
+
+        // For maintenance docs (including filename-detected ones), try to match aircraft
+        const shouldMatchAircraft = aircraftTypes || documentType === 'maintenance';
+        if (shouldMatchAircraft && tailNumbers.length > 0) {
           progress(50, 'Matching aircraft...');
           const allAircraft = await Aircraft.find({}).select('_id tailNumber').lean();
 
@@ -168,7 +219,7 @@ export async function POST(request: NextRequest) {
           }
 
           // Create new aircraft if not found and this is an aircraft document
-          if (!aircraftId && aircraftTypes && tailNumbers[0]) {
+          if (!aircraftId && tailNumbers[0]) {
             progress(55, `Creating new aircraft: ${tailNumbers[0]}`);
             const newAircraft = await Aircraft.create({
               tailNumber: tailNumbers[0].toUpperCase(),
@@ -271,7 +322,7 @@ export async function POST(request: NextRequest) {
 
           // Update aircraft from maintenance docs
           if (aircraftId && ['aircraft_logbook', 'maintenance', 'inspection'].includes(documentType) && entries.length > 0) {
-            await updateAircraftFromEntries(aircraftId, entries);
+            await updateAircraftFromEntries(aircraftId, entries, categoryFromFilename || undefined);
           }
 
           // Run audit if we have both pilot and aircraft
@@ -432,7 +483,11 @@ async function updatePilotExperience(pilotId: string, entries: any[]) {
   await pilot.save();
 }
 
-async function updateAircraftFromEntries(aircraftId: string, entries: any[]) {
+async function updateAircraftFromEntries(
+  aircraftId: string,
+  entries: any[],
+  filenameCategory?: LogbookCategory
+) {
   const aircraft = await Aircraft.findById(aircraftId);
   if (!aircraft) return;
 
@@ -440,6 +495,8 @@ async function updateAircraftFromEntries(aircraftId: string, entries: any[]) {
   let latestAnnual: Date | null = null;
   let latestTransponder: Date | null = null;
   let latestStatic: Date | null = null;
+  let latestElt: Date | null = null;
+  let latestHundredHour: Date | null = null;
   let maxHobbs = aircraft.currentHours.hobbs;
   let maxTach = aircraft.currentHours.tach;
 
@@ -448,8 +505,11 @@ async function updateAircraftFromEntries(aircraftId: string, entries: any[]) {
     const desc = (entry.description || '').toLowerCase();
 
     if (entryDate && !isNaN(entryDate.getTime())) {
-      if (desc.includes('annual')) {
+      if (desc.includes('annual') && !desc.includes('100')) {
         if (!latestAnnual || entryDate > latestAnnual) latestAnnual = entryDate;
+      }
+      if (desc.includes('100 hour') || desc.includes('100hr') || desc.includes('100-hour')) {
+        if (!latestHundredHour || entryDate > latestHundredHour) latestHundredHour = entryDate;
       }
       if (desc.includes('transponder')) {
         if (!latestTransponder || entryDate > latestTransponder) latestTransponder = entryDate;
@@ -457,30 +517,71 @@ async function updateAircraftFromEntries(aircraftId: string, entries: any[]) {
       if (desc.includes('static') || desc.includes('altimeter')) {
         if (!latestStatic || entryDate > latestStatic) latestStatic = entryDate;
       }
+      if (desc.includes('elt') || desc.includes('emergency locator')) {
+        if (!latestElt || entryDate > latestElt) latestElt = entryDate;
+      }
     }
 
     if (entry.hobbsTime && entry.hobbsTime > maxHobbs) maxHobbs = entry.hobbsTime;
     if (entry.tachTime && entry.tachTime > maxTach) maxTach = entry.tachTime;
   }
 
+  // Update maintenance dates
   if (latestAnnual) aircraft.maintenanceDates.annual = latestAnnual;
   if (latestTransponder) aircraft.maintenanceDates.transponder = latestTransponder;
   if (latestStatic) aircraft.maintenanceDates.staticSystem = latestStatic;
+  if (latestHundredHour) aircraft.maintenanceDates.hundredHour = latestHundredHour;
 
+  // Also update airworthinessStatus if it exists
+  if (!aircraft.airworthinessStatus) {
+    aircraft.airworthinessStatus = {};
+  }
+  if (latestAnnual) aircraft.airworthinessStatus.annual = latestAnnual;
+  if (latestTransponder) aircraft.airworthinessStatus.transponder = latestTransponder;
+  if (latestStatic) aircraft.airworthinessStatus.staticSystem = latestStatic;
+  if (latestElt) aircraft.airworthinessStatus.elt = latestElt;
+  if (latestHundredHour) aircraft.airworthinessStatus.hundredHour = latestHundredHour;
+
+  // Update hours
   if (maxHobbs > aircraft.currentHours.hobbs) aircraft.currentHours.hobbs = maxHobbs;
   if (maxTach > aircraft.currentHours.tach) aircraft.currentHours.tach = maxTach;
 
-  // Add log entries
-  const newLogs = entries.map((entry: any) => ({
-    date: entry.date ? new Date(entry.date) : new Date(),
-    description: entry.description || entry.workPerformed || 'Maintenance entry',
-    hobbsTime: entry.hobbsTime || aircraft.currentHours.hobbs,
-    tachTime: entry.tachTime || aircraft.currentHours.tach,
-    mechanic: entry.mechanic || entry.signedBy,
-  })).filter(log => log.description !== 'Maintenance entry');
+  // Build log entries with category detection
+  const newLogs = entries.map((entry: any) => {
+    const description = entry.description || entry.workPerformed || 'Maintenance entry';
+    const category = filenameCategory || detectEntryCategory(description);
+
+    return {
+      date: entry.date ? new Date(entry.date) : new Date(),
+      description,
+      hobbsTime: entry.hobbsTime || aircraft.currentHours.hobbs,
+      tachTime: entry.tachTime || aircraft.currentHours.tach,
+      mechanic: entry.mechanic || entry.signedBy,
+      category,
+    };
+  }).filter(log => log.description !== 'Maintenance entry');
 
   if (newLogs.length > 0) {
+    // Add to general logs (backward compatibility)
     aircraft.logs.push(...newLogs);
+
+    // Initialize categorized logbooks if needed
+    if (!aircraft.logbooks) {
+      aircraft.logbooks = {
+        engine: [],
+        airframe: [],
+        propeller: [],
+        avionics: [],
+      };
+    }
+
+    // Add entries to categorized logbooks
+    for (const log of newLogs) {
+      const cat = log.category || 'airframe';
+      (aircraft.logbooks as any)[cat].push(log);
+    }
+
+    console.log(`[Maintenance] Saved ${newLogs.length} entries to aircraft ${aircraft.tailNumber} (${filenameCategory || 'auto-categorized'})`);
   }
 
   await aircraft.save();

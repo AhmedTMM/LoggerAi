@@ -245,7 +245,7 @@ async function buildAircraftAudit(aircraft: IAircraft, av1onicsAudit: IAV1ONICSA
       transponder: mapCheckToStatus(av1onicsAudit.checks.transponder),
       elt: mapCheckToStatus(av1onicsAudit.checks.elt),
       staticSystem: mapCheckToStatus(av1onicsAudit.checks.staticSystem),
-    },
+    } as IAircraftMaintenanceAudit['inspections'],
     melItems: av1onicsAudit.melCheck.inoperativeItems.map(item => ({
       item: item.item,
       required: item.required,

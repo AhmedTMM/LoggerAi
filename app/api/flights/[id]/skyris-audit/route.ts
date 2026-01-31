@@ -6,19 +6,19 @@ import Aircraft from '@/lib/models/Aircraft';
 import { runSkyrisAudit, getLatestSkyrisAudit } from '@/lib/services/skyrisAuditService';
 
 /**
- * POST /api/flights/[flightId]/skyris-audit
+ * POST /api/flights/[id]/skyris-audit
  * Run Skyris combined pilot + aircraft audit for a flight
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ flightId: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await connectDB();
-    const { flightId } = await params;
+    const { id } = await params;
 
     // Get flight with populated pilot and aircraft
-    const flight = await Flight.findById(flightId)
+    const flight = await Flight.findById(id)
       .populate('pilot')
       .populate('aircraft');
 
@@ -54,10 +54,10 @@ export async function POST(
 
     // Run Skyris audit
     const auditResult = await runSkyrisAudit(
-      flight.pilot,
-      flight.aircraft,
+      flight.pilot as any,
+      flight.aircraft as any,
       {
-        flightId,
+        flightId: id,
         isIFRFlight: options.isIFRFlight,
         isForHire: options.isForHire,
         saveToDb: true,
@@ -66,7 +66,7 @@ export async function POST(
 
     // Update flight with safety audit reference
     if (auditResult) {
-      flight.safetyAnalysisSnapshot = {
+      (flight as any).safetyAnalysisSnapshot = {
         overallRiskLevel: auditResult.combinedAudit.combined_risk_factor <= 30 ? 'low' :
                          auditResult.combinedAudit.combined_risk_factor <= 60 ? 'medium' :
                          auditResult.combinedAudit.combined_risk_factor <= 80 ? 'high' : 'critical',
@@ -76,7 +76,7 @@ export async function POST(
         pilotAnalysis: {
           currencyStatus: auditResult.combinedAudit.pilot_currency_status,
           experienceLevel: auditResult.pilotAudit.experienceLevel,
-          riskFactors: auditResult.pilotAudit.findings.map(f => ({
+          riskFactors: auditResult.pilotAudit.findings.map((f: any) => ({
             category: f.category,
             riskLevel: f.riskLevel,
             description: f.message,
@@ -86,25 +86,25 @@ export async function POST(
         },
         aircraftAnalysis: {
           maintenanceStatus: auditResult.aircraftAudit.airworthinessStatus,
-          airworthinessItems: Object.entries(auditResult.av1onicsAudit.checks).map(([key, check]: [string, any]) => ({
+          airworthinessItems: Object.entries(auditResult.av1onicsAudit?.checks || {}).map(([key, check]: [string, any]) => ({
             item: check.name,
             status: check.status === 'current' ? 'current' : check.status === 'due_soon' ? 'due_soon' : 'overdue',
             dueDate: check.dueDate,
           })),
-          mechanicalRisks: auditResult.aircraftAudit.findings.map(f => ({
+          mechanicalRisks: auditResult.aircraftAudit.findings.map((f: any) => ({
             component: f.component,
             severity: f.status,
             description: f.message,
           })),
           aiSafetyScore: auditResult.aircraftAudit.overallScore,
         },
-        combinedRiskScenarios: auditResult.combinedAudit.risk_scenarios.map(s => ({
+        combinedRiskScenarios: auditResult.combinedAudit.risk_scenarios?.map((s: any) => ({
           title: s.title,
           probability: s.probability,
           severity: s.severity,
           description: s.description,
           mitigations: [],
-        })),
+        })) || [],
       };
 
       await flight.save();
@@ -125,19 +125,19 @@ export async function POST(
 }
 
 /**
- * GET /api/flights/[flightId]/skyris-audit
+ * GET /api/flights/[id]/skyris-audit
  * Get latest Skyris audit for a flight
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ flightId: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await connectDB();
-    const { flightId } = await params;
+    const { id } = await params;
 
     // Get flight
-    const flight = await Flight.findById(flightId);
+    const flight = await Flight.findById(id);
 
     if (!flight) {
       return NextResponse.json(

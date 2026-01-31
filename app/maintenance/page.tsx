@@ -679,7 +679,7 @@ export default function MaintenancePage() {
                     onUpload={handleUpload}
                     isUploading={isUploading}
                     uploadProgress={uploadProgress}
-                    linkedDocuments={selectedAircraft.linkedDocuments?.map((doc: any) => ({
+                    linkedDocuments={(selectedAircraft as any).linkedDocuments?.map((doc: any) => ({
                       id: doc._id || doc,
                       filename: doc.filename || 'Document',
                       type: doc.documentType || 'maintenance',

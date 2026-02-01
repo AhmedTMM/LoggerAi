@@ -69,7 +69,7 @@ export default function AircraftPage() {
     if (error) return (
         <div className="text-center py-12">
             <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-            <p className="text-zinc-600 dark:text-zinc-400">Failed to load aircraft</p>
+            <p className="text-zinc-600">Failed to load aircraft</p>
         </div>
     );
 
@@ -80,8 +80,8 @@ export default function AircraftPage() {
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Aircraft</h1>
-                    <p className="text-zinc-500 dark:text-zinc-400">Manage your fleet</p>
+                    <h1 className="text-2xl font-bold text-zinc-900">Aircraft</h1>
+                    <p className="text-zinc-500">Manage your fleet</p>
                 </div>
                 <div className="flex gap-2">
                     <Button variant="outline" onClick={() => refetch()}>
@@ -97,27 +97,27 @@ export default function AircraftPage() {
 
             {/* Stats */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 p-4">
-                    <p className="text-sm text-zinc-500 dark:text-zinc-400">Total Aircraft</p>
-                    <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{fleet?.length || 0}</p>
+                <div className="bg-white rounded-xl border border-zinc-200 p-4">
+                    <p className="text-sm text-zinc-500">Total Aircraft</p>
+                    <p className="text-2xl font-bold text-zinc-900">{fleet?.length || 0}</p>
                 </div>
-                <div className="bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 p-4">
-                    <p className="text-sm text-zinc-500 dark:text-zinc-400">Maintenance Due</p>
-                    <p className={cn("text-2xl font-bold", maintenanceDue > 0 ? "text-amber-500" : "text-zinc-900 dark:text-zinc-100")}>
+                <div className="bg-white rounded-xl border border-zinc-200 p-4">
+                    <p className="text-sm text-zinc-500">Maintenance Due</p>
+                    <p className={cn("text-2xl font-bold", maintenanceDue > 0 ? "text-amber-500" : "text-zinc-900")}>
                         {maintenanceDue}
                     </p>
                 </div>
-                <div className="bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 p-4">
-                    <p className="text-sm text-zinc-500 dark:text-zinc-400">Total Hours</p>
-                    <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+                <div className="bg-white rounded-xl border border-zinc-200 p-4">
+                    <p className="text-sm text-zinc-500">Total Hours</p>
+                    <p className="text-2xl font-bold text-zinc-900">
                         {fleet?.reduce((acc, curr) => {
                             const hobbsInfo = getDisplayHobbs(curr.currentHours?.hobbs, curr.currentHours?.tach);
                             return acc + hobbsInfo.value;
                         }, 0).toFixed(0) || '0'}
                     </p>
                 </div>
-                <div className="bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 p-4">
-                    <p className="text-sm text-zinc-500 dark:text-zinc-400">All Current</p>
+                <div className="bg-white rounded-xl border border-zinc-200 p-4">
+                    <p className="text-sm text-zinc-500">All Current</p>
                     <p className="text-2xl font-bold text-emerald-500">
                         {(fleet?.length || 0) - maintenanceDue}
                     </p>
@@ -127,9 +127,9 @@ export default function AircraftPage() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Aircraft List */}
                 <div className="lg:col-span-1">
-                    <div className="bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 overflow-hidden">
-                        <div className="p-3 border-b border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900">
-                            <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">Fleet</h3>
+                    <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
+                        <div className="p-3 border-b border-zinc-200 bg-zinc-50">
+                            <h3 className="font-semibold text-zinc-900">Fleet</h3>
                         </div>
                         <div className="max-h-[500px] overflow-y-auto">
                             {fleet?.map((ac) => {
@@ -141,20 +141,20 @@ export default function AircraftPage() {
                                         key={ac._id}
                                         onClick={() => setSelectedAircraft(ac)}
                                         className={cn(
-                                            "p-4 border-b border-zinc-100 dark:border-zinc-700 cursor-pointer transition-colors",
+                                            "p-4 border-b border-zinc-100 cursor-pointer transition-colors",
                                             isSelected
-                                                ? "bg-blue-50 dark:bg-blue-900/30"
-                                                : "hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                                                ? "bg-blue-50"
+                                                : "hover:bg-zinc-50"
                                         )}
                                     >
                                         <div className="flex items-center justify-between mb-1">
-                                            <span className="font-bold text-zinc-900 dark:text-zinc-100">{ac.tailNumber}</span>
+                                            <span className="font-bold text-zinc-900">{ac.tailNumber}</span>
                                             {getDaysUntil(ac.maintenanceDates?.annual) < 30 && (
                                                 <AlertTriangle className="w-4 h-4 text-amber-500" />
                                             )}
                                         </div>
-                                        <p className="text-sm text-zinc-500 dark:text-zinc-400">{ac.model}</p>
-                                        <div className="flex items-center gap-3 mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                                        <p className="text-sm text-zinc-500">{ac.model}</p>
+                                        <div className="flex items-center gap-3 mt-2 text-xs text-zinc-500">
                                             {(() => {
                                                 const hobbsInfo = getDisplayHobbs(ac.currentHours?.hobbs, ac.currentHours?.tach);
                                                 return (
@@ -170,8 +170,8 @@ export default function AircraftPage() {
                             })}
                             {(!fleet || fleet.length === 0) && (
                                 <div className="p-8 text-center">
-                                    <Plane className="w-10 h-10 text-zinc-300 dark:text-zinc-600 mx-auto mb-3" />
-                                    <p className="text-zinc-500 dark:text-zinc-400">No aircraft added yet</p>
+                                    <Plane className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
+                                    <p className="text-zinc-500">No aircraft added yet</p>
                                     <Button variant="outline" size="sm" className="mt-4" onClick={() => setShowAddModal(true)}>
                                         <Plus className="w-4 h-4 mr-2" />
                                         Add Aircraft
@@ -184,26 +184,34 @@ export default function AircraftPage() {
 
                 {/* Aircraft Details */}
                 <div className="lg:col-span-2">
-                    <div className="bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 min-h-[500px]">
+                    <div className="bg-white rounded-xl border border-zinc-200 min-h-[500px]">
                         {selectedAircraft ? (
                             <div className="h-full flex flex-col">
                                 {/* Header */}
-                                <div className="p-6 border-b border-zinc-200 dark:border-zinc-700">
+                                <div className="p-6 border-b border-zinc-200">
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-4">
-                                            <div className="w-14 h-14 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center">
-                                                <Plane className="w-7 h-7 text-blue-600 dark:text-blue-400" />
+                                            <div className="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center overflow-hidden">
+                                                {selectedAircraft.imageUrl ? (
+                                                    <img
+                                                        src={selectedAircraft.imageUrl}
+                                                        alt={selectedAircraft.tailNumber}
+                                                        className="w-full h-full object-cover"
+                                                    />
+                                                ) : (
+                                                    <Plane className="w-7 h-7 text-blue-600" />
+                                                )}
                                             </div>
                                             <div>
-                                                <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">{selectedAircraft.tailNumber}</h2>
-                                                <p className="text-zinc-500 dark:text-zinc-400">{selectedAircraft.year} {selectedAircraft.manufacturer} {selectedAircraft.model}</p>
+                                                <h2 className="text-xl font-bold text-zinc-900">{selectedAircraft.tailNumber}</h2>
+                                                <p className="text-zinc-500">{selectedAircraft.year} {selectedAircraft.manufacturer} {selectedAircraft.model}</p>
                                             </div>
                                         </div>
                                         <Button
                                             variant="ghost"
                                             size="sm"
                                             onClick={() => setShowDeleteModal(true)}
-                                            className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                            className="text-red-500 hover:text-red-700 hover:bg-red-50"
                                         >
                                             <Trash2 className="w-4 h-4" />
                                         </Button>
@@ -214,7 +222,7 @@ export default function AircraftPage() {
                                 <div className="p-6 flex-1 overflow-y-auto space-y-6">
                                     {/* Times */}
                                     <div>
-                                        <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3 flex items-center gap-2">
+                                        <h4 className="font-semibold text-zinc-900 mb-3 flex items-center gap-2">
                                             <Clock className="w-4 h-4" /> Aircraft Times
                                         </h4>
                                         <div className="grid grid-cols-2 gap-4">
@@ -224,8 +232,8 @@ export default function AircraftPage() {
                                                     selectedAircraft.currentHours?.tach
                                                 );
                                                 return (
-                                                    <div className="bg-zinc-50 dark:bg-zinc-900 rounded-lg p-4">
-                                                        <p className="text-xs text-zinc-500 dark:text-zinc-400 uppercase flex items-center gap-1">
+                                                    <div className="bg-zinc-50 rounded-lg p-4">
+                                                        <p className="text-xs text-zinc-500 uppercase flex items-center gap-1">
                                                             Hobbs
                                                             {hobbsInfo.isEstimated && (
                                                                 <span className="text-amber-500">(est.)</span>
@@ -234,29 +242,29 @@ export default function AircraftPage() {
                                                         <p className={cn(
                                                             "text-2xl font-bold",
                                                             hobbsInfo.isEstimated
-                                                                ? "text-amber-600 dark:text-amber-400"
-                                                                : "text-zinc-900 dark:text-zinc-100"
+                                                                ? "text-amber-600"
+                                                                : "text-zinc-900"
                                                         )}>
                                                             {hobbsInfo.value.toFixed(1)}
                                                         </p>
                                                         {hobbsInfo.isEstimated && (
-                                                            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                                                            <p className="text-xs text-amber-600 mt-1">
                                                                 Based on Tach × 1.1
                                                             </p>
                                                         )}
                                                     </div>
                                                 );
                                             })()}
-                                            <div className="bg-zinc-50 dark:bg-zinc-900 rounded-lg p-4">
-                                                <p className="text-xs text-zinc-500 dark:text-zinc-400 uppercase">Tach</p>
-                                                <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{selectedAircraft.currentHours?.tach?.toFixed(1) || 0}</p>
+                                            <div className="bg-zinc-50 rounded-lg p-4">
+                                                <p className="text-xs text-zinc-500 uppercase">Tach</p>
+                                                <p className="text-2xl font-bold text-zinc-900">{selectedAircraft.currentHours?.tach?.toFixed(1) || 0}</p>
                                             </div>
                                         </div>
                                     </div>
 
                                     {/* Maintenance */}
                                     <div>
-                                        <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3 flex items-center gap-2">
+                                        <h4 className="font-semibold text-zinc-900 mb-3 flex items-center gap-2">
                                             <Wrench className="w-4 h-4" /> Maintenance Status
                                         </h4>
                                         <div className="space-y-3">
@@ -297,8 +305,8 @@ export default function AircraftPage() {
                                                 };
 
                                                 return (
-                                                    <div key={item.key} className="flex items-center justify-between p-3 bg-zinc-50 dark:bg-zinc-900 rounded-lg">
-                                                        <span className="text-zinc-700 dark:text-zinc-300">{item.label}</span>
+                                                    <div key={item.key} className="flex items-center justify-between p-3 bg-zinc-50 rounded-lg">
+                                                        <span className="text-zinc-700">{item.label}</span>
                                                         <div className="flex items-center gap-2">
                                                             {isEditing ? (
                                                                 <>
@@ -306,12 +314,12 @@ export default function AircraftPage() {
                                                                         type="date"
                                                                         value={editDateValue}
                                                                         onChange={(e) => setEditDateValue(e.target.value)}
-                                                                        className="px-2 py-1 text-sm border border-zinc-300 dark:border-zinc-600 rounded bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
+                                                                        className="px-2 py-1 text-sm border border-zinc-300 rounded bg-white text-zinc-900"
                                                                     />
                                                                     <button
                                                                         onClick={handleSave}
                                                                         disabled={updateAircraft.isPending}
-                                                                        className="p-1 text-emerald-600 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 rounded"
+                                                                        className="p-1 text-emerald-600 hover:bg-emerald-100 rounded"
                                                                     >
                                                                         {updateAircraft.isPending ? (
                                                                             <RefreshCw className="w-4 h-4 animate-spin" />
@@ -321,20 +329,20 @@ export default function AircraftPage() {
                                                                     </button>
                                                                     <button
                                                                         onClick={() => setEditingDate(null)}
-                                                                        className="p-1 text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded"
+                                                                        className="p-1 text-zinc-500 hover:bg-zinc-200 rounded"
                                                                     >
                                                                         <X className="w-4 h-4" />
                                                                     </button>
                                                                 </>
                                                             ) : (
                                                                 <>
-                                                                    <span className="text-sm text-zinc-500 dark:text-zinc-400">
+                                                                    <span className="text-sm text-zinc-500">
                                                                         {item.date ? new Date(item.date).toLocaleDateString() : 'Not set'}
                                                                     </span>
                                                                     {status && <Badge variant={status.badge as any}>{status.text}</Badge>}
                                                                     <button
                                                                         onClick={handleStartEdit}
-                                                                        className="p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded"
+                                                                        className="p-1 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-200 rounded"
                                                                     >
                                                                         <Pencil className="w-3.5 h-3.5" />
                                                                     </button>
@@ -349,15 +357,15 @@ export default function AircraftPage() {
 
                                     {/* Details */}
                                     <div>
-                                        <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3">Details</h4>
+                                        <h4 className="font-semibold text-zinc-900 mb-3">Details</h4>
                                         <div className="grid grid-cols-2 gap-3 text-sm">
-                                            <div className="p-3 bg-zinc-50 dark:bg-zinc-900 rounded-lg">
-                                                <p className="text-zinc-500 dark:text-zinc-400">Serial</p>
-                                                <p className="font-medium text-zinc-900 dark:text-zinc-100">{selectedAircraft.serial || 'N/A'}</p>
+                                            <div className="p-3 bg-zinc-50 rounded-lg">
+                                                <p className="text-zinc-500">Serial</p>
+                                                <p className="font-medium text-zinc-900">{selectedAircraft.serial || 'N/A'}</p>
                                             </div>
-                                            <div className="p-3 bg-zinc-50 dark:bg-zinc-900 rounded-lg">
-                                                <p className="text-zinc-500 dark:text-zinc-400">Year</p>
-                                                <p className="font-medium text-zinc-900 dark:text-zinc-100">{selectedAircraft.year || 'N/A'}</p>
+                                            <div className="p-3 bg-zinc-50 rounded-lg">
+                                                <p className="text-zinc-500">Year</p>
+                                                <p className="font-medium text-zinc-900">{selectedAircraft.year || 'N/A'}</p>
                                             </div>
                                         </div>
                                     </div>
@@ -365,7 +373,7 @@ export default function AircraftPage() {
                                     {/* Safety Analysis */}
                                     <div>
                                         <div className="flex items-center justify-between mb-3">
-                                            <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                                            <h4 className="font-semibold text-zinc-900 flex items-center gap-2">
                                                 <Shield className="w-4 h-4" /> Safety Analysis
                                             </h4>
                                             {selectedAircraft.safetyAnalysis && (
@@ -395,16 +403,16 @@ export default function AircraftPage() {
                                             )}
                                         </div>
                                         {isGeneratingAnalysis ? (
-                                            <div className="p-4 bg-zinc-50 dark:bg-zinc-900 rounded-lg text-center">
+                                            <div className="p-4 bg-zinc-50 rounded-lg text-center">
                                                 <RefreshCw className="w-8 h-8 text-blue-500 mx-auto mb-2 animate-spin" />
-                                                <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                                                <p className="text-sm text-zinc-500">
                                                     Generating safety analysis...
                                                 </p>
                                             </div>
                                         ) : selectedAircraft.safetyAnalysis?.findings && selectedAircraft.safetyAnalysis.findings.length > 0 ? (
                                             <div className="space-y-2">
                                                 <div className="flex items-center justify-between mb-3">
-                                                    <span className="text-sm text-zinc-500 dark:text-zinc-400">
+                                                    <span className="text-sm text-zinc-500">
                                                         Last analyzed: {new Date(selectedAircraft.safetyAnalysis.lastAnalyzed).toLocaleDateString()}
                                                     </span>
                                                     <Badge variant={
@@ -420,10 +428,10 @@ export default function AircraftPage() {
                                                         className={cn(
                                                             "p-3 rounded-lg border",
                                                             finding.status === 'critical'
-                                                                ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
+                                                                ? "bg-red-50 border-red-200"
                                                                 : finding.status === 'warning'
-                                                                ? "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800"
-                                                                : "bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800"
+                                                                ? "bg-amber-50 border-amber-200"
+                                                                : "bg-emerald-50 border-emerald-200"
                                                         )}
                                                     >
                                                         <div className="flex items-center gap-2 mb-1">
@@ -434,23 +442,23 @@ export default function AircraftPage() {
                                                             ) : (
                                                                 <CheckCircle className="w-4 h-4 text-emerald-500" />
                                                             )}
-                                                            <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                                                            <span className="font-medium text-zinc-900">
                                                                 {finding.component}
                                                             </span>
                                                         </div>
-                                                        <p className="text-sm text-zinc-600 dark:text-zinc-400 ml-6">
+                                                        <p className="text-sm text-zinc-600 ml-6">
                                                             {finding.message}
                                                         </p>
                                                     </div>
                                                 ))}
                                             </div>
                                         ) : (
-                                            <div className="p-4 bg-zinc-50 dark:bg-zinc-900 rounded-lg text-center">
-                                                <Shield className="w-8 h-8 text-zinc-300 dark:text-zinc-600 mx-auto mb-2" />
-                                                <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                                            <div className="p-4 bg-zinc-50 rounded-lg text-center">
+                                                <Shield className="w-8 h-8 text-zinc-300 mx-auto mb-2" />
+                                                <p className="text-sm text-zinc-500">
                                                     No safety analysis available
                                                 </p>
-                                                <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
+                                                <p className="text-xs text-zinc-400 mt-1">
                                                     Upload maintenance logs to generate analysis
                                                 </p>
                                                 {(selectedAircraft.logs?.length > 0 || (selectedAircraft.logbooks && Object.values(selectedAircraft.logbooks).some(arr => arr && arr.length > 0))) && (
@@ -489,9 +497,9 @@ export default function AircraftPage() {
                             </div>
                         ) : (
                             <div className="h-full flex flex-col items-center justify-center text-center p-8">
-                                <Plane className="w-12 h-12 text-zinc-300 dark:text-zinc-600 mb-4" />
-                                <h3 className="text-lg font-medium text-zinc-900 dark:text-zinc-100">No Aircraft Selected</h3>
-                                <p className="text-zinc-500 dark:text-zinc-400 mt-2">Select an aircraft to view details</p>
+                                <Plane className="w-12 h-12 text-zinc-300 mb-4" />
+                                <h3 className="text-lg font-medium text-zinc-900">No Aircraft Selected</h3>
+                                <p className="text-zinc-500 mt-2">Select an aircraft to view details</p>
                             </div>
                         )}
                     </div>
@@ -513,9 +521,9 @@ export default function AircraftPage() {
             {/* Delete Modal */}
             {showDeleteModal && selectedAircraft && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white dark:bg-zinc-800 rounded-xl p-6 w-full max-w-sm shadow-xl">
-                        <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-2">Delete Aircraft?</h3>
-                        <p className="text-zinc-600 dark:text-zinc-400 mb-6">
+                    <div className="bg-white rounded-xl p-6 w-full max-w-sm shadow-xl">
+                        <h3 className="text-lg font-bold text-zinc-900 mb-2">Delete Aircraft?</h3>
+                        <p className="text-zinc-600 mb-6">
                             Are you sure you want to delete {selectedAircraft.tailNumber}?
                         </p>
                         <div className="flex gap-3">
@@ -587,10 +595,10 @@ function MaintenanceHistorySection({ aircraftId, aircraftLogs }: { aircraftId: s
     if (isLoading) {
         return (
             <div>
-                <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3 flex items-center gap-2">
+                <h4 className="font-semibold text-zinc-900 mb-3 flex items-center gap-2">
                     <History className="w-4 h-4" /> Maintenance History
                 </h4>
-                <div className="p-4 bg-zinc-50 dark:bg-zinc-900 rounded-lg text-center">
+                <div className="p-4 bg-zinc-50 rounded-lg text-center">
                     <RefreshCw className="w-6 h-6 text-zinc-400 mx-auto animate-spin" />
                 </div>
             </div>
@@ -599,7 +607,7 @@ function MaintenanceHistorySection({ aircraftId, aircraftLogs }: { aircraftId: s
 
     return (
         <div>
-            <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3 flex items-center gap-2">
+            <h4 className="font-semibold text-zinc-900 mb-3 flex items-center gap-2">
                 <History className="w-4 h-4" /> Maintenance History
                 {allEntries.length > 0 && (
                     <Badge variant="secondary" className="text-xs">{allEntries.length}</Badge>
@@ -610,22 +618,22 @@ function MaintenanceHistorySection({ aircraftId, aircraftLogs }: { aircraftId: s
                     {allEntries.slice(0, 30).map((entry, idx) => (
                         <div
                             key={idx}
-                            className="p-3 bg-zinc-50 dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700"
+                            className="p-3 bg-zinc-50 rounded-lg border border-zinc-200"
                         >
                             <div className="flex items-center justify-between mb-1">
-                                <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                                <span className="text-sm font-medium text-zinc-900">
                                     {entry.date ? new Date(entry.date).toLocaleDateString() : 'No date'}
                                 </span>
-                                <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+                                <div className="flex items-center gap-2 text-xs text-zinc-500">
                                     {entry.tachTime > 0 && <span>Tach: {typeof entry.tachTime === 'number' ? entry.tachTime.toFixed(1) : entry.tachTime}</span>}
                                     {entry.hobbsTime > 0 && <span>Hobbs: {typeof entry.hobbsTime === 'number' ? entry.hobbsTime.toFixed(1) : entry.hobbsTime}</span>}
                                 </div>
                             </div>
-                            <p className="text-sm text-zinc-600 dark:text-zinc-400 line-clamp-2">
+                            <p className="text-sm text-zinc-600 line-clamp-2">
                                 {entry.description}
                             </p>
                             {entry.mechanic && (
-                                <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
+                                <p className="text-xs text-zinc-400 mt-1">
                                     Mechanic: {entry.mechanic}
                                 </p>
                             )}
@@ -636,7 +644,7 @@ function MaintenanceHistorySection({ aircraftId, aircraftLogs }: { aircraftId: s
                                     </Badge>
                                 )}
                                 {entry.source === 'document' && entry.docName && (
-                                    <span className="text-xs text-blue-500 dark:text-blue-400 truncate max-w-[150px]">
+                                    <span className="text-xs text-blue-500 truncate max-w-[150px]">
                                         from {entry.docName}
                                     </span>
                                 )}
@@ -644,18 +652,18 @@ function MaintenanceHistorySection({ aircraftId, aircraftLogs }: { aircraftId: s
                         </div>
                     ))}
                     {allEntries.length > 30 && (
-                        <p className="text-xs text-center text-zinc-500 dark:text-zinc-400 py-2">
+                        <p className="text-xs text-center text-zinc-500 py-2">
                             Showing 30 of {allEntries.length} entries
                         </p>
                     )}
                 </div>
             ) : (
-                <div className="p-4 bg-zinc-50 dark:bg-zinc-900 rounded-lg text-center">
-                    <History className="w-8 h-8 text-zinc-300 dark:text-zinc-600 mx-auto mb-2" />
-                    <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                <div className="p-4 bg-zinc-50 rounded-lg text-center">
+                    <History className="w-8 h-8 text-zinc-300 mx-auto mb-2" />
+                    <p className="text-sm text-zinc-500">
                         No maintenance history available
                     </p>
-                    <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
+                    <p className="text-xs text-zinc-400 mt-1">
                         Upload a maintenance logbook to see history
                     </p>
                 </div>
@@ -670,7 +678,7 @@ function LinkedDocumentsSection({ aircraftId }: { aircraftId: string }) {
 
     if (isLoading) {
         return (
-            <div className="p-4 bg-zinc-50 dark:bg-zinc-900 rounded-lg text-center">
+            <div className="p-4 bg-zinc-50 rounded-lg text-center">
                 <RefreshCw className="w-6 h-6 text-zinc-400 mx-auto animate-spin" />
             </div>
         );
@@ -680,7 +688,7 @@ function LinkedDocumentsSection({ aircraftId }: { aircraftId: string }) {
 
     return (
         <div>
-            <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3 flex items-center gap-2">
+            <h4 className="font-semibold text-zinc-900 mb-3 flex items-center gap-2">
                 <FileText className="w-4 h-4" /> Linked Documents
                 {linkedDocs.length > 0 && (
                     <Badge variant="secondary" className="text-xs">{linkedDocs.length}</Badge>
@@ -695,17 +703,17 @@ function LinkedDocumentsSection({ aircraftId }: { aircraftId: string }) {
                         return (
                             <div
                                 key={doc._id}
-                                className="bg-zinc-50 dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden"
+                                className="bg-zinc-50 rounded-lg border border-zinc-200 overflow-hidden"
                             >
                                 {/* Document Header */}
                                 <div
-                                    className="p-3 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                                    className="p-3 cursor-pointer hover:bg-zinc-100 transition-colors"
                                     onClick={() => setExpandedDoc(isExpanded ? null : doc._id)}
                                 >
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-2">
                                             <FileText className="w-4 h-4 text-blue-500" />
-                                            <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate max-w-[200px]">
+                                            <span className="text-sm font-medium text-zinc-900 truncate max-w-[200px]">
                                                 {doc.originalFilename || doc.filename}
                                             </span>
                                         </div>
@@ -720,7 +728,7 @@ function LinkedDocumentsSection({ aircraftId }: { aircraftId: string }) {
                                             )}
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-3 mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                                    <div className="flex items-center gap-3 mt-1 text-xs text-zinc-500">
                                         <span>{doc.documentType?.replace(/_/g, ' ')}</span>
                                         {doc.summary?.dateRange && (
                                             <span>
@@ -732,14 +740,14 @@ function LinkedDocumentsSection({ aircraftId }: { aircraftId: string }) {
 
                                 {/* Expanded Entries */}
                                 {isExpanded && entries.length > 0 && (
-                                    <div className="border-t border-zinc-200 dark:border-zinc-700 max-h-64 overflow-y-auto">
+                                    <div className="border-t border-zinc-200 max-h-64 overflow-y-auto">
                                         {entries.slice(0, 50).map((entry: any, idx: number) => (
                                             <div
                                                 key={idx}
-                                                className="p-3 border-b border-zinc-100 dark:border-zinc-800 last:border-b-0"
+                                                className="p-3 border-b border-zinc-100 last:border-b-0"
                                             >
                                                 <div className="flex items-center justify-between mb-1">
-                                                    <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                                                    <span className="text-xs font-medium text-zinc-700">
                                                         {entry.date || 'No date'}
                                                     </span>
                                                     <div className="flex items-center gap-2 text-xs text-zinc-500">
@@ -748,7 +756,7 @@ function LinkedDocumentsSection({ aircraftId }: { aircraftId: string }) {
                                                         {entry.totalTime > 0 && <span>{entry.totalTime}h</span>}
                                                     </div>
                                                 </div>
-                                                <p className="text-xs text-zinc-600 dark:text-zinc-400 line-clamp-2">
+                                                <p className="text-xs text-zinc-600 line-clamp-2">
                                                     {entry.description || entry.remarks || entry.workPerformed || 'No description'}
                                                 </p>
                                                 {entry.mechanic && (
@@ -770,12 +778,12 @@ function LinkedDocumentsSection({ aircraftId }: { aircraftId: string }) {
                     })}
                 </div>
             ) : (
-                <div className="p-4 bg-zinc-50 dark:bg-zinc-900 rounded-lg text-center">
-                    <FileText className="w-8 h-8 text-zinc-300 dark:text-zinc-600 mx-auto mb-2" />
-                    <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                <div className="p-4 bg-zinc-50 rounded-lg text-center">
+                    <FileText className="w-8 h-8 text-zinc-300 mx-auto mb-2" />
+                    <p className="text-sm text-zinc-500">
                         No linked documents
                     </p>
-                    <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
+                    <p className="text-xs text-zinc-400 mt-1">
                         Upload logbooks from the Files page and link them to this aircraft
                     </p>
                 </div>
@@ -816,21 +824,21 @@ function AddAircraftModal({
 
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white dark:bg-zinc-800 rounded-xl p-6 w-full max-w-sm shadow-xl">
-                <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-2">Add Aircraft</h2>
-                <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">
+            <div className="bg-white rounded-xl p-6 w-full max-w-sm shadow-xl">
+                <h2 className="text-lg font-bold text-zinc-900 mb-2">Add Aircraft</h2>
+                <p className="text-sm text-zinc-500 mb-4">
                     Enter the tail number and we'll automatically fetch aircraft details from the FAA registry.
                 </p>
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
-                        <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                        <label className="block text-sm font-medium text-zinc-700 mb-1">
                             Tail Number
                         </label>
                         <input
                             type="text"
                             value={tailNumber}
                             onChange={(e) => setTailNumber(e.target.value.toUpperCase())}
-                            className="w-full px-4 py-3 border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 uppercase text-lg font-mono tracking-wider"
+                            className="w-full px-4 py-3 border border-zinc-300 rounded-lg bg-white text-zinc-900 uppercase text-lg font-mono tracking-wider"
                             placeholder="N12345"
                             autoFocus
                             disabled={createAircraft.isPending}
@@ -838,20 +846,20 @@ function AddAircraftModal({
                     </div>
 
                     {error && (
-                        <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-                            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+                        <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                            <p className="text-sm text-red-600">{error}</p>
                         </div>
                     )}
 
                     {createAircraft.isPending && (
-                        <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                        <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                             <div className="flex items-center gap-3">
                                 <RefreshCw className="w-5 h-5 text-blue-500 animate-spin" />
                                 <div>
-                                    <p className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                                    <p className="text-sm font-medium text-blue-700">
                                         Looking up aircraft...
                                     </p>
-                                    <p className="text-xs text-blue-600 dark:text-blue-400">
+                                    <p className="text-xs text-blue-600">
                                         Fetching from FAA Registry & scraping aircraft data
                                     </p>
                                 </div>

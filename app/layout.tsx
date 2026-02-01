@@ -14,7 +14,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" className="light">
+      <head>
+        <script dangerouslySetInnerHTML={{
+          __html: `
+            document.documentElement.classList.remove('dark');
+            localStorage.removeItem('theme');
+          `
+        }} />
+      </head>
       <body className="min-h-screen bg-zinc-50 font-sans antialiased">
         <Providers>
           <div className="min-h-screen flex flex-col">

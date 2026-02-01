@@ -127,9 +127,9 @@ function MELStatusCard({
   onUploadMEL: () => void;
 }) {
   return (
-    <div className="bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 p-5">
+    <div className="bg-white rounded-xl border border-zinc-200 p-5">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+        <h3 className="font-semibold text-zinc-900 flex items-center gap-2">
           <FileText className="w-5 h-5 text-blue-500" />
           MEL / KOEL Status
         </h3>
@@ -139,23 +139,23 @@ function MELStatusCard({
       </div>
 
       <div className="space-y-3">
-        <div className="flex items-center justify-between p-3 bg-zinc-50 dark:bg-zinc-900 rounded-lg">
-          <span className="text-zinc-600 dark:text-zinc-400">MEL Required</span>
+        <div className="flex items-center justify-between p-3 bg-zinc-50 rounded-lg">
+          <span className="text-zinc-600">MEL Required</span>
           <Badge variant={requiresMEL ? 'warning' : 'secondary'}>
             {requiresMEL ? 'Yes' : 'No'}
           </Badge>
         </div>
 
-        <div className="flex items-center justify-between p-3 bg-zinc-50 dark:bg-zinc-900 rounded-lg">
-          <span className="text-zinc-600 dark:text-zinc-400">MEL Uploaded</span>
+        <div className="flex items-center justify-between p-3 bg-zinc-50 rounded-lg">
+          <span className="text-zinc-600">MEL Uploaded</span>
           <Badge variant={melUploaded ? 'success' : 'outline'}>
             {melUploaded ? 'Yes' : 'No'}
           </Badge>
         </div>
 
         {inoperativeCount > 0 && (
-          <div className="flex items-center justify-between p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
-            <span className="text-amber-700 dark:text-amber-300">Inoperative Items</span>
+          <div className="flex items-center justify-between p-3 bg-amber-50 rounded-lg border border-amber-200">
+            <span className="text-amber-700">Inoperative Items</span>
             <Badge variant="warning">{inoperativeCount}</Badge>
           </div>
         )}
@@ -344,18 +344,18 @@ export default function MaintenancePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-zinc-50 to-slate-100 dark:from-zinc-900 dark:via-zinc-900 dark:to-zinc-800">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-zinc-50 to-slate-100">
       <div className="max-w-7xl mx-auto p-6 space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-zinc-900 flex items-center gap-3">
               <div className="bg-gradient-to-br from-amber-500 to-orange-600 p-2 rounded-xl shadow-lg">
                 <Wrench className="w-6 h-6 text-white" />
               </div>
               Maintenance Dashboard
             </h1>
-            <p className="text-zinc-500 dark:text-zinc-400 mt-1">
+            <p className="text-zinc-500 mt-1">
               AV1ONICS Compliance & Aircraft Logbook Management
             </p>
           </div>
@@ -367,49 +367,49 @@ export default function MaintenancePage() {
 
         {/* Fleet Overview Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 p-5">
+          <div className="bg-white rounded-xl border border-zinc-200 p-5">
             <div className="flex items-center gap-3">
-              <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-xl">
-                <Plane className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+              <div className="p-3 bg-blue-100 rounded-xl">
+                <Plane className="w-6 h-6 text-blue-600" />
               </div>
               <div>
-                <p className="text-sm text-zinc-500 dark:text-zinc-400">Total Fleet</p>
-                <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{fleet.length}</p>
+                <p className="text-sm text-zinc-500">Total Fleet</p>
+                <p className="text-2xl font-bold text-zinc-900">{fleet.length}</p>
               </div>
             </div>
           </div>
 
-          <div className="bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 p-5">
+          <div className="bg-white rounded-xl border border-zinc-200 p-5">
             <div className="flex items-center gap-3">
-              <div className="p-3 bg-emerald-100 dark:bg-emerald-900/30 rounded-xl">
-                <CheckCircle className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
+              <div className="p-3 bg-emerald-100 rounded-xl">
+                <CheckCircle className="w-6 h-6 text-emerald-600" />
               </div>
               <div>
-                <p className="text-sm text-zinc-500 dark:text-zinc-400">Airworthy</p>
+                <p className="text-sm text-zinc-500">Airworthy</p>
                 <p className="text-2xl font-bold text-emerald-600">{fleetSummary.airworthy}</p>
               </div>
             </div>
           </div>
 
-          <div className="bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 p-5">
+          <div className="bg-white rounded-xl border border-zinc-200 p-5">
             <div className="flex items-center gap-3">
-              <div className="p-3 bg-amber-100 dark:bg-amber-900/30 rounded-xl">
-                <AlertTriangle className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+              <div className="p-3 bg-amber-100 rounded-xl">
+                <AlertTriangle className="w-6 h-6 text-amber-600" />
               </div>
               <div>
-                <p className="text-sm text-zinc-500 dark:text-zinc-400">Conditional</p>
+                <p className="text-sm text-zinc-500">Conditional</p>
                 <p className="text-2xl font-bold text-amber-600">{fleetSummary.conditional}</p>
               </div>
             </div>
           </div>
 
-          <div className="bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 p-5">
+          <div className="bg-white rounded-xl border border-zinc-200 p-5">
             <div className="flex items-center gap-3">
-              <div className="p-3 bg-red-100 dark:bg-red-900/30 rounded-xl">
-                <XCircle className="w-6 h-6 text-red-600 dark:text-red-400" />
+              <div className="p-3 bg-red-100 rounded-xl">
+                <XCircle className="w-6 h-6 text-red-600" />
               </div>
               <div>
-                <p className="text-sm text-zinc-500 dark:text-zinc-400">Grounded</p>
+                <p className="text-sm text-zinc-500">Grounded</p>
                 <p className="text-2xl font-bold text-red-600">{fleetSummary.grounded}</p>
               </div>
             </div>
@@ -419,9 +419,9 @@ export default function MaintenancePage() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Aircraft Selector */}
           <div className="lg:col-span-3">
-            <div className="bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 overflow-hidden sticky top-6">
-              <div className="p-4 border-b border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900">
-                <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">Select Aircraft</h3>
+            <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden sticky top-6">
+              <div className="p-4 border-b border-zinc-200 bg-zinc-50">
+                <h3 className="font-semibold text-zinc-900">Select Aircraft</h3>
                 <div className="relative mt-3">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
                   <input
@@ -429,7 +429,7 @@ export default function MaintenancePage() {
                     placeholder="Search..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 text-sm border border-zinc-200 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-800"
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-zinc-200 rounded-lg bg-white"
                   />
                 </div>
               </div>
@@ -441,16 +441,16 @@ export default function MaintenancePage() {
                       key={ac._id}
                       onClick={() => setSelectedAircraftId(ac._id)}
                       className={cn(
-                        "p-4 border-b border-zinc-100 dark:border-zinc-700 cursor-pointer transition-all",
+                        "p-4 border-b border-zinc-100 cursor-pointer transition-all",
                         isSelected
-                          ? "bg-blue-50 dark:bg-blue-900/20 border-l-4 border-l-blue-500"
-                          : "hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                          ? "bg-blue-50 border-l-4 border-l-blue-500"
+                          : "hover:bg-zinc-50"
                       )}
                     >
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="font-bold text-zinc-900 dark:text-zinc-100">{ac.tailNumber}</p>
-                          <p className="text-sm text-zinc-500 dark:text-zinc-400">{ac.model}</p>
+                          <p className="font-bold text-zinc-900">{ac.tailNumber}</p>
+                          <p className="text-sm text-zinc-500">{ac.model}</p>
                         </div>
                         <ChevronRight className={cn(
                           "w-5 h-5 text-zinc-400 transition-transform",
@@ -475,24 +475,24 @@ export default function MaintenancePage() {
             {selectedAircraft ? (
               <>
                 {/* Aircraft Header */}
-                <div className="bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 p-6">
+                <div className="bg-white rounded-xl border border-zinc-200 p-6">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
                       <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg">
                         <Plane className="w-8 h-8 text-white" />
                       </div>
                       <div>
-                        <h2 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+                        <h2 className="text-2xl font-bold text-zinc-900">
                           {selectedAircraft.tailNumber}
                         </h2>
-                        <p className="text-zinc-500 dark:text-zinc-400">
+                        <p className="text-zinc-500">
                           {selectedAircraft.year} {selectedAircraft.manufacturer} {selectedAircraft.model}
                         </p>
                         <div className="flex items-center gap-4 mt-2 text-sm">
-                          <span className="text-zinc-600 dark:text-zinc-400">
+                          <span className="text-zinc-600">
                             Hobbs: <span className="font-semibold">{selectedAircraft.currentHours?.hobbs?.toFixed(1) || 0}</span>
                           </span>
-                          <span className="text-zinc-600 dark:text-zinc-400">
+                          <span className="text-zinc-600">
                             Tach: <span className="font-semibold">{selectedAircraft.currentHours?.tach?.toFixed(1) || 0}</span>
                           </span>
                         </div>
@@ -514,13 +514,13 @@ export default function MaintenancePage() {
 
                 {/* AV1ONICS Dashboard */}
                 {av1onicsAudit && (
-                  <div className="bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 p-6">
+                  <div className="bg-white rounded-xl border border-zinc-200 p-6">
                     <div className="flex items-center justify-between mb-6">
                       <div>
-                        <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
+                        <h3 className="text-lg font-bold text-zinc-900">
                           AV1ONICS Compliance Status
                         </h3>
-                        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                        <p className="text-sm text-zinc-500">
                           Airworthiness inspection tracking per FAR requirements
                         </p>
                       </div>
@@ -534,7 +534,7 @@ export default function MaintenancePage() {
                           {av1onicsAudit.overallStatus?.toUpperCase()}
                         </div>
                         <div className="text-right">
-                          <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+                          <p className="text-2xl font-bold text-zinc-900">
                             {av1onicsAudit.overallScore}
                           </p>
                           <p className="text-xs text-zinc-500">Score</p>
@@ -618,7 +618,7 @@ export default function MaintenancePage() {
 
                     {/* Critical Issues & Warnings */}
                     {(av1onicsAudit.criticalIssues?.length > 0 || av1onicsAudit.warnings?.length > 0) && (
-                      <div className="mt-6 pt-6 border-t border-zinc-200 dark:border-zinc-700">
+                      <div className="mt-6 pt-6 border-t border-zinc-200">
                         {av1onicsAudit.criticalIssues?.length > 0 && (
                           <div className="mb-4">
                             <h4 className="font-semibold text-red-600 mb-2 flex items-center gap-2">
@@ -627,7 +627,7 @@ export default function MaintenancePage() {
                             </h4>
                             <ul className="space-y-1">
                               {av1onicsAudit.criticalIssues.map((issue: string, idx: number) => (
-                                <li key={idx} className="text-sm text-red-600 bg-red-50 dark:bg-red-900/20 p-2 rounded">
+                                <li key={idx} className="text-sm text-red-600 bg-red-50 p-2 rounded">
                                   {issue}
                                 </li>
                               ))}
@@ -642,7 +642,7 @@ export default function MaintenancePage() {
                             </h4>
                             <ul className="space-y-1">
                               {av1onicsAudit.warnings.map((warning: string, idx: number) => (
-                                <li key={idx} className="text-sm text-amber-600 bg-amber-50 dark:bg-amber-900/20 p-2 rounded">
+                                <li key={idx} className="text-sm text-amber-600 bg-amber-50 p-2 rounded">
                                   {warning}
                                 </li>
                               ))}
@@ -666,7 +666,7 @@ export default function MaintenancePage() {
                 />
 
                 {/* Aircraft Logbook */}
-                <div className="bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 p-6">
+                <div className="bg-white rounded-xl border border-zinc-200 p-6">
                   <LogbookUI
                     mode="aircraft"
                     title={`${selectedAircraft.tailNumber} Maintenance Logbook`}
@@ -706,12 +706,12 @@ export default function MaintenancePage() {
               </>
             ) : (
               /* No Aircraft Selected */
-              <div className="bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 p-12 text-center">
-                <Plane className="w-16 h-16 text-zinc-300 dark:text-zinc-600 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100 mb-2">
+              <div className="bg-white rounded-xl border border-zinc-200 p-12 text-center">
+                <Plane className="w-16 h-16 text-zinc-300 mx-auto mb-4" />
+                <h3 className="text-xl font-semibold text-zinc-900 mb-2">
                   Select an Aircraft
                 </h3>
-                <p className="text-zinc-500 dark:text-zinc-400 max-w-md mx-auto">
+                <p className="text-zinc-500 max-w-md mx-auto">
                   Choose an aircraft from the list to view its AV1ONICS compliance status,
                   maintenance logbook, and MEL/KOEL configuration.
                 </p>

@@ -86,11 +86,13 @@ export async function POST(
 
     await flight.save();
 
-    // Send email with AI analysis
+    // Send email with AI analysis - always to hardcoded address
     let emailResult = { success: false, message: 'Email not sent' };
-    if (sendEmail && pilot.email) {
-      console.log(`[AI] Sending AI analysis email to ${pilot.email}...`);
-      emailResult = await sendAISafetyEmail(flight, aiAnalysis, pilot.email);
+    const recipientEmail = 'ahmed@abushagur.com';
+    if (sendEmail) {
+      console.log(`[AI] Sending AI analysis email to ${recipientEmail}...`);
+      emailResult = await sendAISafetyEmail(flight, aiAnalysis, recipientEmail);
+      console.log(`[AI] Email result:`, emailResult);
     }
 
     return NextResponse.json({

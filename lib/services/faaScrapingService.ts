@@ -2,6 +2,7 @@
 // Scrapes FAA registration data and uses AI to extract airworthiness information
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { fetchAircraftImage as fetchAircraftImageFromFirecrawl } from './firecrawlService';
 
 export interface ScrapedAircraftData {
   tailNumber: string;
@@ -660,8 +661,17 @@ async function findAircraftImage(
   manufacturer: string,
   model: string
 ): Promise<string | undefined> {
-  // In production, this would query aircraft image databases
-  // For now, return a placeholder based on manufacturer
+  // Try to fetch real image from PlaneSpotters/JetPhotos via Firecrawl
+  try {
+    const result = await fetchAircraftImageFromFirecrawl(tailNumber);
+    if (result.success && result.imageUrl) {
+      return result.imageUrl;
+    }
+  } catch (error) {
+    console.warn('Failed to fetch aircraft image from Firecrawl:', error);
+  }
+
+  // Fallback to placeholder images based on manufacturer
   const placeholders: Record<string, string> = {
     'Cessna': 'https://images.unsplash.com/photo-1559128010-7c1ad6e1b6a5?w=400',
     'Piper': 'https://images.unsplash.com/photo-1540962351504-03099e0a754b?w=400',

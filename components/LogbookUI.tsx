@@ -205,11 +205,11 @@ export function LogbookUI({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">
+          <h2 className="text-xl font-bold text-zinc-900">
             {title || (mode === 'pilot' ? 'Pilot Logbook' : 'Aircraft Logbook')}
           </h2>
           {summary && (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
+            <p className="text-sm text-zinc-500 mt-1">
               {summary.totalEntries} entries
               {summary.totalHours !== undefined && ` | ${summary.totalHours.toFixed(1)} total hours`}
               {summary.dateRange && ` | ${summary.dateRange.from} - ${summary.dateRange.to}`}
@@ -243,8 +243,8 @@ export function LogbookUI({
                 className={cn(
                   "p-4 rounded-xl border-2 transition-all text-left",
                   isActive
-                    ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
-                    : "border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600"
+                    ? "border-blue-500 bg-blue-50"
+                    : "border-zinc-200 hover:border-zinc-300"
                 )}
               >
                 <div className="flex items-center gap-3">
@@ -252,8 +252,8 @@ export function LogbookUI({
                     <Icon className="w-5 h-5" />
                   </div>
                   <div>
-                    <p className="font-semibold text-zinc-900 dark:text-zinc-100">{config.label}</p>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    <p className="font-semibold text-zinc-900">{config.label}</p>
+                    <p className="text-xs text-zinc-500">
                       {stats.count} entries
                     </p>
                   </div>
@@ -273,16 +273,16 @@ export function LogbookUI({
           className={cn(
             "border-2 border-dashed rounded-xl p-6 transition-all",
             isDragging
-              ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
-              : "border-zinc-300 dark:border-zinc-600 hover:border-blue-400"
+              ? "border-blue-500 bg-blue-50"
+              : "border-zinc-300 hover:border-blue-400"
           )}
         >
           {isUploading ? (
             <div className="flex flex-col items-center">
               <Loader2 className="w-10 h-10 text-blue-500 animate-spin mb-3" />
-              <p className="font-medium text-zinc-700 dark:text-zinc-300">Processing document...</p>
+              <p className="font-medium text-zinc-700">Processing document...</p>
               <div className="w-full max-w-xs mt-4">
-                <div className="h-2 bg-zinc-200 dark:bg-zinc-700 rounded-full overflow-hidden">
+                <div className="h-2 bg-zinc-200 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-blue-500 rounded-full transition-all"
                     style={{ width: `${uploadProgress}%` }}
@@ -293,10 +293,10 @@ export function LogbookUI({
           ) : (
             <div className="flex flex-col items-center">
               <Upload className="w-10 h-10 text-zinc-400 mb-3" />
-              <p className="font-medium text-zinc-700 dark:text-zinc-300">
+              <p className="font-medium text-zinc-700">
                 Drop {mode === 'aircraft' ? 'maintenance records' : 'logbook pages'} here
               </p>
-              <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
+              <p className="text-sm text-zinc-500 mt-1">
                 PDF or Image (max 50MB)
               </p>
 
@@ -355,7 +355,7 @@ export function LogbookUI({
           placeholder="Search entries..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full pl-10 pr-4 py-2 border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
+          className="w-full pl-10 pr-4 py-2 border border-zinc-300 rounded-lg bg-white text-zinc-900"
         />
       </div>
 
@@ -365,9 +365,9 @@ export function LogbookUI({
           <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
         </div>
       ) : filteredEntries.length === 0 ? (
-        <div className="text-center py-12 bg-zinc-50 dark:bg-zinc-800/50 rounded-xl border border-zinc-200 dark:border-zinc-700">
-          <FileText className="w-12 h-12 text-zinc-300 dark:text-zinc-600 mx-auto mb-4" />
-          <p className="text-zinc-500 dark:text-zinc-400">
+        <div className="text-center py-12 bg-zinc-50/50 rounded-xl border border-zinc-200">
+          <FileText className="w-12 h-12 text-zinc-300 mx-auto mb-4" />
+          <p className="text-zinc-500">
             {entries.length === 0
               ? 'No logbook entries yet. Upload a document to get started.'
               : 'No entries match your search.'}
@@ -383,11 +383,11 @@ export function LogbookUI({
             return (
               <div
                 key={entryId}
-                className="bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 overflow-hidden"
+                className="bg-white rounded-xl border border-zinc-200 overflow-hidden"
               >
                 {/* Entry Header */}
                 <div
-                  className="p-4 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-700/50 transition-colors"
+                  className="p-4 cursor-pointer hover:bg-zinc-50 transition-colors"
                   onClick={() => toggleEntry(entryId)}
                 >
                   <div className="flex items-start justify-between gap-4">
@@ -402,11 +402,11 @@ export function LogbookUI({
                       {/* Entry Info */}
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                          <span className="font-medium text-zinc-900">
                             {entry.date}
                           </span>
                           {mode === 'aircraft' && entry.mechanic && (
-                            <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                            <span className="text-xs text-zinc-500">
                               by {entry.mechanic}
                             </span>
                           )}
@@ -416,7 +416,7 @@ export function LogbookUI({
                             </Badge>
                           )}
                         </div>
-                        <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-1 line-clamp-1">
+                        <p className="text-sm text-zinc-600 mt-1 line-clamp-1">
                           {entry.description || entry.remarks || (mode === 'pilot' && entry.from && entry.to ? `${entry.from} → ${entry.to}` : 'No description')}
                         </p>
                       </div>
@@ -426,7 +426,7 @@ export function LogbookUI({
                     <div className="flex items-center gap-4">
                       {(entry.hobbsTime || entry.tachTime || entry.totalTime) && (
                         <div className="text-right">
-                          <p className="font-semibold text-blue-600 dark:text-blue-400">
+                          <p className="font-semibold text-blue-600">
                             {(entry.hobbsTime || entry.tachTime || entry.totalTime)?.toFixed(1)} hrs
                           </p>
                           {entry.hobbsTime && entry.tachTime && (
@@ -447,11 +447,11 @@ export function LogbookUI({
 
                 {/* Expanded Content */}
                 {isExpanded && (
-                  <div className="px-4 pb-4 pt-2 border-t border-zinc-100 dark:border-zinc-700">
+                  <div className="px-4 pb-4 pt-2 border-t border-zinc-100">
                     {/* Full Description */}
                     {(entry.description || entry.remarks) && (
                       <div className="mb-3">
-                        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                        <p className="text-sm text-zinc-600">
                           {entry.description || entry.remarks}
                         </p>
                       </div>
@@ -461,19 +461,19 @@ export function LogbookUI({
                     {mode === 'pilot' && (
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                         {entry.from && entry.to && (
-                          <div className="bg-zinc-50 dark:bg-zinc-900 p-2 rounded">
+                          <div className="bg-zinc-50 p-2 rounded">
                             <span className="text-zinc-500">Route</span>
                             <p className="font-medium">{entry.from} → {entry.to}</p>
                           </div>
                         )}
                         {entry.pic && (
-                          <div className="bg-zinc-50 dark:bg-zinc-900 p-2 rounded">
+                          <div className="bg-zinc-50 p-2 rounded">
                             <span className="text-zinc-500">PIC</span>
                             <p className="font-medium">{entry.pic} hrs</p>
                           </div>
                         )}
                         {entry.aircraftType && (
-                          <div className="bg-zinc-50 dark:bg-zinc-900 p-2 rounded">
+                          <div className="bg-zinc-50 p-2 rounded">
                             <span className="text-zinc-500">Type</span>
                             <p className="font-medium">{entry.aircraftType}</p>
                           </div>
@@ -485,19 +485,19 @@ export function LogbookUI({
                     {mode === 'aircraft' && (
                       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
                         {entry.hobbsTime && (
-                          <div className="bg-zinc-50 dark:bg-zinc-900 p-2 rounded">
+                          <div className="bg-zinc-50 p-2 rounded">
                             <span className="text-zinc-500">Hobbs</span>
                             <p className="font-medium">{entry.hobbsTime}</p>
                           </div>
                         )}
                         {entry.tachTime && (
-                          <div className="bg-zinc-50 dark:bg-zinc-900 p-2 rounded">
+                          <div className="bg-zinc-50 p-2 rounded">
                             <span className="text-zinc-500">Tach</span>
                             <p className="font-medium">{entry.tachTime}</p>
                           </div>
                         )}
                         {entry.mechanic && (
-                          <div className="bg-zinc-50 dark:bg-zinc-900 p-2 rounded">
+                          <div className="bg-zinc-50 p-2 rounded">
                             <span className="text-zinc-500">Mechanic</span>
                             <p className="font-medium">{entry.mechanic}</p>
                           </div>
@@ -507,7 +507,7 @@ export function LogbookUI({
 
                     {/* Delete button */}
                     {onDeleteEntry && entry.id && (
-                      <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-700">
+                      <div className="mt-3 pt-3 border-t border-zinc-100">
                         <Button
                           variant="ghost"
                           size="sm"
@@ -530,17 +530,17 @@ export function LogbookUI({
       {/* Linked Documents */}
       {linkedDocuments.length > 0 && (
         <div className="mt-6">
-          <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-3">
+          <h3 className="text-sm font-semibold text-zinc-700 mb-3">
             Linked Documents
           </h3>
           <div className="flex flex-wrap gap-2">
             {linkedDocuments.map(doc => (
               <div
                 key={doc.id}
-                className="inline-flex items-center gap-2 px-3 py-2 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-sm"
+                className="inline-flex items-center gap-2 px-3 py-2 bg-zinc-100 rounded-lg text-sm"
               >
                 <FileText className="w-4 h-4 text-zinc-500" />
-                <span className="text-zinc-700 dark:text-zinc-300">{doc.filename}</span>
+                <span className="text-zinc-700">{doc.filename}</span>
                 <Badge variant="outline" className="text-xs">{doc.type}</Badge>
               </div>
             ))}

@@ -107,9 +107,7 @@ export async function runComprehensiveSafetyAnalysis(
       ...weatherVsPilotDep.warnings.map(w => `[Departure] ${w}`),
       ...weatherVsPilotArr.warnings.map(w => `[Destination] ${w}`),
     ],
-    recommendations: [
-      ...new Set([...weatherVsPilotDep.recommendations, ...weatherVsPilotArr.recommendations]),
-    ],
+    recommendations: Array.from(new Set([...weatherVsPilotDep.recommendations, ...weatherVsPilotArr.recommendations])),
   };
 
   // 4. Analyze weather vs aircraft performance (both departure and arrival)
@@ -134,9 +132,7 @@ export async function runComprehensiveSafetyAnalysis(
       ...weatherVsAircraftDep.warnings.map(w => `[Departure] ${w}`),
       ...weatherVsAircraftArr.warnings.map(w => `[Destination] ${w}`),
     ],
-    recommendations: [
-      ...new Set([...weatherVsAircraftDep.recommendations, ...weatherVsAircraftArr.recommendations]),
-    ],
+    recommendations: Array.from(new Set([...weatherVsAircraftDep.recommendations, ...weatherVsAircraftArr.recommendations])),
   };
 
   // 5. Analyze pilot currency and experience

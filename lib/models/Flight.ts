@@ -144,6 +144,23 @@ export interface IComprehensiveSafetyAnalysis {
 
   goNoGoRecommendation: 'go' | 'caution' | 'no-go';
   reasoning: string;
+
+  // AI Analysis from Gemini
+  aiAnalysis?: {
+    summary: string;
+    confidenceLevel: number;
+    keyRisks: {
+      risk: string;
+      severity: 'low' | 'medium' | 'high' | 'critical';
+      explanation: string;
+    }[];
+    recommendations: {
+      action: string;
+      priority: 'immediate' | 'before_flight' | 'consider';
+      rationale: string;
+    }[];
+    goNoGoReasoning: string;
+  };
 }
 
 export interface IFlight {
@@ -331,6 +348,21 @@ const ComprehensiveSafetyAnalysisSchema = new Schema({
   combinedRiskScenarios: [RiskScenarioSchema],
   goNoGoRecommendation: { type: String, enum: ['go', 'caution', 'no-go'] },
   reasoning: { type: String },
+  aiAnalysis: {
+    summary: { type: String },
+    confidenceLevel: { type: Number },
+    keyRisks: [{
+      risk: { type: String },
+      severity: { type: String, enum: ['low', 'medium', 'high', 'critical'] },
+      explanation: { type: String },
+    }],
+    recommendations: [{
+      action: { type: String },
+      priority: { type: String, enum: ['immediate', 'before_flight', 'consider'] },
+      rationale: { type: String },
+    }],
+    goNoGoReasoning: { type: String },
+  },
 }, { _id: false });
 
 const FlightSchema = new Schema<IFlight>(

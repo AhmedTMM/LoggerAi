@@ -46,23 +46,25 @@ export async function classifyDocumentFast(
     const model = genAI.getGenerativeModel({ model: GEMINI_FLASH_MODEL });
 
     // For large files, skip classification - truncating PDFs creates invalid documents
-    // The file will be uploaded and can be manually classified later
-    const MAX_CLASSIFIABLE_SIZE = 15 * 1024 * 1024; // 15MB max for classification (~11MB actual file)
+    // Gemini 2.0 Flash can handle up to 20MB inline, so increase limit
+    const MAX_CLASSIFIABLE_SIZE = 25 * 1024 * 1024; // 25MB max for classification (~19MB actual file)
 
     if (fileBase64.length > MAX_CLASSIFIABLE_SIZE) {
-      console.log(`[FastClassify] File too large for classification (${(fileBase64.length / 1024 / 1024).toFixed(1)}MB > ${(MAX_CLASSIFIABLE_SIZE / 1024 / 1024).toFixed(1)}MB). Skipping classification.`);
-      // Return a default classification for large files
+      const fileSizeMB = (fileBase64.length / 1024 / 1024).toFixed(1);
+      console.log(`[FastClassify] File too large for classification (${fileSizeMB}MB > ${(MAX_CLASSIFIABLE_SIZE / 1024 / 1024).toFixed(1)}MB). Using default classification.`);
+      // Return a default classification for very large files
+      // Large PDFs are often pilot logbooks (multi-page scans)
       return {
         success: true,
         classification: {
-          detectedType: 'other' as const,
-          confidence: 0.3,
-          suggestedName: `Large Document ${new Date().toISOString().split('T')[0]}`,
-          estimatedEntryCount: 0,
+          detectedType: 'logbook' as const, // Assume logbook for large multi-page PDFs
+          confidence: 0.5,
+          suggestedName: `Logbook ${new Date().toISOString().split('T')[0]}`,
+          estimatedEntryCount: 100, // Estimate for large file
           documentQuality: 'fair' as const,
-          qualityNotes: ['File too large for automatic classification'],
-          isHandwritten: false,
-          summary: 'Large document - manual classification recommended',
+          qualityNotes: [`Large file (${fileSizeMB}MB) - classification skipped, assumed logbook`],
+          isHandwritten: true, // Likely handwritten if it's a scanned logbook
+          summary: `Large document (${fileSizeMB}MB) - assumed pilot logbook based on size`,
         }
       };
     }

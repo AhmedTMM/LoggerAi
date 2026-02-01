@@ -78,14 +78,35 @@ export type StepCallback = (log: StepLog) => void | Promise<void>;
 import { Reducto, toFile } from 'reductoai';
 import { ExtractRunResponse } from 'reductoai/resources/extract';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { repairAndParseJSON } from '@/lib/utils/jsonRepair';
 
 // Gemini Flash for fast structured extraction
 const GEMINI_FLASH_MODEL = 'gemini-2.0-flash';
 
-// Timeout constants for API calls
-const REDUCTO_UPLOAD_TIMEOUT = 30000;  // 30 seconds for upload
-const REDUCTO_PARSE_TIMEOUT = 45000;   // 45 seconds for parse (OCR)
-const REDUCTO_EXTRACT_TIMEOUT = 90000; // 90 seconds for extract (LLM)
+// Base timeout constants for API calls (scaled up for large files)
+const REDUCTO_UPLOAD_TIMEOUT_BASE = 60000;   // 60 seconds base for upload
+const REDUCTO_PARSE_TIMEOUT_BASE = 180000;   // 3 minutes base for parse (OCR) - large PDFs need this
+const REDUCTO_EXTRACT_TIMEOUT_BASE = 300000; // 5 minutes base for extract (LLM)
+
+/**
+ * Calculate dynamic timeout based on file size
+ * Larger files need proportionally more time
+ */
+function getScaledTimeout(baseTimeout: number, fileSizeBytes: number): number {
+  const MB = 1024 * 1024;
+  const fileSizeMB = fileSizeBytes / MB;
+
+  // Scale factor: 1x for files under 5MB, then add 30s per additional 5MB
+  if (fileSizeMB <= 5) {
+    return baseTimeout;
+  }
+
+  const additionalMB = fileSizeMB - 5;
+  const additionalTime = Math.ceil(additionalMB / 5) * 30000; // 30s per 5MB
+
+  // Cap at 10 minutes max
+  return Math.min(baseTimeout + additionalTime, 600000);
+}
 
 /**
  * Wraps a promise with a timeout. Rejects if the promise doesn't resolve within the specified time.
@@ -152,7 +173,13 @@ export async function parseDocumentUltraFast(
     });
 
     const genAI = new GoogleGenerativeAI(geminiKey);
-    const model = genAI.getGenerativeModel({ model: GEMINI_FLASH_MODEL });
+    const model = genAI.getGenerativeModel({
+      model: GEMINI_FLASH_MODEL,
+      generationConfig: {
+        maxOutputTokens: 65536, // Maximum for Gemini 2.0 Flash to prevent truncation
+        temperature: 0.1, // Lower temperature for more consistent JSON output
+      },
+    });
 
     // Check file size - Gemini 2.0 can handle larger files inline
     const fileSizeBytes = Math.ceil((fileBase64.length * 3) / 4);
@@ -209,184 +236,33 @@ export async function parseDocumentUltraFast(
 
     await log('structuring', 'Parsing extracted data...', 80);
 
-    // Parse the AI response
+    // Parse the AI response using the robust JSON repair utility
+    console.log(`[UltraFast] Attempting to parse AI response (${aiText.length} chars)...`);
+
+    const repairResult = repairAndParseJSON(aiText);
+
     let items: any[] = [];
     let rawData: any = {};
 
-    try {
-      // Clean up JSON - handle markdown code blocks and extra whitespace
-      let jsonString = aiText
-        .replace(/```json\s*/gi, '')
-        .replace(/```\s*/g, '')
-        .trim();
+    if (repairResult.success) {
+      items = repairResult.data.entries || [];
+      const { entries: _, ...rest } = repairResult.data;
+      rawData = rest;
 
-      // Try to find JSON in the response if it's wrapped in other text
-      const jsonMatch = jsonString.match(/\[[\s\S]*\]|\{[\s\S]*\}/);
-      if (jsonMatch) {
-        jsonString = jsonMatch[0];
-      }
-
-      console.log(`[UltraFast] Cleaned JSON string length: ${jsonString.length}`);
-      console.log(`[UltraFast] JSON preview:`, jsonString.substring(0, 500));
-
-      const parsed = JSON.parse(jsonString);
-      console.log(`[UltraFast] Parsed successfully! Type: ${Array.isArray(parsed) ? 'array' : 'object'}`);
-      if (!Array.isArray(parsed)) {
-        console.log(`[UltraFast] Object keys:`, Object.keys(parsed));
-        if (parsed.entries) {
-          console.log(`[UltraFast] Found entries array with ${parsed.entries.length} items`);
-        }
-      }
-
-      if (Array.isArray(parsed)) {
-        items = parsed;
-      } else if (parsed.entries && Array.isArray(parsed.entries)) {
-        items = parsed.entries;
-        // Extract top-level fields but exclude the entries array to avoid overwriting
-        const { entries: _, ...rest } = parsed;
-        rawData = rest;
-      } else if (parsed.flights && Array.isArray(parsed.flights)) {
-        items = parsed.flights;
-        const { flights: _, ...rest } = parsed;
-        rawData = rest;
+      if (repairResult.wasRepaired) {
+        console.log(`[UltraFast] ✓ JSON repaired using: ${repairResult.repairMethod}`);
+        console.log(`[UltraFast] ✓ Recovered ${repairResult.entriesRecovered} entries`);
+        await log('structuring', `Recovered ${items.length} entries (${repairResult.repairMethod})`, 85);
       } else {
-        items = [parsed];
-        rawData = {};
+        console.log(`[UltraFast] ✓ JSON parsed directly, ${items.length} entries`);
       }
-    } catch (parseError) {
-      console.error('[UltraFast] ❌ JSON PARSE FAILED');
-      console.error('[UltraFast] Error:', parseError);
-      console.error('[UltraFast] Full AI response (first 2000 chars):', aiText.substring(0, 2000));
-      console.error('[UltraFast] Full AI response (last 1000 chars):', aiText.substring(Math.max(0, aiText.length - 1000)));
-
-      // Try multiple recovery strategies for truncated/malformed JSON
-      let recovered = false;
-
-      // Strategy 1: Try to find complete JSON object with entries
-      const objectMatch = aiText.match(/\{[\s\S]*"entries"[\s\S]*\}/);
-      if (objectMatch && !recovered) {
-        console.log('[UltraFast] Found object pattern with entries, attempting to parse...');
-        try {
-          const cleanJson = objectMatch[0].replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
-          const parsedObj = JSON.parse(cleanJson);
-          if (parsedObj.entries && Array.isArray(parsedObj.entries)) {
-            items = parsedObj.entries;
-            const { entries: _, ...rest } = parsedObj;
-            rawData = rest;
-            console.log(`[UltraFast] ✓ Recovered ${items.length} entries from object pattern`);
-            recovered = true;
-          }
-        } catch (e) {
-          console.error('[UltraFast] Object pattern parse failed:', e);
-        }
-      }
-
-      // Strategy 2: Try to find complete JSON array
-      const arrayMatch = aiText.match(/\[\s*\{[\s\S]*?\}\s*(?:,\s*\{[\s\S]*?\}\s*)*\]/);
-      if (arrayMatch && !recovered) {
-        console.log('[UltraFast] Found array pattern, attempting to parse...');
-        try {
-          items = JSON.parse(arrayMatch[0]);
-          console.log(`[UltraFast] ✓ Recovered ${items.length} entries from array pattern`);
-          recovered = true;
-        } catch (e) {
-          console.error('[UltraFast] Array pattern parse failed:', e);
-        }
-      }
-
-      // Strategy 3: Extract individual complete entries from truncated JSON using brace counting
-      // This handles cases where the AI response was cut off mid-stream
-      if (!recovered) {
-        console.log('[UltraFast] Attempting truncated JSON recovery with brace counting...');
-        const entriesMatch = aiText.match(/"entries"\s*:\s*\[([\s\S]*)/);
-        const arrayStart = aiText.match(/^\s*\[([\s\S]*)/);
-        const entriesText = entriesMatch ? entriesMatch[1] : (arrayStart ? arrayStart[1] : null);
-
-        if (entriesText) {
-          const completeEntries: any[] = [];
-          let currentEntry = '';
-          let braceCount = 0;
-          let inString = false;
-          let escapeNext = false;
-
-          for (let i = 0; i < entriesText.length; i++) {
-            const char = entriesText[i];
-
-            if (escapeNext) {
-              currentEntry += char;
-              escapeNext = false;
-              continue;
-            }
-
-            if (char === '\\') {
-              escapeNext = true;
-              currentEntry += char;
-              continue;
-            }
-
-            if (char === '"') {
-              inString = !inString;
-            }
-
-            currentEntry += char;
-
-            if (!inString) {
-              if (char === '{') {
-                braceCount++;
-              } else if (char === '}') {
-                braceCount--;
-                if (braceCount === 0 && currentEntry.trim().length > 0) {
-                  // We have a complete entry
-                  try {
-                    const entry = JSON.parse(currentEntry.trim());
-                    if (entry.date) { // Only add if it has a date
-                      completeEntries.push(entry);
-                    }
-                  } catch (e) {
-                    // Skip malformed entry
-                  }
-                  currentEntry = '';
-                }
-              }
-            }
-          }
-
-          if (completeEntries.length > 0) {
-            items = completeEntries;
-            console.log(`[UltraFast] ✓ Recovered ${items.length} complete entries from truncated JSON!`);
-            recovered = true;
-
-            // Try to extract top-level fields too
-            const annualMatch = aiText.match(/"annualDate"\s*:\s*"([^"]+)"/);
-            const hundredHourMatch = aiText.match(/"hundredHourDate"\s*:\s*"([^"]+)"/);
-            const transponderMatch = aiText.match(/"transponderDate"\s*:\s*"([^"]+)"/);
-            const staticMatch = aiText.match(/"staticDate"\s*:\s*"([^"]+)"/);
-            const eltMatch = aiText.match(/"eltDate"\s*:\s*"([^"]+)"/);
-            const tachMatch = aiText.match(/"currentTach"\s*:\s*([0-9.]+)/);
-            const hobbsMatch = aiText.match(/"currentHobbs"\s*:\s*([0-9.]+)/);
-
-            rawData = {
-              annualDate: annualMatch?.[1],
-              hundredHourDate: hundredHourMatch?.[1],
-              transponderDate: transponderMatch?.[1],
-              staticDate: staticMatch?.[1],
-              eltDate: eltMatch?.[1],
-              currentTach: tachMatch ? parseFloat(tachMatch[1]) : undefined,
-              currentHobbs: hobbsMatch ? parseFloat(hobbsMatch[1]) : undefined,
-            };
-            console.log('[UltraFast] Extracted additional fields:', Object.keys(rawData).filter(k => rawData[k] !== undefined));
-          }
-        }
-      }
-
-      if (!recovered) {
-        console.error('[UltraFast] ❌ All recovery attempts failed');
-        console.log('[UltraFast] Falling back to OCR pipeline...');
-        await log('error', 'Could not parse AI response, falling back to OCR pipeline', 80);
-        return parseDocumentFast(fileBase64, fileType, documentType, onStep);
-      } else {
-        await log('structuring', `Recovered ${items.length} entries from partial response`, 85);
-      }
+    } else {
+      console.error('[UltraFast] ❌ All JSON repair attempts failed');
+      console.error('[UltraFast] First 2000 chars:', aiText.substring(0, 2000));
+      console.error('[UltraFast] Last 1000 chars:', aiText.substring(Math.max(0, aiText.length - 1000)));
+      console.log('[UltraFast] Falling back to OCR pipeline...');
+      await log('error', 'Could not parse AI response, falling back to OCR pipeline', 80);
+      return parseDocumentFast(fileBase64, fileType, documentType, onStep);
     }
 
     await log('validating_output', 'Validating extracted entries...', 90, {
@@ -492,33 +368,29 @@ IMPORTANT EXTRACTION RULES:
 Output ONLY a valid JSON array with NO markdown formatting:
 [{"date":"2024-01-15","aircraftIdent":"N12345","totalTime":1.5,"sel":1.5,"pic":1.5,"from":"KRHV","to":"KSJC"},...]`;
 
-const ULTRA_FAST_MAINTENANCE_PROMPT = `You are extracting maintenance entries from an aircraft maintenance log. Extract ALL visible maintenance entries.
+const ULTRA_FAST_MAINTENANCE_PROMPT = `Extract ALL maintenance entries from this aircraft maintenance log.
 
-For EACH maintenance entry, extract:
-- date: YYYY-MM-DD format
-- description: Full work description
-- hobbsTime: Aircraft hobbs time (if shown)
-- tachTime: Tachometer time (if shown)
-- mechanic: Mechanic name or certificate number
-- signedOff: true/false if properly signed
-- isInspection: true if this is an inspection
-- inspectionType: "annual", "100hour", "transponder", "static", "elt" if applicable
+CRITICAL FOR LARGE DOCUMENTS:
+- Extract EVERY entry, even if there are hundreds
+- Keep descriptions concise (max 200 chars each)
+- Do NOT truncate - output ALL entries
+- Use compact JSON format
 
-Also extract at the top level (outside entries array):
-- annualDate: Most recent annual inspection date
-- hundredHourDate: Most recent 100-hour inspection date
-- transponderDate: Most recent transponder check date
-- staticDate: Most recent static system check date
-- eltDate: Most recent ELT inspection date
-- currentHobbs: Latest hobbs time recorded
-- currentTach: Latest tach time recorded
-- aircraftIdent: Aircraft tail number if visible
+For EACH entry, extract only:
+- date: YYYY-MM-DD
+- description: Brief work description (200 chars max)
+- tachTime: Tach time if shown
+- mechanic: Mechanic name/cert#
+- isInspection: true if inspection
+- inspectionType: "annual"/"100hour"/"transponder"/"static"/"elt" if applicable
 
-IMPORTANT:
-- Extract EVERY entry you can see
-- Output ONLY valid JSON, no markdown:
+At top level extract:
+- annualDate, hundredHourDate, transponderDate, staticDate, eltDate: Most recent dates
+- currentTach: Latest tach time
+- aircraftIdent: Tail number
 
-{"entries":[{"date":"2024-01-15","description":"Annual Inspection",...}],"annualDate":"2024-01-15","currentHobbs":1234.5}`;
+Output ONLY valid JSON, no markdown:
+{"entries":[{"date":"2024-01-15","description":"Annual inspection","isInspection":true,"inspectionType":"annual"}],"annualDate":"2024-01-15","currentTach":1234.5}`;
 
 /**
  * OPTIMIZED: Fast document parsing using Reducto Parse (OCR) + Gemini Flash (extraction)
@@ -570,7 +442,13 @@ export async function parseDocumentFast(
 
     const client = new Reducto({ apiKey });
     const genAI = new GoogleGenerativeAI(geminiKey);
-    const model = genAI.getGenerativeModel({ model: GEMINI_FLASH_MODEL });
+    const model = genAI.getGenerativeModel({
+      model: GEMINI_FLASH_MODEL,
+      generationConfig: {
+        maxOutputTokens: 65536, // Maximum for Gemini 2.0 Flash to prevent truncation
+        temperature: 0.1, // Lower temperature for more consistent JSON output
+      },
+    });
 
     await log('preparing', 'Preparing document for OCR...', 10, {
       sizeKB: Math.round(fileBase64.length * 0.75 / 1024),
@@ -586,13 +464,17 @@ export async function parseDocumentFast(
       sizeBytes: fileBuffer.length
     });
 
+    // Calculate dynamic timeouts based on file size
+    const uploadTimeout = getScaledTimeout(REDUCTO_UPLOAD_TIMEOUT_BASE, fileBuffer.length);
+    const parseTimeout = getScaledTimeout(REDUCTO_PARSE_TIMEOUT_BASE, fileBuffer.length);
+
     const uploadStart = Date.now();
     const upload = await withTimeout(
       client.upload({
         file: await toFile(fileBuffer, filename),
         extension: fileType === 'image' ? 'png' : 'pdf',
       }),
-      REDUCTO_UPLOAD_TIMEOUT,
+      uploadTimeout,
       'Reducto upload'
     );
 
@@ -602,7 +484,7 @@ export async function parseDocumentFast(
     await log('extracting', 'Running fast OCR (Reducto Parse)...', 30, {
       model: 'reducto-parse',
       mode: 'ocr-only',
-      timeout: `${REDUCTO_PARSE_TIMEOUT / 1000}s`
+      timeout: `${parseTimeout / 1000}s`
     });
 
     const parseStart = Date.now();
@@ -618,7 +500,7 @@ export async function parseDocumentFast(
           }
         }
       }),
-      REDUCTO_PARSE_TIMEOUT,
+      parseTimeout,
       'Reducto OCR parse'
     );
 
@@ -708,180 +590,31 @@ export async function parseDocumentFast(
 
     await log('structuring', 'AI extraction complete', 80);
 
-    // 5. Parse the AI response
+    // 5. Parse the AI response using the robust JSON repair utility
+    console.log(`[FastParse] Attempting to parse AI response (${aiText.length} chars)...`);
+
+    const repairResult = repairAndParseJSON(aiText);
+
     let items: any[] = [];
     let rawData: any = {};
-    try {
-      // Clean up JSON - handle markdown code blocks and extra whitespace
-      let jsonString = aiText
-        .replace(/```json\s*/gi, '')
-        .replace(/```\s*/g, '')
-        .trim();
 
-      // Try to find JSON in the response if it's wrapped in other text
-      const jsonMatch = jsonString.match(/\[[\s\S]*\]|\{[\s\S]*\}/);
-      if (jsonMatch) {
-        jsonString = jsonMatch[0];
-      }
+    if (repairResult.success) {
+      items = repairResult.data.entries || [];
+      const { entries: _, ...rest } = repairResult.data;
+      rawData = rest;
 
-      console.log(`[FastParse] Cleaned JSON string length: ${jsonString.length}`);
-      console.log(`[FastParse] JSON preview:`, jsonString.substring(0, 500));
-
-      const parsed = JSON.parse(jsonString);
-      console.log(`[FastParse] ✓ Parsed successfully! Type: ${Array.isArray(parsed) ? 'array' : 'object'}`);
-
-      if (!Array.isArray(parsed)) {
-        console.log(`[FastParse] Object keys:`, Object.keys(parsed));
-        if (parsed.entries) {
-          console.log(`[FastParse] Found entries array with ${parsed.entries.length} items`);
-        }
-      }
-
-      if (Array.isArray(parsed)) {
-        items = parsed;
-      } else if (parsed.entries && Array.isArray(parsed.entries)) {
-        items = parsed.entries;
-        const { entries: _, ...rest } = parsed;
-        rawData = rest;
-      } else if (parsed.flights && Array.isArray(parsed.flights)) {
-        items = parsed.flights;
-        const { flights: _, ...rest } = parsed;
-        rawData = rest;
+      if (repairResult.wasRepaired) {
+        console.log(`[FastParse] ✓ JSON repaired using: ${repairResult.repairMethod}`);
+        console.log(`[FastParse] ✓ Recovered ${repairResult.entriesRecovered} entries`);
+        await log('structuring', `Recovered ${items.length} entries (${repairResult.repairMethod})`, 85);
       } else {
-        items = [parsed];
+        console.log(`[FastParse] ✓ JSON parsed directly, ${items.length} entries`);
       }
-    } catch (parseError) {
-      console.error('[FastParse] ❌ JSON PARSE FAILED');
-      console.error('[FastParse] Error:', parseError);
-      console.error('[FastParse] Full response (first 2000 chars):', aiText.substring(0, 2000));
-      console.error('[FastParse] Full response (last 1000 chars):', aiText.substring(Math.max(0, aiText.length - 1000)));
-
-      // Try multiple recovery strategies for truncated/malformed JSON
-      let recovered = false;
-
-      // Strategy 1: Try to find complete JSON object with entries
-      const objectMatch = aiText.match(/\{[\s\S]*"entries"[\s\S]*\}/);
-      if (objectMatch && !recovered) {
-        console.log('[FastParse] Found object pattern with entries, attempting to parse...');
-        try {
-          const cleanJson = objectMatch[0].replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
-          const parsedObj = JSON.parse(cleanJson);
-          if (parsedObj.entries && Array.isArray(parsedObj.entries)) {
-            items = parsedObj.entries;
-            const { entries: _, ...rest } = parsedObj;
-            rawData = rest;
-            console.log(`[FastParse] ✓ Recovered ${items.length} entries from object pattern`);
-            recovered = true;
-          }
-        } catch (e) {
-          console.error('[FastParse] Object pattern parse failed:', e);
-        }
-      }
-
-      // Strategy 2: Try to find complete JSON array
-      const arrayMatch = aiText.match(/\[\s*\{[\s\S]*?\}\s*(?:,\s*\{[\s\S]*?\}\s*)*\]/);
-      if (arrayMatch && !recovered) {
-        console.log('[FastParse] Found array pattern, attempting to parse...');
-        try {
-          items = JSON.parse(arrayMatch[0]);
-          console.log(`[FastParse] ✓ Recovered ${items.length} entries from array pattern`);
-          recovered = true;
-        } catch (e) {
-          console.error('[FastParse] Array pattern parse failed:', e);
-        }
-      }
-
-      // Strategy 3: Extract individual complete entries from truncated JSON using brace counting
-      // This handles cases where the AI response was cut off mid-stream
-      if (!recovered) {
-        console.log('[FastParse] Attempting truncated JSON recovery with brace counting...');
-        const entriesMatch = aiText.match(/"entries"\s*:\s*\[([\s\S]*)/);
-        const arrayStart = aiText.match(/^\s*\[([\s\S]*)/);
-        const entriesText = entriesMatch ? entriesMatch[1] : (arrayStart ? arrayStart[1] : null);
-
-        if (entriesText) {
-          const completeEntries: any[] = [];
-          let currentEntry = '';
-          let braceCount = 0;
-          let inString = false;
-          let escapeNext = false;
-
-          for (let i = 0; i < entriesText.length; i++) {
-            const char = entriesText[i];
-
-            if (escapeNext) {
-              currentEntry += char;
-              escapeNext = false;
-              continue;
-            }
-
-            if (char === '\\') {
-              escapeNext = true;
-              currentEntry += char;
-              continue;
-            }
-
-            if (char === '"') {
-              inString = !inString;
-            }
-
-            currentEntry += char;
-
-            if (!inString) {
-              if (char === '{') {
-                braceCount++;
-              } else if (char === '}') {
-                braceCount--;
-                if (braceCount === 0 && currentEntry.trim().length > 0) {
-                  // We have a complete entry
-                  try {
-                    const entry = JSON.parse(currentEntry.trim());
-                    if (entry.date) { // Only add if it has a date
-                      completeEntries.push(entry);
-                    }
-                  } catch (e) {
-                    // Skip malformed entry
-                  }
-                  currentEntry = '';
-                }
-              }
-            }
-          }
-
-          if (completeEntries.length > 0) {
-            items = completeEntries;
-            console.log(`[FastParse] ✓ Recovered ${items.length} complete entries from truncated JSON!`);
-            recovered = true;
-
-            // Try to extract top-level fields too
-            const annualMatch = aiText.match(/"annualDate"\s*:\s*"([^"]+)"/);
-            const hundredHourMatch = aiText.match(/"hundredHourDate"\s*:\s*"([^"]+)"/);
-            const transponderMatch = aiText.match(/"transponderDate"\s*:\s*"([^"]+)"/);
-            const staticMatch = aiText.match(/"staticDate"\s*:\s*"([^"]+)"/);
-            const eltMatch = aiText.match(/"eltDate"\s*:\s*"([^"]+)"/);
-            const tachMatch = aiText.match(/"currentTach"\s*:\s*([0-9.]+)/);
-            const hobbsMatch = aiText.match(/"currentHobbs"\s*:\s*([0-9.]+)/);
-
-            rawData = {
-              annualDate: annualMatch?.[1],
-              hundredHourDate: hundredHourMatch?.[1],
-              transponderDate: transponderMatch?.[1],
-              staticDate: staticMatch?.[1],
-              eltDate: eltMatch?.[1],
-              currentTach: tachMatch ? parseFloat(tachMatch[1]) : undefined,
-              currentHobbs: hobbsMatch ? parseFloat(hobbsMatch[1]) : undefined,
-            };
-            console.log('[FastParse] Extracted additional fields:', Object.keys(rawData).filter(k => rawData[k] !== undefined));
-          }
-        }
-      }
-
-      if (!recovered) {
-        console.error('[FastParse] ❌ All recovery attempts failed, returning empty array');
-        await log('error', 'Failed to parse AI extraction response', 80);
-      } else {
-        await log('structuring', `Recovered ${items.length} entries from partial response`, 85);
-      }
+    } else {
+      console.error('[FastParse] ❌ All JSON repair attempts failed');
+      console.error('[FastParse] First 2000 chars:', aiText.substring(0, 2000));
+      console.error('[FastParse] Last 1000 chars:', aiText.substring(Math.max(0, aiText.length - 1000)));
+      await log('error', 'Failed to parse AI extraction response', 80);
     }
 
     await log('validating_output', 'Validating extracted data...', 90, {
@@ -973,24 +706,22 @@ IMPORTANT:
 Output ONLY a JSON array, no markdown:
 [{"date":"2024-01-15","aircraftIdent":"N12345","totalTime":1.5,"sel":1.5,"pic":1.5,"from":"KRHV","to":"KSJC"},...]`;
 
-const MAINTENANCE_GEMINI_EXTRACTION_PROMPT = `You are parsing OCR text from an aircraft maintenance log. Extract ALL maintenance entries into JSON.
+const MAINTENANCE_GEMINI_EXTRACTION_PROMPT = `Parse this aircraft maintenance log OCR text. Extract ALL entries.
 
-EXTRACT these fields for each entry (include only fields with values):
-- date: YYYY-MM-DD format
-- description: Full work description
-- hobbsTime, tachTime: Aircraft times
-- mechanic: Mechanic name/certificate
-- signedOff: boolean
-- isInspection: boolean
-- inspectionType: "annual" | "100hour" | "transponder" | "static" | "elt" if applicable
+CRITICAL: Extract EVERY entry even if there are hundreds. Keep descriptions brief (max 200 chars).
 
-Also extract at top level:
-- annualDate, hundredHourDate, transponderDate, staticDate, eltDate: Most recent inspection dates
-- currentHobbs, currentTach: Latest recorded times
-- aircraftIdent: Tail number if found
+For each entry:
+- date: YYYY-MM-DD
+- description: Brief work summary (200 chars max)
+- tachTime: Tach time
+- mechanic: Name/cert#
+- isInspection: true if inspection
+- inspectionType: annual/100hour/transponder/static/elt
 
-Output ONLY valid JSON, no markdown:
-{"entries":[...],"annualDate":"2024-01-15","currentHobbs":1234.5,...}`;
+Top level: annualDate, hundredHourDate, transponderDate, staticDate, eltDate, currentTach, aircraftIdent
+
+Output ONLY valid JSON:
+{"entries":[{"date":"2024-01-15","description":"Annual inspection","isInspection":true,"inspectionType":"annual"}],"annualDate":"2024-01-15"}`;
 
 export async function parseDocument(
   fileBase64: string,
@@ -1037,10 +768,14 @@ export async function parseDocument(
     const fileBuffer = Buffer.from(fileBase64, 'base64');
     const filename = fileType === 'image' ? 'document.png' : 'document.pdf';
 
+    // Calculate dynamic timeouts based on file size
+    const uploadTimeout = getScaledTimeout(REDUCTO_UPLOAD_TIMEOUT_BASE, fileBuffer.length);
+    const extractTimeout = getScaledTimeout(REDUCTO_EXTRACT_TIMEOUT_BASE, fileBuffer.length);
+
     await log('uploading', `Uploading ${filename} to Reducto servers...`, 20, {
       filename,
       sizeBytes: fileBuffer.length,
-      timeout: `${REDUCTO_UPLOAD_TIMEOUT / 1000}s`
+      timeout: `${uploadTimeout / 1000}s`
     });
 
     const upload = await withTimeout(
@@ -1048,7 +783,7 @@ export async function parseDocument(
         file: await toFile(fileBuffer, filename),
         extension: fileType === 'image' ? 'png' : 'pdf',
       }),
-      REDUCTO_UPLOAD_TIMEOUT,
+      uploadTimeout,
       'Reducto upload'
     );
 
@@ -1072,7 +807,7 @@ export async function parseDocument(
     await log('extracting', 'Sending document to Reducto AI for extraction...', 45, {
       model: 'reducto-extract',
       optimizeForLatency: true,
-      timeout: `${REDUCTO_EXTRACT_TIMEOUT / 1000}s`
+      timeout: `${extractTimeout / 1000}s`
     });
 
     // 3. Extract Structured Data
@@ -1088,7 +823,7 @@ export async function parseDocument(
           optimize_for_latency: true
         }
       }),
-      REDUCTO_EXTRACT_TIMEOUT,
+      extractTimeout,
       'Reducto AI extraction'
     );
 
@@ -1496,6 +1231,10 @@ export async function parsePOHFromUrl(pohUrl: string, onStep?: StepCallback): Pr
 
     const client = new Reducto({ apiKey });
 
+    // Calculate dynamic timeouts based on file size
+    const uploadTimeout = getScaledTimeout(REDUCTO_UPLOAD_TIMEOUT_BASE, buffer.length);
+    const extractTimeout = getScaledTimeout(REDUCTO_EXTRACT_TIMEOUT_BASE, buffer.length);
+
     // 2. Upload
     await log('uploading', 'Uploading to Reducto...', 35);
     const upload = await withTimeout(
@@ -1503,7 +1242,7 @@ export async function parsePOHFromUrl(pohUrl: string, onStep?: StepCallback): Pr
         file: await toFile(buffer, 'poh.pdf'),
         extension: 'pdf'
       }),
-      REDUCTO_UPLOAD_TIMEOUT,
+      uploadTimeout,
       'Reducto upload'
     );
 
@@ -1518,7 +1257,7 @@ export async function parsePOHFromUrl(pohUrl: string, onStep?: StepCallback): Pr
           system_prompt: POH_EXTRACTION_PROMPT
         }
       }),
-      REDUCTO_EXTRACT_TIMEOUT,
+      extractTimeout,
       'Reducto POH extraction'
     );
 
@@ -1701,8 +1440,13 @@ export async function analyzeDocument(
     // Upload file
     const fileBuffer = Buffer.from(fileBase64, 'base64');
 
+    // Calculate dynamic timeouts based on file size
+    const uploadTimeout = getScaledTimeout(REDUCTO_UPLOAD_TIMEOUT_BASE, fileBuffer.length);
+    const extractTimeout = getScaledTimeout(REDUCTO_EXTRACT_TIMEOUT_BASE, fileBuffer.length);
+
     await log('uploading', 'Uploading document for classification...', 20, {
-      sizeKB: Math.round(fileBuffer.length / 1024)
+      sizeKB: Math.round(fileBuffer.length / 1024),
+      timeout: `${uploadTimeout / 1000}s`
     });
 
     const upload = await withTimeout(
@@ -1710,14 +1454,16 @@ export async function analyzeDocument(
         file: await toFile(fileBuffer, fileType === 'image' ? 'document.png' : 'document.pdf'),
         extension: fileType === 'image' ? 'png' : 'pdf',
       }),
-      REDUCTO_UPLOAD_TIMEOUT,
+      uploadTimeout,
       'Reducto upload'
     );
 
     await log('uploading', 'Document uploaded successfully', 35);
 
     // Run analysis extraction
-    await log('classifying', 'AI is classifying document type...', 45);
+    await log('classifying', 'AI is classifying document type...', 45, {
+      timeout: `${extractTimeout / 1000}s`
+    });
 
     const extraction = await withTimeout(
       client.extract.run({
@@ -1729,7 +1475,7 @@ export async function analyzeDocument(
           optimize_for_latency: true
         }
       }),
-      REDUCTO_EXTRACT_TIMEOUT,
+      extractTimeout,
       'Reducto document analysis'
     );
 

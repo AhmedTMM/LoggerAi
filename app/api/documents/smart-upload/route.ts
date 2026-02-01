@@ -58,8 +58,25 @@ export async function POST(request: NextRequest) {
 
   const stream = new ReadableStream({
     async start(controller) {
+      let isClosed = false;
+
       const send = (data: any) => {
-        controller.enqueue(encoder.encode(formatSSE(data)));
+        if (isClosed) return;
+        try {
+          controller.enqueue(encoder.encode(formatSSE(data)));
+        } catch {
+          isClosed = true;
+        }
+      };
+
+      const safeClose = () => {
+        if (isClosed) return;
+        isClosed = true;
+        try {
+          controller.close();
+        } catch {
+          // Already closed
+        }
       };
 
       const progress = (percent: number, message: string) => {
@@ -73,21 +90,21 @@ export async function POST(request: NextRequest) {
           body = await request.json();
         } catch {
           send({ type: 'error', message: 'Failed to parse request' });
-          controller.close();
+          safeClose();
           return;
         }
 
         const { fileBase64, fileType, filename } = body;
         if (!fileBase64 || !fileType) {
           send({ type: 'error', message: 'Missing fileBase64 or fileType' });
-          controller.close();
+          safeClose();
           return;
         }
 
         const fileSizeBytes = Math.ceil((fileBase64.length * 3) / 4);
         if (fileSizeBytes > 50 * 1024 * 1024) {
           send({ type: 'error', message: 'File too large (max 50MB)' });
-          controller.close();
+          safeClose();
           return;
         }
 
@@ -293,7 +310,7 @@ export async function POST(request: NextRequest) {
               error: result.error,
             });
             send({ type: 'error', message: result.error });
-            controller.close();
+            safeClose();
             return;
           }
 
@@ -383,7 +400,7 @@ export async function POST(request: NextRequest) {
         console.error('Smart upload error:', error);
         send({ type: 'error', message: (error as Error).message });
       } finally {
-        controller.close();
+        safeClose();
       }
     }
   });
@@ -625,6 +642,10 @@ async function updateAircraftFromEntries(
 
   // Save the updated aircraft
   try {
+    // Generate safety analysis from maintenance entries
+    const safetyAnalysis = generateSafetyAnalysis(entries, aircraft);
+    aircraft.safetyAnalysis = safetyAnalysis;
+
     await aircraft.save();
     console.log(`[updateAircraftFromEntries] Successfully saved aircraft ${aircraft.tailNumber}`);
     console.log(`[updateAircraftFromEntries] Final dates:`, {
@@ -635,8 +656,205 @@ async function updateAircraftFromEntries(
       hobbs: aircraft.currentHours.hobbs,
       tach: aircraft.currentHours.tach,
     });
+    console.log(`[SafetyAnalysis] Generated for ${aircraft.tailNumber}: score=${safetyAnalysis.score}, findings=${safetyAnalysis.findings.length}`);
   } catch (saveError) {
     console.error(`[updateAircraftFromEntries] Error saving aircraft ${aircraft.tailNumber}:`, saveError);
     throw saveError;
   }
+}
+
+/**
+ * Generate safety analysis from maintenance entries
+ * Analyzes patterns, identifies concerning components, and calculates a safety score
+ */
+function generateSafetyAnalysis(entries: any[], aircraft: any) {
+  const findings: Array<{
+    component: string;
+    status: 'ok' | 'warning' | 'critical';
+    message: string;
+    lastMentioned?: Date;
+  }> = [];
+
+  // Keywords to watch for (component -> severity keywords)
+  const componentKeywords: Record<string, { critical: string[]; warning: string[] }> = {
+    'Engine': {
+      critical: ['engine failure', 'cylinder crack', 'cam shaft', 'crankshaft', 'engine replacement'],
+      warning: ['cylinder compression', 'oil leak', 'exhaust leak', 'rough running', 'engine mount'],
+    },
+    'Magnetos': {
+      critical: ['magneto failure', 'no spark'],
+      warning: ['magneto check', 'magneto timing', 'impulse coupling', 'points', '500 hour'],
+    },
+    'Alternator': {
+      critical: ['alternator failure', 'no charging'],
+      warning: ['alternator belt', 'voltage regulator', 'low voltage', 'alternator replaced'],
+    },
+    'Vacuum System': {
+      critical: ['vacuum pump failure', 'no suction'],
+      warning: ['vacuum pump', 'gyro', 'attitude indicator', 'directional gyro'],
+    },
+    'Propeller': {
+      critical: ['propeller strike', 'blade crack', 'prop failure'],
+      warning: ['prop balance', 'blade nick', 'prop overhaul', 'governor'],
+    },
+    'Fuel System': {
+      critical: ['fuel leak', 'fuel contamination'],
+      warning: ['fuel pump', 'fuel filter', 'fuel selector', 'carburetor'],
+    },
+    'Landing Gear': {
+      critical: ['gear collapse', 'gear failure'],
+      warning: ['brake', 'tire', 'wheel bearing', 'strut', 'shimmy'],
+    },
+    'Airframe': {
+      critical: ['corrosion found', 'crack found', 'structural damage'],
+      warning: ['skin repair', 'rivet', 'hinge', 'control surface'],
+    },
+  };
+
+  // Track mentions per component
+  const componentMentions: Record<string, { count: number; lastDate?: Date; issues: string[] }> = {};
+
+  // Analyze each entry
+  for (const entry of entries) {
+    const desc = (entry.description || '').toLowerCase();
+    const entryDate = entry.date ? new Date(entry.date) : null;
+
+    for (const [component, keywords] of Object.entries(componentKeywords)) {
+      // Check critical keywords
+      for (const kw of keywords.critical) {
+        if (desc.includes(kw)) {
+          if (!componentMentions[component]) {
+            componentMentions[component] = { count: 0, issues: [] };
+          }
+          componentMentions[component].count++;
+          componentMentions[component].issues.push(kw);
+          if (entryDate && (!componentMentions[component].lastDate || entryDate > componentMentions[component].lastDate)) {
+            componentMentions[component].lastDate = entryDate;
+          }
+        }
+      }
+      // Check warning keywords
+      for (const kw of keywords.warning) {
+        if (desc.includes(kw)) {
+          if (!componentMentions[component]) {
+            componentMentions[component] = { count: 0, issues: [] };
+          }
+          componentMentions[component].count++;
+          if (!componentMentions[component].issues.includes(kw)) {
+            componentMentions[component].issues.push(kw);
+          }
+          if (entryDate && (!componentMentions[component].lastDate || entryDate > componentMentions[component].lastDate)) {
+            componentMentions[component].lastDate = entryDate;
+          }
+        }
+      }
+    }
+  }
+
+  // Generate findings based on component mentions
+  let totalDeductions = 0;
+
+  for (const [component, data] of Object.entries(componentMentions)) {
+    const keywords = componentKeywords[component];
+
+    // Check for critical issues
+    const hasCritical = data.issues.some(issue =>
+      keywords.critical.some(kw => issue.includes(kw))
+    );
+
+    if (hasCritical) {
+      findings.push({
+        component,
+        status: 'critical',
+        message: `Critical issue found: ${data.issues.slice(0, 2).join(', ')}`,
+        lastMentioned: data.lastDate,
+      });
+      totalDeductions += 20;
+    } else if (data.count >= 3) {
+      // Multiple mentions = warning
+      findings.push({
+        component,
+        status: 'warning',
+        message: `Recurring maintenance: ${data.issues.slice(0, 3).join(', ')} (${data.count} mentions)`,
+        lastMentioned: data.lastDate,
+      });
+      totalDeductions += 10;
+    } else if (data.count >= 1) {
+      findings.push({
+        component,
+        status: 'ok',
+        message: `Recent service: ${data.issues.slice(0, 2).join(', ')}`,
+        lastMentioned: data.lastDate,
+      });
+    }
+  }
+
+  // Check maintenance currency
+  const now = new Date();
+  const annualDate = aircraft.maintenanceDates?.annual ? new Date(aircraft.maintenanceDates.annual) : null;
+  const transponderDate = aircraft.maintenanceDates?.transponder ? new Date(aircraft.maintenanceDates.transponder) : null;
+
+  if (annualDate) {
+    const monthsSinceAnnual = (now.getTime() - annualDate.getTime()) / (1000 * 60 * 60 * 24 * 30);
+    if (monthsSinceAnnual > 12) {
+      findings.push({
+        component: 'Annual Inspection',
+        status: 'critical',
+        message: `Annual expired ${Math.floor(monthsSinceAnnual - 12)} months ago`,
+        lastMentioned: annualDate,
+      });
+      totalDeductions += 30;
+    } else if (monthsSinceAnnual > 10) {
+      findings.push({
+        component: 'Annual Inspection',
+        status: 'warning',
+        message: `Annual due in ${Math.floor(12 - monthsSinceAnnual)} months`,
+        lastMentioned: annualDate,
+      });
+      totalDeductions += 5;
+    } else {
+      findings.push({
+        component: 'Annual Inspection',
+        status: 'ok',
+        message: `Annual current (${annualDate.toLocaleDateString()})`,
+        lastMentioned: annualDate,
+      });
+    }
+  }
+
+  if (transponderDate) {
+    const monthsSinceTransponder = (now.getTime() - transponderDate.getTime()) / (1000 * 60 * 60 * 24 * 30);
+    if (monthsSinceTransponder > 24) {
+      findings.push({
+        component: 'Transponder Check',
+        status: 'critical',
+        message: `Transponder check expired ${Math.floor(monthsSinceTransponder - 24)} months ago`,
+        lastMentioned: transponderDate,
+      });
+      totalDeductions += 20;
+    } else if (monthsSinceTransponder > 22) {
+      findings.push({
+        component: 'Transponder Check',
+        status: 'warning',
+        message: `Transponder check due in ${Math.floor(24 - monthsSinceTransponder)} months`,
+        lastMentioned: transponderDate,
+      });
+      totalDeductions += 5;
+    }
+  }
+
+  // Calculate final score (100 - deductions, min 0)
+  const score = Math.max(0, Math.min(100, 100 - totalDeductions));
+
+  // Sort findings: critical first, then warning, then ok
+  findings.sort((a, b) => {
+    const order = { critical: 0, warning: 1, ok: 2 };
+    return order[a.status] - order[b.status];
+  });
+
+  return {
+    lastAnalyzed: new Date(),
+    score,
+    findings: findings.slice(0, 10), // Limit to top 10 findings
+  };
 }

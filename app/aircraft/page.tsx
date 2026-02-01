@@ -1,13 +1,26 @@
 'use client';
 
 import { useState } from 'react';
-import { Plane, Plus, AlertTriangle, CheckCircle, Wrench, Trash2, RefreshCw } from 'lucide-react';
+import { Plane, Plus, AlertTriangle, CheckCircle, Wrench, Trash2, RefreshCw, Clock, Shield, History } from 'lucide-react';
 import { useAircraft, useCreateAircraft, useDeleteAircraft } from '@/lib/hooks';
 import type { Aircraft } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { LoadingSpinner } from '@/components/ui/LoadingSkeleton';
 import { cn, getDaysUntil } from '@/lib/utils';
+
+// Estimate Hobbs from Tach if not available
+// Typical Hobbs runs ~10-15% higher than Tach (cruise vs continuous)
+const getDisplayHobbs = (hobbs: number | undefined, tach: number | undefined): { value: number; isEstimated: boolean } => {
+    if (hobbs && hobbs > 0) {
+        return { value: hobbs, isEstimated: false };
+    }
+    if (tach && tach > 0) {
+        // Estimate Hobbs as Tach * 1.1 (typical ratio)
+        return { value: tach * 1.1, isEstimated: true };
+    }
+    return { value: 0, isEstimated: false };
+};
 
 export default function AircraftPage() {
     const { data: fleet, isLoading, error, refetch } = useAircraft();
@@ -70,7 +83,10 @@ export default function AircraftPage() {
                 <div className="bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 p-4">
                     <p className="text-sm text-zinc-500 dark:text-zinc-400">Total Hours</p>
                     <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-                        {fleet?.reduce((acc, curr) => acc + (curr.currentHours?.hobbs || 0), 0).toFixed(0) || '0'}
+                        {fleet?.reduce((acc, curr) => {
+                            const hobbsInfo = getDisplayHobbs(curr.currentHours?.hobbs, curr.currentHours?.tach);
+                            return acc + hobbsInfo.value;
+                        }, 0).toFixed(0) || '0'}
                     </p>
                 </div>
                 <div className="bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 p-4">
@@ -112,7 +128,14 @@ export default function AircraftPage() {
                                         </div>
                                         <p className="text-sm text-zinc-500 dark:text-zinc-400">{ac.model}</p>
                                         <div className="flex items-center gap-3 mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-                                            <span>{ac.currentHours?.hobbs?.toFixed(0) || 0} hrs</span>
+                                            {(() => {
+                                                const hobbsInfo = getDisplayHobbs(ac.currentHours?.hobbs, ac.currentHours?.tach);
+                                                return (
+                                                    <span className={hobbsInfo.isEstimated ? 'text-amber-500' : ''}>
+                                                        {hobbsInfo.value.toFixed(0)} hrs{hobbsInfo.isEstimated ? '*' : ''}
+                                                    </span>
+                                                );
+                                            })()}
                                             <span className={annualStatus.color}>Annual: {annualStatus.text}</span>
                                         </div>
                                     </div>
@@ -164,12 +187,39 @@ export default function AircraftPage() {
                                 <div className="p-6 flex-1 overflow-y-auto space-y-6">
                                     {/* Times */}
                                     <div>
-                                        <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3">Aircraft Times</h4>
+                                        <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3 flex items-center gap-2">
+                                            <Clock className="w-4 h-4" /> Aircraft Times
+                                        </h4>
                                         <div className="grid grid-cols-2 gap-4">
-                                            <div className="bg-zinc-50 dark:bg-zinc-900 rounded-lg p-4">
-                                                <p className="text-xs text-zinc-500 dark:text-zinc-400 uppercase">Hobbs</p>
-                                                <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{selectedAircraft.currentHours?.hobbs?.toFixed(1) || 0}</p>
-                                            </div>
+                                            {(() => {
+                                                const hobbsInfo = getDisplayHobbs(
+                                                    selectedAircraft.currentHours?.hobbs,
+                                                    selectedAircraft.currentHours?.tach
+                                                );
+                                                return (
+                                                    <div className="bg-zinc-50 dark:bg-zinc-900 rounded-lg p-4">
+                                                        <p className="text-xs text-zinc-500 dark:text-zinc-400 uppercase flex items-center gap-1">
+                                                            Hobbs
+                                                            {hobbsInfo.isEstimated && (
+                                                                <span className="text-amber-500">(est.)</span>
+                                                            )}
+                                                        </p>
+                                                        <p className={cn(
+                                                            "text-2xl font-bold",
+                                                            hobbsInfo.isEstimated
+                                                                ? "text-amber-600 dark:text-amber-400"
+                                                                : "text-zinc-900 dark:text-zinc-100"
+                                                        )}>
+                                                            {hobbsInfo.value.toFixed(1)}
+                                                        </p>
+                                                        {hobbsInfo.isEstimated && (
+                                                            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                                                                Based on Tach × 1.1
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })()}
                                             <div className="bg-zinc-50 dark:bg-zinc-900 rounded-lg p-4">
                                                 <p className="text-xs text-zinc-500 dark:text-zinc-400 uppercase">Tach</p>
                                                 <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{selectedAircraft.currentHours?.tach?.toFixed(1) || 0}</p>
@@ -217,6 +267,126 @@ export default function AircraftPage() {
                                                 <p className="font-medium text-zinc-900 dark:text-zinc-100">{selectedAircraft.year || 'N/A'}</p>
                                             </div>
                                         </div>
+                                    </div>
+
+                                    {/* Safety Analysis */}
+                                    <div>
+                                        <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3 flex items-center gap-2">
+                                            <Shield className="w-4 h-4" /> Safety Analysis
+                                        </h4>
+                                        {selectedAircraft.safetyAnalysis?.findings && selectedAircraft.safetyAnalysis.findings.length > 0 ? (
+                                            <div className="space-y-2">
+                                                <div className="flex items-center justify-between mb-3">
+                                                    <span className="text-sm text-zinc-500 dark:text-zinc-400">
+                                                        Last analyzed: {new Date(selectedAircraft.safetyAnalysis.lastAnalyzed).toLocaleDateString()}
+                                                    </span>
+                                                    <Badge variant={
+                                                        selectedAircraft.safetyAnalysis.score >= 80 ? 'success' :
+                                                        selectedAircraft.safetyAnalysis.score >= 60 ? 'warning' : 'destructive'
+                                                    }>
+                                                        Score: {selectedAircraft.safetyAnalysis.score}
+                                                    </Badge>
+                                                </div>
+                                                {selectedAircraft.safetyAnalysis.findings.map((finding, idx) => (
+                                                    <div
+                                                        key={idx}
+                                                        className={cn(
+                                                            "p-3 rounded-lg border",
+                                                            finding.status === 'critical'
+                                                                ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
+                                                                : finding.status === 'warning'
+                                                                ? "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800"
+                                                                : "bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800"
+                                                        )}
+                                                    >
+                                                        <div className="flex items-center gap-2 mb-1">
+                                                            {finding.status === 'critical' ? (
+                                                                <AlertTriangle className="w-4 h-4 text-red-500" />
+                                                            ) : finding.status === 'warning' ? (
+                                                                <AlertTriangle className="w-4 h-4 text-amber-500" />
+                                                            ) : (
+                                                                <CheckCircle className="w-4 h-4 text-emerald-500" />
+                                                            )}
+                                                            <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                                                                {finding.component}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-sm text-zinc-600 dark:text-zinc-400 ml-6">
+                                                            {finding.message}
+                                                        </p>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className="p-4 bg-zinc-50 dark:bg-zinc-900 rounded-lg text-center">
+                                                <Shield className="w-8 h-8 text-zinc-300 dark:text-zinc-600 mx-auto mb-2" />
+                                                <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                                                    No safety analysis available
+                                                </p>
+                                                <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
+                                                    Upload maintenance logs to generate analysis
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Maintenance History */}
+                                    <div>
+                                        <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3 flex items-center gap-2">
+                                            <History className="w-4 h-4" /> Maintenance History
+                                        </h4>
+                                        {selectedAircraft.logs && selectedAircraft.logs.length > 0 ? (
+                                            <div className="space-y-2 max-h-64 overflow-y-auto">
+                                                {selectedAircraft.logs
+                                                    .slice()
+                                                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                                                    .slice(0, 20)
+                                                    .map((log, idx) => (
+                                                    <div
+                                                        key={idx}
+                                                        className="p-3 bg-zinc-50 dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700"
+                                                    >
+                                                        <div className="flex items-center justify-between mb-1">
+                                                            <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                                                                {new Date(log.date).toLocaleDateString()}
+                                                            </span>
+                                                            <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+                                                                {log.tachTime > 0 && <span>Tach: {log.tachTime.toFixed(1)}</span>}
+                                                                {log.hobbsTime > 0 && <span>Hobbs: {log.hobbsTime.toFixed(1)}</span>}
+                                                            </div>
+                                                        </div>
+                                                        <p className="text-sm text-zinc-600 dark:text-zinc-400 line-clamp-2">
+                                                            {log.description}
+                                                        </p>
+                                                        {log.mechanic && (
+                                                            <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
+                                                                Mechanic: {log.mechanic}
+                                                            </p>
+                                                        )}
+                                                        {log.category && (
+                                                            <Badge variant="outline" className="mt-2 text-xs">
+                                                                {log.category}
+                                                            </Badge>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                                {selectedAircraft.logs.length > 20 && (
+                                                    <p className="text-xs text-center text-zinc-500 dark:text-zinc-400 py-2">
+                                                        Showing 20 of {selectedAircraft.logs.length} entries
+                                                    </p>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <div className="p-4 bg-zinc-50 dark:bg-zinc-900 rounded-lg text-center">
+                                                <History className="w-8 h-8 text-zinc-300 dark:text-zinc-600 mx-auto mb-2" />
+                                                <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                                                    No maintenance history available
+                                                </p>
+                                                <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
+                                                    Upload a maintenance logbook to see history
+                                                </p>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             </div>

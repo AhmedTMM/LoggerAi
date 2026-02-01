@@ -14,8 +14,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className="min-h-screen bg-zinc-50 dark:bg-zinc-900 transition-colors font-sans antialiased">
+    <html lang="en">
+      <body className="min-h-screen bg-zinc-50 font-sans antialiased">
         <Providers>
           <div className="min-h-screen flex flex-col">
             <TabNav />

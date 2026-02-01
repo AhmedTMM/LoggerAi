@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Play, AlertTriangle, CheckCircle, XCircle, Plane, RefreshCw, Calendar, MapPin, ArrowRight, Mail, Trash2 } from 'lucide-react';
+import { Plus, Play, AlertTriangle, CheckCircle, XCircle, Plane, RefreshCw, Calendar, MapPin, ArrowRight, Trash2, Bot } from 'lucide-react';
 import { useFlights, useRunFlightAudit, usePilots, useAircraft } from '@/lib/hooks';
 import type { Flight } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
@@ -16,24 +16,7 @@ export default function FlightsPage() {
   const runAudit = useRunFlightAudit();
   const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null);
   const [showNewFlightModal, setShowNewFlightModal] = useState(false);
-  const [isSendingEmail, setIsSendingEmail] = useState(false);
-
-  const handleSendEmail = async (flightId: string) => {
-    setIsSendingEmail(true);
-    try {
-      const res = await fetch(`/api/audit/email/${flightId}`, { method: 'POST' });
-      const data = await res.json();
-      if (data.success) {
-        alert('Email sent successfully!');
-      } else {
-        alert('Failed to send email: ' + data.message);
-      }
-    } catch (err) {
-      alert('Error sending email');
-    } finally {
-      setIsSendingEmail(false);
-    }
-  };
+  const [auditProgress, setAuditProgress] = useState<string | null>(null);
 
   const handleWipeFlights = async () => {
     if (!confirm('Are you sure you want to delete ALL flights? This cannot be undone.')) return;
@@ -52,7 +35,50 @@ export default function FlightsPage() {
     }
   };
 
-  const handleRunAudit = (flightId: string) => runAudit.mutate(flightId, { onSuccess: (data) => setSelectedFlight(data) });
+  const handleRunAudit = async (flightId: string) => {
+    // Step 1: Run standard audit
+    setAuditProgress('Running safety audit...');
+    runAudit.mutate(flightId, {
+      onSuccess: async (data) => {
+        setSelectedFlight(data);
+
+        // Step 2: Run AI analysis
+        setAuditProgress('Running AI analysis...');
+        try {
+          const res = await fetch(`/api/flights/${flightId}/ai-analyze`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sendEmail: true }),
+          });
+          const aiData = await res.json();
+
+          if (aiData.success) {
+            setAuditProgress(null);
+            refetch();
+            // Update selected flight with AI data
+            const updatedFlight = await fetch(`/api/flights/${flightId}`).then(r => r.json());
+            if (updatedFlight.success) {
+              setSelectedFlight(updatedFlight.data);
+            }
+
+            if (aiData.data.emailSent) {
+              alert('Audit complete! AI analysis email sent to pilot.');
+            }
+          } else {
+            setAuditProgress(null);
+            // AI failed but standard audit succeeded - that's OK
+            console.warn('AI analysis failed:', aiData.error);
+          }
+        } catch (err) {
+          setAuditProgress(null);
+          console.error('AI analysis error:', err);
+        }
+      },
+      onError: () => {
+        setAuditProgress(null);
+      }
+    });
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -186,38 +212,128 @@ export default function FlightsPage() {
                         <span className="font-mono">{selectedFlight.departureAirport} → {selectedFlight.arrivalAirport || 'Local'}</span>
                       </div>
                     </div>
-                    <div className="flex gap-2">
-                      <Button
-                        onClick={() => handleRunAudit(selectedFlight._id)}
-                        disabled={runAudit.isPending}
-                      >
-                        {runAudit.isPending ? (
+                    <Button
+                      onClick={() => handleRunAudit(selectedFlight._id)}
+                      disabled={runAudit.isPending || !!auditProgress}
+                      className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+                    >
+                      {runAudit.isPending || auditProgress ? (
+                        <>
                           <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                        ) : (
+                          {auditProgress || 'Running...'}
+                        </>
+                      ) : (
+                        <>
                           <Play className="w-4 h-4 mr-2" />
-                        )}
-                        Run Audit
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => handleSendEmail(selectedFlight._id)}
-                        disabled={isSendingEmail}
-                      >
-                        {isSendingEmail ? (
-                          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                        ) : (
-                          <Mail className="w-4 h-4 mr-2" />
-                        )}
-                        Send Email
-                      </Button>
-                    </div>
+                          Run Full Audit
+                        </>
+                      )}
+                    </Button>
                   </div>
                 </div>
 
                 {/* Detail Content */}
                 <div className="p-6 flex-1 overflow-y-auto space-y-6">
+                  {/* Audit Progress */}
+                  {auditProgress && (
+                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-6">
+                      <div className="flex items-center gap-4">
+                        <div className="relative">
+                          <Bot className="w-10 h-10 text-blue-600 dark:text-blue-400" />
+                          <div className="absolute -top-1 -right-1">
+                            <span className="flex h-3 w-3">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+                            </span>
+                          </div>
+                        </div>
+                        <div>
+                          <h4 className="font-semibold text-blue-900 dark:text-blue-100">{auditProgress}</h4>
+                          <p className="text-sm text-blue-700 dark:text-blue-300">
+                            {auditProgress.includes('AI') ? 'Analyzing weather, pilot qualifications, aircraft status, and risk factors...' : 'Checking compliance, weather, and generating risk scenarios...'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-4 h-2 bg-blue-200 dark:bg-blue-800 rounded-full overflow-hidden">
+                        <div className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full animate-pulse" style={{width: auditProgress.includes('AI') ? '80%' : '40%'}} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* AI Analysis Results */}
+                  {(selectedFlight.safetyAnalysisSnapshot as any)?.aiAnalysis && !auditProgress && (
+                    <div className="bg-gradient-to-r from-violet-50 to-indigo-50 dark:from-violet-900/20 dark:to-indigo-900/20 border border-violet-200 dark:border-violet-800 rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Bot className="w-5 h-5 text-violet-600 dark:text-violet-400" />
+                        <h4 className="font-semibold text-violet-900 dark:text-violet-100">AI Safety Analysis</h4>
+                        <Badge className="bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-300">
+                          {(selectedFlight.safetyAnalysisSnapshot as any)?.aiAnalysis?.confidenceLevel}% confidence
+                        </Badge>
+                      </div>
+
+                      {/* AI Summary */}
+                      <div className="bg-white/50 dark:bg-zinc-900/50 rounded-lg p-3 mb-3">
+                        <p className="text-sm text-zinc-700 dark:text-zinc-300">
+                          {(selectedFlight.safetyAnalysisSnapshot as any)?.aiAnalysis?.summary}
+                        </p>
+                      </div>
+
+                      {/* AI Key Risks */}
+                      {(selectedFlight.safetyAnalysisSnapshot as any)?.aiAnalysis?.keyRisks?.length > 0 && (
+                        <div className="mb-3">
+                          <p className="text-xs font-semibold text-violet-800 dark:text-violet-200 mb-2">Key Risks:</p>
+                          <div className="space-y-2">
+                            {(selectedFlight.safetyAnalysisSnapshot as any)?.aiAnalysis?.keyRisks.slice(0, 3).map((risk: any, idx: number) => (
+                              <div key={idx} className="flex items-start gap-2 text-xs">
+                                <span className={cn(
+                                  "px-2 py-0.5 rounded-full text-white font-medium",
+                                  risk.severity === 'critical' ? 'bg-red-500' :
+                                  risk.severity === 'high' ? 'bg-orange-500' :
+                                  risk.severity === 'medium' ? 'bg-amber-500' : 'bg-emerald-500'
+                                )}>
+                                  {risk.severity}
+                                </span>
+                                <span className="text-zinc-700 dark:text-zinc-300">{risk.risk}: {risk.explanation}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* AI Recommendations */}
+                      {(selectedFlight.safetyAnalysisSnapshot as any)?.aiAnalysis?.recommendations?.length > 0 && (
+                        <div className="mb-3">
+                          <p className="text-xs font-semibold text-violet-800 dark:text-violet-200 mb-2">Recommended Actions:</p>
+                          <div className="space-y-2">
+                            {(selectedFlight.safetyAnalysisSnapshot as any)?.aiAnalysis?.recommendations.slice(0, 3).map((rec: any, idx: number) => (
+                              <div key={idx} className="flex items-start gap-2 text-xs">
+                                <span className={cn(
+                                  "px-2 py-0.5 rounded-full font-medium",
+                                  rec.priority === 'immediate' ? 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300' :
+                                  rec.priority === 'before_flight' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300' :
+                                  'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
+                                )}>
+                                  {rec.priority.replace('_', ' ')}
+                                </span>
+                                <span className="text-zinc-700 dark:text-zinc-300">{rec.action}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* AI Go/No-Go Reasoning */}
+                      <div className="bg-white/50 dark:bg-zinc-900/50 rounded-lg p-3 mt-3">
+                        <p className="text-xs font-semibold text-violet-800 dark:text-violet-200 mb-1">Decision Reasoning:</p>
+                        <p className="text-xs text-zinc-600 dark:text-zinc-400 line-clamp-3">
+                          {(selectedFlight.safetyAnalysisSnapshot as any)?.aiAnalysis?.goNoGoReasoning}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Safety Summary */}
-                  {selectedFlight.safetyAnalysisSnapshot && (selectedFlight.safetyAnalysisSnapshot as any).reasoning && (
+                  {selectedFlight.safetyAnalysisSnapshot && (selectedFlight.safetyAnalysisSnapshot as any).reasoning && !auditProgress && (
                     <div className="bg-zinc-50 dark:bg-zinc-900 rounded-lg p-4">
                       <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-2">Safety Analysis</h4>
                       <p className="text-sm text-zinc-600 dark:text-zinc-400">

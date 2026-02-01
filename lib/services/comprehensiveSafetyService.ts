@@ -82,8 +82,8 @@ export async function runComprehensiveSafetyAnalysis(
     scheduledDateTime
   );
 
-  // 3. Analyze weather vs pilot capabilities
-  const weatherVsPilot = routeWeather.departure
+  // 3. Analyze weather vs pilot capabilities (both departure and arrival)
+  const weatherVsPilotDep = routeWeather.departure
     ? analyzeWeatherVsPilot(routeWeather.departure, {
       certificates: pilot.certificates,
       experience: pilot.experience,
@@ -91,13 +91,53 @@ export async function runComprehensiveSafetyAnalysis(
     })
     : { legal: true, safeRecommendation: true, warnings: [], recommendations: [] };
 
-  // 4. Analyze weather vs aircraft performance
-  const weatherVsAircraft = routeWeather.departure
+  const weatherVsPilotArr = routeWeather.arrival
+    ? analyzeWeatherVsPilot(routeWeather.arrival, {
+      certificates: pilot.certificates,
+      experience: pilot.experience,
+      endorsements: pilot.endorsements,
+    })
+    : { legal: true, safeRecommendation: true, warnings: [], recommendations: [] };
+
+  // Combine departure and arrival weather analysis for pilot
+  const weatherVsPilot = {
+    legal: weatherVsPilotDep.legal && weatherVsPilotArr.legal,
+    safeRecommendation: weatherVsPilotDep.safeRecommendation && weatherVsPilotArr.safeRecommendation,
+    warnings: [
+      ...weatherVsPilotDep.warnings.map(w => `[Departure] ${w}`),
+      ...weatherVsPilotArr.warnings.map(w => `[Destination] ${w}`),
+    ],
+    recommendations: [
+      ...new Set([...weatherVsPilotDep.recommendations, ...weatherVsPilotArr.recommendations]),
+    ],
+  };
+
+  // 4. Analyze weather vs aircraft performance (both departure and arrival)
+  const weatherVsAircraftDep = routeWeather.departure
     ? analyzeWeatherVsAircraft(routeWeather.departure, {
       operatingLimits: aircraft.operatingLimits,
       model: aircraft.model,
     })
     : { safeToOperate: true, warnings: [], recommendations: [] };
+
+  const weatherVsAircraftArr = routeWeather.arrival
+    ? analyzeWeatherVsAircraft(routeWeather.arrival, {
+      operatingLimits: aircraft.operatingLimits,
+      model: aircraft.model,
+    })
+    : { safeToOperate: true, warnings: [], recommendations: [] };
+
+  // Combine departure and arrival weather analysis for aircraft
+  const weatherVsAircraft = {
+    safeToOperate: weatherVsAircraftDep.safeToOperate && weatherVsAircraftArr.safeToOperate,
+    warnings: [
+      ...weatherVsAircraftDep.warnings.map(w => `[Departure] ${w}`),
+      ...weatherVsAircraftArr.warnings.map(w => `[Destination] ${w}`),
+    ],
+    recommendations: [
+      ...new Set([...weatherVsAircraftDep.recommendations, ...weatherVsAircraftArr.recommendations]),
+    ],
+  };
 
   // 5. Analyze pilot currency and experience
   const pilotAnalysis = analyzePilot(pilot, scheduledDateTime);
@@ -181,7 +221,7 @@ export async function runComprehensiveSafetyAnalysis(
     return severityOrder[a.severity] - severityOrder[b.severity];
   });
 
-  // 10. Calculate survival-based safety score
+  // 10. Calculate survival-based safety score (considering both departure and arrival weather)
   const survivalScoreBreakdown = calculateSurvivalScore(
     pilotAnalysis,
     aircraftAnalysis,
@@ -189,6 +229,7 @@ export async function runComprehensiveSafetyAnalysis(
     weatherVsPilot,
     weatherVsAircraft,
     routeWeather.departure,
+    routeWeather.arrival,
     riskScenarios
   );
 
@@ -912,9 +953,10 @@ function calculateSurvivalScore(
   pilotAnalysis: IComprehensiveSafetyAnalysis['pilotAnalysis'],
   aircraftAnalysis: IComprehensiveSafetyAnalysis['aircraftAnalysis'],
   familiarityAnalysis: IFamiliarityAnalysis,
-  weatherVsPilot: ReturnType<typeof analyzeWeatherVsPilot>,
-  weatherVsAircraft: ReturnType<typeof analyzeWeatherVsAircraft>,
+  weatherVsPilot: { legal: boolean; safeRecommendation: boolean; warnings: string[]; recommendations: string[] },
+  weatherVsAircraft: { safeToOperate: boolean; warnings: string[]; recommendations: string[] },
   departureWeather: IEnhancedWeatherData | null,
+  arrivalWeather: IEnhancedWeatherData | null,
   scenarios: IRiskScenario[]
 ): ISurvivalScoreBreakdown {
   // Aircraft Score (/25) - based on maintenance and AI safety analysis
@@ -950,21 +992,40 @@ function calculateSurvivalScore(
   }
   pilotScore = Math.max(0, Math.min(25, pilotScore));
 
-  // Weather Score (/20) - based on flight category and conditions
+  // Weather Score (/20) - based on BOTH departure AND arrival conditions
   let weatherScore = 20;
-  if (departureWeather) {
-    if (departureWeather.flightCategory === 'LIFR') weatherScore -= 18;
-    else if (departureWeather.flightCategory === 'IFR') weatherScore -= 12;
-    else if (departureWeather.flightCategory === 'MVFR') weatherScore -= 6;
 
-    if (departureWeather.trend === 'deteriorating') weatherScore -= 4;
-    if ((departureWeather.wind?.gust || 0) > 25) weatherScore -= 4;
-    if ((departureWeather.densityAltitude || 0) > 7000) weatherScore -= 4;
+  // Helper to deduct points based on weather conditions
+  const deductForWeather = (weather: IEnhancedWeatherData, label: string) => {
+    // Flight category deductions (use worst case)
+    if (weather.flightCategory === 'LIFR') weatherScore -= 9;
+    else if (weather.flightCategory === 'IFR') weatherScore -= 6;
+    else if (weather.flightCategory === 'MVFR') weatherScore -= 3;
+
+    // Trend deductions
+    if (weather.trend === 'deteriorating') weatherScore -= 2;
+
+    // Wind deductions
+    if ((weather.wind?.gust || 0) > 25) weatherScore -= 2;
+
+    // Density altitude deductions
+    if ((weather.densityAltitude || 0) > 7000) weatherScore -= 2;
+  };
+
+  // Apply deductions for departure weather
+  if (departureWeather) {
+    deductForWeather(departureWeather, 'departure');
   }
 
-  if (!weatherVsPilot.legal) weatherScore -= 10;
-  if (!weatherVsPilot.safeRecommendation) weatherScore -= 5;
-  if (!weatherVsAircraft.safeToOperate) weatherScore -= 8;
+  // Apply deductions for arrival weather (if different airport)
+  if (arrivalWeather) {
+    deductForWeather(arrivalWeather, 'arrival');
+  }
+
+  // Combined weather analysis deductions
+  if (!weatherVsPilot.legal) weatherScore -= 5;
+  if (!weatherVsPilot.safeRecommendation) weatherScore -= 3;
+  if (!weatherVsAircraft.safeToOperate) weatherScore -= 4;
 
   weatherScore = Math.max(0, Math.min(20, weatherScore));
 

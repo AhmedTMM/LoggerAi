@@ -579,12 +579,17 @@ export default function FlightMap({ flights, aircraft, pilots }: FlightMapProps)
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-semibold text-zinc-600">Safety Score</span>
                           <span className={`text-xs font-bold ${
-                            flight.safetyAnalysisSnapshot.overallScore >= 80 ? 'text-emerald-600' :
-                            flight.safetyAnalysisSnapshot.overallScore >= 60 ? 'text-amber-600' : 'text-red-600'
+                            ((flight.safetyAnalysisSnapshot as any).survivalScoreBreakdown?.totalScore || flight.safetyAnalysisSnapshot.overallScore || 0) >= 70 ? 'text-emerald-600' :
+                            ((flight.safetyAnalysisSnapshot as any).survivalScoreBreakdown?.totalScore || flight.safetyAnalysisSnapshot.overallScore || 0) >= 50 ? 'text-amber-600' : 'text-red-600'
                           }`}>
-                            {flight.safetyAnalysisSnapshot.overallScore}/100
+                            {(flight.safetyAnalysisSnapshot as any).survivalScoreBreakdown?.totalScore || flight.safetyAnalysisSnapshot.overallScore || 0}/100
                           </span>
                         </div>
+                        {(flight.safetyAnalysisSnapshot as any).survivalScoreBreakdown?.survivalProbability && (
+                          <div className="mt-1 text-xs text-zinc-500">
+                            Survival: {(flight.safetyAnalysisSnapshot as any).survivalScoreBreakdown.survivalProbability}
+                          </div>
+                        )}
                         {flight.safetyAnalysisSnapshot.riskScenarios &&
                          flight.safetyAnalysisSnapshot.riskScenarios.length > 0 && (
                           <div className="mt-1 text-xs text-zinc-500">

@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Plane, Plus, AlertTriangle, CheckCircle, Wrench, Trash2, RefreshCw, Clock, Shield, History, FileText, ChevronDown, ChevronUp } from 'lucide-react';
-import { useAircraft, useCreateAircraft, useDeleteAircraft, useParsedDocuments, useGenerateSafetyAnalysis } from '@/lib/hooks';
+import { Plane, Plus, AlertTriangle, CheckCircle, Wrench, Trash2, RefreshCw, Clock, Shield, History, FileText, ChevronDown, ChevronUp, Pencil, Check, X } from 'lucide-react';
+import { useAircraft, useCreateAircraft, useDeleteAircraft, useUpdateAircraft, useParsedDocuments, useGenerateSafetyAnalysis } from '@/lib/hooks';
 import type { Aircraft } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -26,12 +26,15 @@ export default function AircraftPage() {
     const { data: fleet, isLoading, error, refetch } = useAircraft();
     const createAircraft = useCreateAircraft();
     const deleteAircraft = useDeleteAircraft();
+    const updateAircraft = useUpdateAircraft();
     const generateSafetyAnalysis = useGenerateSafetyAnalysis();
 
     const [selectedAircraft, setSelectedAircraft] = useState<Aircraft | null>(null);
     const [showAddModal, setShowAddModal] = useState(false);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [isGeneratingAnalysis, setIsGeneratingAnalysis] = useState(false);
+    const [editingDate, setEditingDate] = useState<string | null>(null);
+    const [editDateValue, setEditDateValue] = useState('');
 
     // Auto-generate safety analysis when aircraft is selected without one
     useEffect(() => {
@@ -258,19 +261,85 @@ export default function AircraftPage() {
                                         </h4>
                                         <div className="space-y-3">
                                             {[
-                                                { label: 'Annual Inspection', date: selectedAircraft.maintenanceDates?.annual },
-                                                { label: 'Transponder Check', date: selectedAircraft.maintenanceDates?.transponder },
-                                                { label: 'Pitot-Static', date: selectedAircraft.maintenanceDates?.staticSystem },
-                                            ].filter(item => item.date).map((item) => {
-                                                const status = getMaintenanceStatus(item.date!);
+                                                { key: 'annual', label: 'Annual Inspection', date: selectedAircraft.maintenanceDates?.annual },
+                                                { key: 'transponder', label: 'Transponder Check', date: selectedAircraft.maintenanceDates?.transponder },
+                                                { key: 'staticSystem', label: 'Pitot-Static', date: selectedAircraft.maintenanceDates?.staticSystem },
+                                                { key: 'hundredHour', label: '100-Hour Inspection', date: selectedAircraft.maintenanceDates?.hundredHour },
+                                            ].map((item) => {
+                                                const status = item.date ? getMaintenanceStatus(item.date) : null;
+                                                const isEditing = editingDate === item.key;
+
+                                                const handleSave = () => {
+                                                    if (!editDateValue) return;
+                                                    updateAircraft.mutate({
+                                                        id: selectedAircraft._id as string,
+                                                        aircraft: {
+                                                            maintenanceDates: {
+                                                                ...selectedAircraft.maintenanceDates,
+                                                                [item.key]: new Date(editDateValue),
+                                                            },
+                                                        },
+                                                    }, {
+                                                        onSuccess: () => {
+                                                            setEditingDate(null);
+                                                            refetch();
+                                                        },
+                                                    });
+                                                };
+
+                                                const handleStartEdit = () => {
+                                                    setEditingDate(item.key);
+                                                    setEditDateValue(
+                                                        item.date
+                                                            ? new Date(item.date).toISOString().split('T')[0]
+                                                            : new Date().toISOString().split('T')[0]
+                                                    );
+                                                };
+
                                                 return (
-                                                    <div key={item.label} className="flex items-center justify-between p-3 bg-zinc-50 dark:bg-zinc-900 rounded-lg">
+                                                    <div key={item.key} className="flex items-center justify-between p-3 bg-zinc-50 dark:bg-zinc-900 rounded-lg">
                                                         <span className="text-zinc-700 dark:text-zinc-300">{item.label}</span>
                                                         <div className="flex items-center gap-2">
-                                                            <span className="text-sm text-zinc-500 dark:text-zinc-400">
-                                                                {new Date(item.date!).toLocaleDateString()}
-                                                            </span>
-                                                            <Badge variant={status.badge as any}>{status.text}</Badge>
+                                                            {isEditing ? (
+                                                                <>
+                                                                    <input
+                                                                        type="date"
+                                                                        value={editDateValue}
+                                                                        onChange={(e) => setEditDateValue(e.target.value)}
+                                                                        className="px-2 py-1 text-sm border border-zinc-300 dark:border-zinc-600 rounded bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
+                                                                    />
+                                                                    <button
+                                                                        onClick={handleSave}
+                                                                        disabled={updateAircraft.isPending}
+                                                                        className="p-1 text-emerald-600 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 rounded"
+                                                                    >
+                                                                        {updateAircraft.isPending ? (
+                                                                            <RefreshCw className="w-4 h-4 animate-spin" />
+                                                                        ) : (
+                                                                            <Check className="w-4 h-4" />
+                                                                        )}
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => setEditingDate(null)}
+                                                                        className="p-1 text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded"
+                                                                    >
+                                                                        <X className="w-4 h-4" />
+                                                                    </button>
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <span className="text-sm text-zinc-500 dark:text-zinc-400">
+                                                                        {item.date ? new Date(item.date).toLocaleDateString() : 'Not set'}
+                                                                    </span>
+                                                                    {status && <Badge variant={status.badge as any}>{status.text}</Badge>}
+                                                                    <button
+                                                                        onClick={handleStartEdit}
+                                                                        className="p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded"
+                                                                    >
+                                                                        <Pencil className="w-3.5 h-3.5" />
+                                                                    </button>
+                                                                </>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 );
@@ -724,143 +793,92 @@ function AddAircraftModal({
     onCreated: () => void;
     createAircraft: any;
 }) {
-    const [formData, setFormData] = useState({
-        tailNumber: '',
-        model: '',
-        manufacturer: '',
-        year: new Date().getFullYear(),
-        serial: '',
-        hobbs: 0,
-        tach: 0,
-        annual: new Date().toISOString().split('T')[0],
-    });
+    const [tailNumber, setTailNumber] = useState('');
+    const [error, setError] = useState('');
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        createAircraft.mutate({
-            tailNumber: formData.tailNumber,
-            model: formData.model,
-            manufacturer: formData.manufacturer,
-            year: formData.year,
-            serial: formData.serial,
-            currentHours: {
-                hobbs: formData.hobbs,
-                tach: formData.tach,
-            },
-            maintenanceDates: {
-                annual: formData.annual,
-                transponder: formData.annual,
-                staticSystem: formData.annual,
-            },
-        }, {
+        setError('');
+
+        if (!tailNumber.trim()) {
+            setError('Tail number is required');
+            return;
+        }
+
+        // Send only tail number - backend will auto-fetch from FAA Registry via Firecrawl
+        createAircraft.mutate({ tailNumber: tailNumber.toUpperCase() }, {
             onSuccess: onCreated,
+            onError: (err: Error) => {
+                setError(err.message || 'Failed to add aircraft. Check if the tail number is valid.');
+            },
         });
     };
 
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white dark:bg-zinc-800 rounded-xl p-6 w-full max-w-md shadow-xl">
-                <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-4">Add Aircraft</h2>
+            <div className="bg-white dark:bg-zinc-800 rounded-xl p-6 w-full max-w-sm shadow-xl">
+                <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-2">Add Aircraft</h2>
+                <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">
+                    Enter the tail number and we'll automatically fetch aircraft details from the FAA registry.
+                </p>
                 <form onSubmit={handleSubmit} className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Tail Number</label>
-                            <input
-                                type="text"
-                                value={formData.tailNumber}
-                                onChange={(e) => setFormData({ ...formData, tailNumber: e.target.value.toUpperCase() })}
-                                className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 uppercase"
-                                placeholder="N12345"
-                                required
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Model</label>
-                            <input
-                                type="text"
-                                value={formData.model}
-                                onChange={(e) => setFormData({ ...formData, model: e.target.value })}
-                                className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
-                                placeholder="172S"
-                                required
-                            />
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Manufacturer</label>
-                            <input
-                                type="text"
-                                value={formData.manufacturer}
-                                onChange={(e) => setFormData({ ...formData, manufacturer: e.target.value })}
-                                className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
-                                placeholder="Cessna"
-                                required
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Year</label>
-                            <input
-                                type="number"
-                                value={formData.year}
-                                onChange={(e) => setFormData({ ...formData, year: parseInt(e.target.value) })}
-                                className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
-                                required
-                            />
-                        </div>
-                    </div>
-
                     <div>
-                        <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Serial Number</label>
+                        <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                            Tail Number
+                        </label>
                         <input
                             type="text"
-                            value={formData.serial}
-                            onChange={(e) => setFormData({ ...formData, serial: e.target.value })}
-                            className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
+                            value={tailNumber}
+                            onChange={(e) => setTailNumber(e.target.value.toUpperCase())}
+                            className="w-full px-4 py-3 border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 uppercase text-lg font-mono tracking-wider"
+                            placeholder="N12345"
+                            autoFocus
+                            disabled={createAircraft.isPending}
                         />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Hobbs Time</label>
-                            <input
-                                type="number"
-                                step="0.1"
-                                value={formData.hobbs}
-                                onChange={(e) => setFormData({ ...formData, hobbs: parseFloat(e.target.value) || 0 })}
-                                className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
-                            />
+                    {error && (
+                        <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
                         </div>
-                        <div>
-                            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Tach Time</label>
-                            <input
-                                type="number"
-                                step="0.1"
-                                value={formData.tach}
-                                onChange={(e) => setFormData({ ...formData, tach: parseFloat(e.target.value) || 0 })}
-                                className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
-                            />
+                    )}
+
+                    {createAircraft.isPending && (
+                        <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                            <div className="flex items-center gap-3">
+                                <RefreshCw className="w-5 h-5 text-blue-500 animate-spin" />
+                                <div>
+                                    <p className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                                        Looking up aircraft...
+                                    </p>
+                                    <p className="text-xs text-blue-600 dark:text-blue-400">
+                                        Fetching from FAA Registry & scraping aircraft data
+                                    </p>
+                                </div>
+                            </div>
                         </div>
-                    </div>
+                    )}
 
-                    <div>
-                        <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Annual Due Date</label>
-                        <input
-                            type="date"
-                            value={formData.annual}
-                            onChange={(e) => setFormData({ ...formData, annual: e.target.value })}
-                            className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
-                            required
-                        />
-                    </div>
-
-                    <div className="flex gap-3 pt-4">
-                        <Button type="button" variant="outline" onClick={onClose} className="flex-1">
+                    <div className="flex gap-3 pt-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={onClose}
+                            className="flex-1"
+                            disabled={createAircraft.isPending}
+                        >
                             Cancel
                         </Button>
-                        <Button type="submit" disabled={createAircraft.isPending} className="flex-1">
-                            {createAircraft.isPending ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
+                        <Button
+                            type="submit"
+                            disabled={createAircraft.isPending || !tailNumber.trim()}
+                            className="flex-1"
+                        >
+                            {createAircraft.isPending ? (
+                                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                            ) : (
+                                <Plus className="w-4 h-4 mr-2" />
+                            )}
                             Add Aircraft
                         </Button>
                     </div>

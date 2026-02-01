@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { User, Plus, Clock, AlertTriangle, CheckCircle, Trash2, RefreshCw, Shield, Award, Mail, Save, FileText, ChevronDown, ChevronUp } from 'lucide-react';
+import { User, Plus, Clock, AlertTriangle, CheckCircle, Trash2, RefreshCw, Shield, Award, Mail, Save, FileText, ChevronDown, ChevronUp, Pencil, X, Check } from 'lucide-react';
 import { usePilots, useCreatePilot, useDeletePilot, useParsedDocuments, useGeneratePilotSafetyAnalysis } from '@/lib/hooks';
 import type { Pilot } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
@@ -21,6 +21,12 @@ export default function PilotsPage() {
   const [editingEmail, setEditingEmail] = useState('');
   const [isSavingEmail, setIsSavingEmail] = useState(false);
   const [isGeneratingAnalysis, setIsGeneratingAnalysis] = useState(false);
+
+  // Editing states for name, medical, and flight review
+  const [editingName, setEditingName] = useState<string | null>(null);
+  const [editingMedical, setEditingMedical] = useState<string | null>(null);
+  const [editingFlightReview, setEditingFlightReview] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Auto-generate safety analysis when pilot is selected without one
   useEffect(() => {
@@ -51,7 +57,6 @@ export default function PilotsPage() {
       if (data.success) {
         setSelectedPilot({ ...selectedPilot, email: editingEmail });
         refetch();
-        alert('Email saved!');
       } else {
         alert('Failed to save email: ' + data.error);
       }
@@ -59,6 +64,33 @@ export default function PilotsPage() {
       alert('Error saving email');
     } finally {
       setIsSavingEmail(false);
+    }
+  };
+
+  const handleSaveField = async (field: 'name' | 'medicalExpiration' | 'flightReviewExpiration', value: string) => {
+    if (!selectedPilot) return;
+    setIsSaving(true);
+    try {
+      const res = await fetch(`/api/pilots/${selectedPilot._id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [field]: value }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSelectedPilot({ ...selectedPilot, [field]: value } as Pilot);
+        refetch();
+        // Reset editing states
+        setEditingName(null);
+        setEditingMedical(null);
+        setEditingFlightReview(null);
+      } else {
+        alert('Failed to save: ' + data.error);
+      }
+    } catch (err) {
+      alert('Error saving');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -196,7 +228,41 @@ export default function PilotsPage() {
                         <User className="w-7 h-7 text-zinc-500 dark:text-zinc-400" />
                       </div>
                       <div>
-                        <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">{selectedPilot.name}</h2>
+                        {/* Editable Name */}
+                        {editingName !== null ? (
+                          <div className="flex items-center gap-2 mb-1">
+                            <input
+                              type="text"
+                              value={editingName}
+                              onChange={(e) => setEditingName(e.target.value)}
+                              className="text-xl font-bold px-2 py-1 border border-zinc-300 dark:border-zinc-600 rounded bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
+                              autoFocus
+                            />
+                            <button
+                              onClick={() => handleSaveField('name', editingName)}
+                              disabled={isSaving}
+                              className="p-1 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded"
+                            >
+                              <Check className="w-5 h-5" />
+                            </button>
+                            <button
+                              onClick={() => setEditingName(null)}
+                              className="p-1 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-700 rounded"
+                            >
+                              <X className="w-5 h-5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 group mb-1">
+                            <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">{selectedPilot.name}</h2>
+                            <button
+                              onClick={() => setEditingName(selectedPilot.name)}
+                              className="p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )}
                         <div className="flex items-center gap-2 mt-1">
                           {getCertBadge(selectedPilot.certificates?.type || 'PPL')}
                           {selectedPilot.certificates?.instrumentRated && (
@@ -272,23 +338,95 @@ export default function PilotsPage() {
                       <Clock className="w-4 h-4" /> Currency Status
                     </h4>
                     <div className="space-y-3">
-                      {[
-                        { label: 'Medical', date: selectedPilot.medicalExpiration },
-                        { label: 'Flight Review', date: selectedPilot.flightReviewExpiration },
-                      ].map((item) => {
-                        const status = getExpirationStatus(item.date);
-                        return (
-                          <div key={item.label} className="flex items-center justify-between p-3 bg-zinc-50 dark:bg-zinc-900 rounded-lg">
-                            <span className="text-zinc-700 dark:text-zinc-300">{item.label}</span>
-                            <div className="flex items-center gap-2">
+                      {/* Medical */}
+                      <div className="flex items-center justify-between p-3 bg-zinc-50 dark:bg-zinc-900 rounded-lg group">
+                        <span className="text-zinc-700 dark:text-zinc-300">Medical</span>
+                        <div className="flex items-center gap-2">
+                          {editingMedical !== null ? (
+                            <>
+                              <input
+                                type="date"
+                                value={editingMedical}
+                                onChange={(e) => setEditingMedical(e.target.value)}
+                                className="px-2 py-1 text-sm border border-zinc-300 dark:border-zinc-600 rounded bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
+                              />
+                              <button
+                                onClick={() => handleSaveField('medicalExpiration', editingMedical)}
+                                disabled={isSaving}
+                                className="p-1 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded"
+                              >
+                                <Check className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => setEditingMedical(null)}
+                                className="p-1 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-700 rounded"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </>
+                          ) : (
+                            <>
                               <span className="text-sm text-zinc-500 dark:text-zinc-400">
-                                {new Date(item.date).toLocaleDateString()}
+                                {new Date(selectedPilot.medicalExpiration).toLocaleDateString()}
                               </span>
-                              <Badge variant={status.badge as any}>{status.text}</Badge>
-                            </div>
-                          </div>
-                        );
-                      })}
+                              <Badge variant={getExpirationStatus(selectedPilot.medicalExpiration).badge as any}>
+                                {getExpirationStatus(selectedPilot.medicalExpiration).text}
+                              </Badge>
+                              <button
+                                onClick={() => setEditingMedical(new Date(selectedPilot.medicalExpiration).toISOString().split('T')[0])}
+                                className="p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                <Pencil className="w-3 h-3" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Flight Review */}
+                      <div className="flex items-center justify-between p-3 bg-zinc-50 dark:bg-zinc-900 rounded-lg group">
+                        <span className="text-zinc-700 dark:text-zinc-300">Flight Review</span>
+                        <div className="flex items-center gap-2">
+                          {editingFlightReview !== null ? (
+                            <>
+                              <input
+                                type="date"
+                                value={editingFlightReview}
+                                onChange={(e) => setEditingFlightReview(e.target.value)}
+                                className="px-2 py-1 text-sm border border-zinc-300 dark:border-zinc-600 rounded bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
+                              />
+                              <button
+                                onClick={() => handleSaveField('flightReviewExpiration', editingFlightReview)}
+                                disabled={isSaving}
+                                className="p-1 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded"
+                              >
+                                <Check className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => setEditingFlightReview(null)}
+                                className="p-1 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-700 rounded"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <span className="text-sm text-zinc-500 dark:text-zinc-400">
+                                {new Date(selectedPilot.flightReviewExpiration).toLocaleDateString()}
+                              </span>
+                              <Badge variant={getExpirationStatus(selectedPilot.flightReviewExpiration).badge as any}>
+                                {getExpirationStatus(selectedPilot.flightReviewExpiration).text}
+                              </Badge>
+                              <button
+                                onClick={() => setEditingFlightReview(new Date(selectedPilot.flightReviewExpiration).toISOString().split('T')[0])}
+                                className="p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                <Pencil className="w-3 h-3" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
 

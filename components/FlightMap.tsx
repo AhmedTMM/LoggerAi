@@ -284,7 +284,7 @@ export default function FlightMap({ flights, aircraft, pilots }: FlightMapProps)
     const availableAircraft = aircraft.filter((a) => {
       // Check if aircraft is not currently in use
       const inUse = activeFlights.some(
-        (f) => (typeof f.aircraft === 'object' ? f.aircraft._id : f.aircraft) === a._id
+        (f) => f.aircraft && (typeof f.aircraft === 'object' ? f.aircraft._id : f.aircraft) === a._id
       );
       return !inUse;
     });

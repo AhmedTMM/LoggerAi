@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { parseDocumentUltraFast } from '@/lib/services/reductoService';
+import { generateSafetyAnalysis } from '@/lib/services/safetyAnalysisService';
 import dbConnect from '@/lib/db';
 import Aircraft from '@/lib/models/Aircraft';
 import Pilot from '@/lib/models/Pilot';
@@ -104,11 +105,13 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const aircraftId = searchParams.get('aircraftId');
+    const pilotId = searchParams.get('pilotId');
     const documentType = searchParams.get('documentType');
     const status = searchParams.get('status');
 
     const query: Record<string, any> = {};
     if (aircraftId) query.aircraft = aircraftId;
+    if (pilotId) query.pilot = pilotId;
     if (documentType) query.documentType = documentType;
     if (status) query.status = status;
 
@@ -243,6 +246,12 @@ async function updateAircraftFromParsedData(
   }
   if (latestEntry?.tachTime && latestEntry.tachTime > aircraft.currentHours.tach) {
     aircraft.currentHours.tach = latestEntry.tachTime;
+  }
+
+  // Regenerate safety analysis with new logs
+  const allLogs = aircraft.logs || [];
+  if (allLogs.length > 0) {
+    aircraft.safetyAnalysis = generateSafetyAnalysis(allLogs, aircraft);
   }
 
   await aircraft.save();

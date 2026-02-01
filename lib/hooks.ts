@@ -256,6 +256,44 @@ export function useFetchAircraftImage() {
   });
 }
 
+// Generate/Regenerate Safety Analysis Hook (Aircraft)
+export function useGenerateSafetyAnalysis() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (aircraftId: string) => {
+      const res = await fetch(`/api/aircraft/${aircraftId}/analyze`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['aircraft'] });
+    },
+  });
+}
+
+// Generate/Regenerate Safety Analysis Hook (Pilot)
+export function useGeneratePilotSafetyAnalysis() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (pilotId: string) => {
+      const res = await fetch(`/api/pilots/${pilotId}/analyze`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pilots'] });
+    },
+  });
+}
+
 // Upload document without parsing - for large files
 export function useUploadDocument() {
   const queryClient = useQueryClient();
@@ -290,7 +328,7 @@ export function useStartParsing() {
 }
 
 // Parsed Documents Hooks
-export function useParsedDocuments(params?: { aircraftId?: string; documentType?: string }) {
+export function useParsedDocuments(params?: { aircraftId?: string; pilotId?: string; documentType?: string }) {
   return useQuery({
     queryKey: ['parsedDocuments', params],
     queryFn: () => parsedDocumentApi.getAll(params),

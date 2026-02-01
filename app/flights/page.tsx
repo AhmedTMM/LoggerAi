@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Play, AlertTriangle, CheckCircle, XCircle, Plane, RefreshCw, Calendar, MapPin, ArrowRight, Mail } from 'lucide-react';
+import { Plus, Play, AlertTriangle, CheckCircle, XCircle, Plane, RefreshCw, Calendar, MapPin, ArrowRight, Mail, Trash2 } from 'lucide-react';
 import { useFlights, useRunFlightAudit, usePilots, useAircraft } from '@/lib/hooks';
 import type { Flight } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
@@ -32,6 +32,23 @@ export default function FlightsPage() {
       alert('Error sending email');
     } finally {
       setIsSendingEmail(false);
+    }
+  };
+
+  const handleWipeFlights = async () => {
+    if (!confirm('Are you sure you want to delete ALL flights? This cannot be undone.')) return;
+    try {
+      const res = await fetch('/api/flights/wipe', { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        alert(`Deleted ${data.deletedCount} flights`);
+        setSelectedFlight(null);
+        refetch();
+      } else {
+        alert('Failed to wipe flights: ' + data.error);
+      }
+    } catch (err) {
+      alert('Error wiping flights');
     }
   };
 
@@ -72,6 +89,10 @@ export default function FlightsPage() {
           <p className="text-zinc-500 dark:text-zinc-400">Manage and analyze your flights</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={handleWipeFlights} className="text-red-600 hover:text-red-700 hover:bg-red-50">
+            <Trash2 className="w-4 h-4 mr-2" />
+            Wipe All
+          </Button>
           <Button variant="outline" onClick={() => refetch()}>
             <RefreshCw className="w-4 h-4 mr-2" />
             Refresh
@@ -202,6 +223,145 @@ export default function FlightsPage() {
                       <p className="text-sm text-zinc-600 dark:text-zinc-400">
                         {(selectedFlight.safetyAnalysisSnapshot as any).reasoning}
                       </p>
+                    </div>
+                  )}
+
+                  {/* Survival Score Breakdown */}
+                  {(selectedFlight.safetyAnalysisSnapshot as any)?.survivalScoreBreakdown && (
+                    <div>
+                      <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3">Survival Score Breakdown</h4>
+                      <div className="bg-zinc-50 dark:bg-zinc-900 rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-4">
+                          <span className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+                            {(selectedFlight.safetyAnalysisSnapshot as any).survivalScoreBreakdown.totalScore}/100
+                          </span>
+                          <Badge variant={
+                            (selectedFlight.safetyAnalysisSnapshot as any).survivalScoreBreakdown.totalScore >= 70 ? 'success' :
+                            (selectedFlight.safetyAnalysisSnapshot as any).survivalScoreBreakdown.totalScore >= 50 ? 'warning' : 'destructive'
+                          }>
+                            {(selectedFlight.safetyAnalysisSnapshot as any).survivalScoreBreakdown.survivalProbability}
+                          </Badge>
+                        </div>
+                        <div className="space-y-3">
+                          {[
+                            { label: 'Aircraft', score: (selectedFlight.safetyAnalysisSnapshot as any).survivalScoreBreakdown.aircraftScore, max: 25 },
+                            { label: 'Pilot', score: (selectedFlight.safetyAnalysisSnapshot as any).survivalScoreBreakdown.pilotScore, max: 25 },
+                            { label: 'Weather', score: (selectedFlight.safetyAnalysisSnapshot as any).survivalScoreBreakdown.weatherScore, max: 20 },
+                            { label: 'Familiarity', score: (selectedFlight.safetyAnalysisSnapshot as any).survivalScoreBreakdown.familiarityScore, max: 15 },
+                            { label: 'Failure Risk', score: (selectedFlight.safetyAnalysisSnapshot as any).survivalScoreBreakdown.failureProbScore, max: 15 },
+                          ].map((item) => (
+                            <div key={item.label}>
+                              <div className="flex justify-between text-sm mb-1">
+                                <span className="text-zinc-600 dark:text-zinc-400">{item.label}</span>
+                                <span className="font-medium text-zinc-900 dark:text-zinc-100">{item.score}/{item.max}</span>
+                              </div>
+                              <div className="h-2 bg-zinc-200 dark:bg-zinc-700 rounded-full overflow-hidden">
+                                <div
+                                  className={cn(
+                                    "h-full rounded-full transition-all",
+                                    item.score / item.max >= 0.7 ? 'bg-emerald-500' :
+                                    item.score / item.max >= 0.5 ? 'bg-amber-500' : 'bg-red-500'
+                                  )}
+                                  style={{ width: `${(item.score / item.max) * 100}%` }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Familiarity Analysis */}
+                  {(selectedFlight.safetyAnalysisSnapshot as any)?.familiarityAnalysis && (
+                    <div>
+                      <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3">Pilot Familiarity</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-zinc-50 dark:bg-zinc-900 rounded-lg p-4">
+                          <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-1">Aircraft Familiarity</p>
+                          <Badge variant={
+                            (selectedFlight.safetyAnalysisSnapshot as any).familiarityAnalysis.aircraftFamiliarity.familiarityLevel === 'high' ? 'success' :
+                            (selectedFlight.safetyAnalysisSnapshot as any).familiarityAnalysis.aircraftFamiliarity.familiarityLevel === 'moderate' ? 'default' :
+                            (selectedFlight.safetyAnalysisSnapshot as any).familiarityAnalysis.aircraftFamiliarity.familiarityLevel === 'low' ? 'warning' : 'destructive'
+                          }>
+                            {(selectedFlight.safetyAnalysisSnapshot as any).familiarityAnalysis.aircraftFamiliarity.familiarityLevel}
+                          </Badge>
+                          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2">
+                            {(selectedFlight.safetyAnalysisSnapshot as any).familiarityAnalysis.aircraftFamiliarity.hoursInType.toFixed(1)} hrs in type •
+                            {(selectedFlight.safetyAnalysisSnapshot as any).familiarityAnalysis.aircraftFamiliarity.tailNumberFlights} flights in tail
+                          </p>
+                        </div>
+                        <div className="bg-zinc-50 dark:bg-zinc-900 rounded-lg p-4">
+                          <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-1">Route Familiarity</p>
+                          <Badge variant={
+                            (selectedFlight.safetyAnalysisSnapshot as any).familiarityAnalysis.routeFamiliarity.familiarityLevel === 'high' ? 'success' :
+                            (selectedFlight.safetyAnalysisSnapshot as any).familiarityAnalysis.routeFamiliarity.familiarityLevel === 'moderate' ? 'default' :
+                            (selectedFlight.safetyAnalysisSnapshot as any).familiarityAnalysis.routeFamiliarity.familiarityLevel === 'low' ? 'warning' : 'destructive'
+                          }>
+                            {(selectedFlight.safetyAnalysisSnapshot as any).familiarityAnalysis.routeFamiliarity.familiarityLevel}
+                          </Badge>
+                          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2">
+                            {(selectedFlight.safetyAnalysisSnapshot as any).familiarityAnalysis.routeFamiliarity.departureVisits} departure visits •
+                            {(selectedFlight.safetyAnalysisSnapshot as any).familiarityAnalysis.routeFamiliarity.arrivalVisits} arrival visits
+                          </p>
+                        </div>
+                      </div>
+                      {(selectedFlight.safetyAnalysisSnapshot as any).familiarityAnalysis.riskFactors?.length > 0 && (
+                        <div className="mt-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                          <p className="text-xs font-medium text-amber-800 dark:text-amber-200 mb-1">Familiarity Concerns:</p>
+                          <ul className="text-xs text-amber-700 dark:text-amber-300 space-y-1">
+                            {(selectedFlight.safetyAnalysisSnapshot as any).familiarityAnalysis.riskFactors.map((rf: string, idx: number) => (
+                              <li key={idx}>• {rf}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Risk Scenarios */}
+                  {(selectedFlight.safetyAnalysisSnapshot as any)?.combinedRiskScenarios?.length > 0 && (
+                    <div>
+                      <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3">Risk Scenarios</h4>
+                      <div className="space-y-2">
+                        {(selectedFlight.safetyAnalysisSnapshot as any).combinedRiskScenarios.slice(0, 5).map((scenario: any, idx: number) => (
+                          <div
+                            key={idx}
+                            className={cn(
+                              "p-3 rounded-lg border",
+                              scenario.severity === 'critical' ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' :
+                              scenario.severity === 'high' ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800' :
+                              scenario.severity === 'medium' ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800' :
+                              'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700'
+                            )}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-medium text-sm text-zinc-900 dark:text-zinc-100">{scenario.title}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-zinc-500 dark:text-zinc-400">{scenario.probability}% risk</span>
+                                <Badge variant={
+                                  scenario.severity === 'critical' ? 'destructive' :
+                                  scenario.severity === 'high' ? 'warning' :
+                                  scenario.severity === 'medium' ? 'secondary' : 'default'
+                                } className="text-xs">
+                                  {scenario.severity}
+                                </Badge>
+                              </div>
+                            </div>
+                            <p className="text-xs text-zinc-600 dark:text-zinc-400">{scenario.description}</p>
+                            {scenario.mitigations?.length > 0 && (
+                              <div className="mt-2 pt-2 border-t border-zinc-200 dark:border-zinc-700">
+                                <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">Mitigations:</p>
+                                <ul className="text-xs text-zinc-500 dark:text-zinc-400">
+                                  {scenario.mitigations.slice(0, 2).map((m: string, midx: number) => (
+                                    <li key={midx}>• {m}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
 

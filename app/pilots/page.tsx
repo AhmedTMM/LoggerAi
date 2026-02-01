@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
-import { User, Plus, Clock, AlertTriangle, CheckCircle, Trash2, RefreshCw, Shield, Award, Mail, Save } from 'lucide-react';
-import { usePilots, useCreatePilot, useDeletePilot } from '@/lib/hooks';
+import { useState, useEffect } from 'react';
+import { User, Plus, Clock, AlertTriangle, CheckCircle, Trash2, RefreshCw, Shield, Award, Mail, Save, FileText, ChevronDown, ChevronUp } from 'lucide-react';
+import { usePilots, useCreatePilot, useDeletePilot, useParsedDocuments, useGeneratePilotSafetyAnalysis } from '@/lib/hooks';
 import type { Pilot } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -13,12 +13,30 @@ export default function PilotsPage() {
   const { data: pilots, isLoading, error, refetch } = usePilots();
   const createPilot = useCreatePilot();
   const deletePilot = useDeletePilot();
+  const generateSafetyAnalysis = useGeneratePilotSafetyAnalysis();
 
   const [selectedPilot, setSelectedPilot] = useState<Pilot | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [editingEmail, setEditingEmail] = useState('');
   const [isSavingEmail, setIsSavingEmail] = useState(false);
+  const [isGeneratingAnalysis, setIsGeneratingAnalysis] = useState(false);
+
+  // Auto-generate safety analysis when pilot is selected without one
+  useEffect(() => {
+    if (selectedPilot && !selectedPilot.safetyAnalysis && !isGeneratingAnalysis) {
+      setIsGeneratingAnalysis(true);
+      generateSafetyAnalysis.mutate(selectedPilot._id, {
+        onSuccess: () => {
+          refetch();
+          setIsGeneratingAnalysis(false);
+        },
+        onError: () => {
+          setIsGeneratingAnalysis(false);
+        },
+      });
+    }
+  }, [selectedPilot?._id, selectedPilot?.safetyAnalysis]);
 
   const handleSaveEmail = async () => {
     if (!selectedPilot) return;
@@ -274,12 +292,46 @@ export default function PilotsPage() {
                     </div>
                   </div>
 
-                  {/* Safety Score */}
-                  {selectedPilot.safetyAnalysis && (
-                    <div>
-                      <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3 flex items-center gap-2">
+                  {/* Safety Analysis */}
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
                         <Shield className="w-4 h-4" /> Safety Analysis
                       </h4>
+                      {selectedPilot.safetyAnalysis && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setIsGeneratingAnalysis(true);
+                            generateSafetyAnalysis.mutate(selectedPilot._id, {
+                              onSuccess: () => {
+                                refetch();
+                                setIsGeneratingAnalysis(false);
+                              },
+                              onError: () => setIsGeneratingAnalysis(false),
+                            });
+                          }}
+                          disabled={isGeneratingAnalysis}
+                          className="text-xs"
+                        >
+                          {isGeneratingAnalysis ? (
+                            <RefreshCw className="w-3 h-3 animate-spin mr-1" />
+                          ) : (
+                            <RefreshCw className="w-3 h-3 mr-1" />
+                          )}
+                          Regenerate
+                        </Button>
+                      )}
+                    </div>
+                    {isGeneratingAnalysis ? (
+                      <div className="bg-zinc-50 dark:bg-zinc-900 rounded-lg p-4 text-center">
+                        <RefreshCw className="w-8 h-8 text-blue-500 mx-auto mb-2 animate-spin" />
+                        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                          Generating safety analysis...
+                        </p>
+                      </div>
+                    ) : selectedPilot.safetyAnalysis ? (
                       <div className="bg-zinc-50 dark:bg-zinc-900 rounded-lg p-4">
                         <div className="flex items-center justify-between mb-3">
                           <span className="text-zinc-600 dark:text-zinc-400">Risk Score</span>
@@ -297,12 +349,43 @@ export default function PilotsPage() {
                             ) : (
                               <AlertTriangle className={cn("w-4 h-4 mt-0.5", finding.riskLevel === 'high' ? 'text-red-500' : 'text-amber-500')} />
                             )}
-                            <span className="text-zinc-600 dark:text-zinc-400">{finding.message}</span>
+                            <div className="flex-1">
+                              <span className="text-xs text-zinc-500 dark:text-zinc-400 uppercase">{finding.category}</span>
+                              <p className="text-zinc-600 dark:text-zinc-400">{finding.message}</p>
+                            </div>
                           </div>
                         ))}
                       </div>
-                    </div>
-                  )}
+                    ) : (
+                      <div className="bg-zinc-50 dark:bg-zinc-900 rounded-lg p-4 text-center">
+                        <Shield className="w-8 h-8 text-zinc-300 dark:text-zinc-600 mx-auto mb-2" />
+                        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                          No safety analysis available
+                        </p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-3"
+                          onClick={() => {
+                            setIsGeneratingAnalysis(true);
+                            generateSafetyAnalysis.mutate(selectedPilot._id, {
+                              onSuccess: () => {
+                                refetch();
+                                setIsGeneratingAnalysis(false);
+                              },
+                              onError: () => setIsGeneratingAnalysis(false),
+                            });
+                          }}
+                        >
+                          <Shield className="w-4 h-4 mr-2" />
+                          Generate Analysis
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Linked Documents */}
+                  <PilotLinkedDocumentsSection pilotId={selectedPilot._id} />
                 </div>
               </div>
             ) : (
@@ -358,6 +441,147 @@ export default function PilotsPage() {
               </Button>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PilotLinkedDocumentsSection({ pilotId }: { pilotId: string }) {
+  const { data: documents, isLoading } = useParsedDocuments({ pilotId });
+  const [expandedDoc, setExpandedDoc] = useState<string | null>(null);
+
+  if (isLoading) {
+    return (
+      <div className="p-4 bg-zinc-50 dark:bg-zinc-900 rounded-lg text-center">
+        <RefreshCw className="w-6 h-6 text-zinc-400 mx-auto animate-spin" />
+      </div>
+    );
+  }
+
+  const linkedDocs = documents?.filter((doc: any) => doc.status === 'completed') || [];
+
+  return (
+    <div>
+      <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3 flex items-center gap-2">
+        <FileText className="w-4 h-4" /> Linked Documents
+        {linkedDocs.length > 0 && (
+          <Badge variant="secondary" className="text-xs">{linkedDocs.length}</Badge>
+        )}
+      </h4>
+      {linkedDocs.length > 0 ? (
+        <div className="space-y-2">
+          {linkedDocs.map((doc: any) => {
+            const isExpanded = expandedDoc === doc._id;
+            const entries = doc.entries || [];
+
+            return (
+              <div
+                key={doc._id}
+                className="bg-zinc-50 dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden"
+              >
+                {/* Document Header */}
+                <div
+                  className="p-3 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                  onClick={() => setExpandedDoc(isExpanded ? null : doc._id)}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-blue-500" />
+                      <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate max-w-[200px]">
+                        {doc.originalFilename || doc.filename}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-xs">
+                        {entries.length} entries
+                      </Badge>
+                      {isExpanded ? (
+                        <ChevronUp className="w-4 h-4 text-zinc-400" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-zinc-400" />
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                    <span>{doc.documentType?.replace(/_/g, ' ')}</span>
+                    {doc.summary?.totalHours && (
+                      <span>{doc.summary.totalHours.toFixed(1)} total hours</span>
+                    )}
+                    {doc.summary?.dateRange && (
+                      <span>
+                        {doc.summary.dateRange.from} - {doc.summary.dateRange.to}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Expanded Flight Entries */}
+                {isExpanded && entries.length > 0 && (
+                  <div className="border-t border-zinc-200 dark:border-zinc-700 max-h-72 overflow-y-auto">
+                    {entries.slice(0, 50).map((entry: any, idx: number) => (
+                      <div
+                        key={idx}
+                        className="p-3 border-b border-zinc-100 dark:border-zinc-800 last:border-b-0"
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                            {entry.date || 'No date'}
+                          </span>
+                          <div className="flex items-center gap-2 text-xs text-zinc-500">
+                            {entry.totalTime > 0 && (
+                              <span className="font-medium">{entry.totalTime}h</span>
+                            )}
+                            {entry.pic > 0 && <span>PIC: {entry.pic}</span>}
+                            {entry.night > 0 && <span>Night: {entry.night}</span>}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                          {entry.aircraftIdent && (
+                            <span className="font-medium text-blue-600 dark:text-blue-400">
+                              {entry.aircraftIdent}
+                            </span>
+                          )}
+                          {(entry.from || entry.to) && (
+                            <span>
+                              {entry.from || '?'} → {entry.to || '?'}
+                            </span>
+                          )}
+                        </div>
+                        {entry.remarks && (
+                          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 line-clamp-2">
+                            {entry.remarks}
+                          </p>
+                        )}
+                        <div className="flex items-center gap-2 mt-1 text-xs text-zinc-400">
+                          {entry.landingsDay > 0 && <span>Day: {entry.landingsDay}</span>}
+                          {entry.landingsNight > 0 && <span>Night: {entry.landingsNight}</span>}
+                          {entry.crossCountry > 0 && <span>XC: {entry.crossCountry}h</span>}
+                          {entry.actualInstrument > 0 && <span>Actual: {entry.actualInstrument}h</span>}
+                          {entry.simulatedInstrument > 0 && <span>Sim: {entry.simulatedInstrument}h</span>}
+                        </div>
+                      </div>
+                    ))}
+                    {entries.length > 50 && (
+                      <p className="text-xs text-center text-zinc-500 py-2">
+                        Showing 50 of {entries.length} entries
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="p-4 bg-zinc-50 dark:bg-zinc-900 rounded-lg text-center">
+          <FileText className="w-8 h-8 text-zinc-300 dark:text-zinc-600 mx-auto mb-2" />
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            No linked documents
+          </p>
+          <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
+            Upload pilot logbooks from the Files page and link them to this pilot
+          </p>
         </div>
       )}
     </div>

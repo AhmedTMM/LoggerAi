@@ -290,9 +290,10 @@ export const profileApi = {
 
 // Parsed Document Management API
 export const parsedDocumentApi = {
-  getAll: async (params?: { aircraftId?: string; documentType?: string }): Promise<any[]> => {
+  getAll: async (params?: { aircraftId?: string; pilotId?: string; documentType?: string }): Promise<any[]> => {
     const searchParams = new URLSearchParams();
     if (params?.aircraftId) searchParams.set('aircraftId', params.aircraftId);
+    if (params?.pilotId) searchParams.set('pilotId', params.pilotId);
     if (params?.documentType) searchParams.set('documentType', params.documentType);
     const query = searchParams.toString();
     const data = await fetchAPI<ApiResponse<any[]>>(`/parse-document${query ? `?${query}` : ''}`);

@@ -23,6 +23,36 @@ interface IRiskScenario {
   mitigations?: string[];
 }
 
+// Familiarity analysis interface
+interface IFamiliarityAnalysis {
+  aircraftFamiliarity: {
+    tailNumberFlights: number;
+    typeFlights: number;
+    hoursInType: number;
+    lastFlownDate?: Date;
+    familiarityLevel: 'unfamiliar' | 'low' | 'moderate' | 'high';
+  };
+  routeFamiliarity: {
+    departureVisits: number;
+    arrivalVisits: number;
+    routeFlown: boolean;
+    familiarityLevel: 'unfamiliar' | 'low' | 'moderate' | 'high';
+  };
+  overallFamiliarityScore: number; // 0-100
+  riskFactors: string[];
+}
+
+// Survival score breakdown
+interface ISurvivalScoreBreakdown {
+  aircraftScore: number;      // /25
+  pilotScore: number;         // /25
+  weatherScore: number;       // /20
+  familiarityScore: number;   // /15
+  failureProbScore: number;   // /15
+  totalScore: number;         // /100
+  survivalProbability: string;
+}
+
 // Main comprehensive safety analysis function
 export async function runComprehensiveSafetyAnalysis(
   flightId: string
@@ -86,7 +116,15 @@ export async function runComprehensiveSafetyAnalysis(
     weatherVsAircraft
   );
 
-  // 8. Calculate combined risk scenarios
+  // 8. Analyze pilot familiarity with aircraft and route
+  const familiarityAnalysis = analyzeFamiliarity(
+    pilot,
+    aircraft,
+    flight.departureAirport,
+    flight.arrivalAirport
+  );
+
+  // 9. Calculate combined risk scenarios
   const riskScenarios = calculateRiskScenarios(
     pilot,
     aircraft,
@@ -97,7 +135,64 @@ export async function runComprehensiveSafetyAnalysis(
     aircraftAnalysis
   );
 
-  // 9. Determine overall risk level and score
+  // Add familiarity-based risk scenarios
+  if (familiarityAnalysis.aircraftFamiliarity.familiarityLevel === 'unfamiliar') {
+    riskScenarios.push({
+      title: 'Unfamiliar Aircraft',
+      probability: 30,
+      severity: 'high',
+      description: `Pilot has no recorded experience in ${aircraft.tailNumber} or similar ${aircraft.model} type. Higher risk of systems mismanagement.`,
+      mitigations: [
+        'Complete thorough aircraft checkout',
+        'Review POH emergency procedures',
+        'Consider dual flight with type-experienced pilot',
+      ],
+    });
+  } else if (familiarityAnalysis.aircraftFamiliarity.familiarityLevel === 'low') {
+    riskScenarios.push({
+      title: 'Limited Aircraft Experience',
+      probability: 20,
+      severity: 'medium',
+      description: `Pilot has limited experience in this aircraft type (${familiarityAnalysis.aircraftFamiliarity.hoursInType.toFixed(1)} hours).`,
+      mitigations: [
+        'Review aircraft systems before flight',
+        'Practice emergency procedures on ground',
+      ],
+    });
+  }
+
+  if (familiarityAnalysis.routeFamiliarity.familiarityLevel === 'unfamiliar') {
+    riskScenarios.push({
+      title: 'Unfamiliar Route/Airports',
+      probability: 25,
+      severity: 'medium',
+      description: `Pilot has no recorded flights to ${flight.departureAirport}${flight.arrivalAirport ? ` or ${flight.arrivalAirport}` : ''}. Higher risk of navigation/pattern errors.`,
+      mitigations: [
+        'Study airport diagrams and procedures',
+        'Brief NOTAMs and local traffic patterns',
+        'Consider flight following with ATC',
+      ],
+    });
+  }
+
+  // Re-sort scenarios after adding familiarity ones
+  riskScenarios.sort((a, b) => {
+    const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+    return severityOrder[a.severity] - severityOrder[b.severity];
+  });
+
+  // 10. Calculate survival-based safety score
+  const survivalScoreBreakdown = calculateSurvivalScore(
+    pilotAnalysis,
+    aircraftAnalysis,
+    familiarityAnalysis,
+    weatherVsPilot,
+    weatherVsAircraft,
+    routeWeather.departure,
+    riskScenarios
+  );
+
+  // 11. Determine overall risk level and score
   const { overallRiskLevel, overallScore, goNoGoRecommendation, reasoning } = determineOverallStatus(
     legalityChecks,
     riskScenarios,
@@ -107,11 +202,14 @@ export async function runComprehensiveSafetyAnalysis(
     aircraftAnalysis
   );
 
-  // 10. Build comprehensive analysis
+  // Use survival score as the primary score
+  const finalScore = survivalScoreBreakdown.totalScore;
+
+  // 12. Build comprehensive analysis with familiarity and survival score
   const analysis: IComprehensiveSafetyAnalysis = {
     generatedAt: new Date(),
     overallRiskLevel,
-    overallScore,
+    overallScore: finalScore, // Use survival score as primary
     weatherAnalysis: {
       departureConditions: routeWeather.departure as IWeatherData | null,
       arrivalConditions: routeWeather.arrival as IWeatherData | null,
@@ -121,9 +219,11 @@ export async function runComprehensiveSafetyAnalysis(
     },
     pilotAnalysis,
     aircraftAnalysis,
+    familiarityAnalysis,
+    survivalScoreBreakdown,
     combinedRiskScenarios: riskScenarios,
     goNoGoRecommendation,
-    reasoning,
+    reasoning: `${reasoning} | Survival Score: ${survivalScoreBreakdown.totalScore}/100 (${survivalScoreBreakdown.survivalProbability})`,
   };
 
   // 11. Update flight document
@@ -670,6 +770,240 @@ function determineOverallStatus(
     overallScore: score,
     goNoGoRecommendation,
     reasoning,
+  };
+}
+
+// Analyze pilot familiarity with aircraft and route
+function analyzeFamiliarity(
+  pilot: IPilot,
+  aircraft: IAircraft,
+  departureAirport: string,
+  arrivalAirport?: string
+): IFamiliarityAnalysis {
+  const riskFactors: string[] = [];
+  const flightEntries = pilot.flightEntries || [];
+  const tailNumber = aircraft.tailNumber?.toUpperCase();
+  const aircraftModel = aircraft.model?.toLowerCase();
+
+  // Aircraft familiarity - check flights in this tail number and type
+  let tailNumberFlights = 0;
+  let typeFlights = 0;
+  let hoursInType = 0;
+  let lastFlownDate: Date | undefined;
+
+  for (const entry of flightEntries) {
+    const entryTail = entry.aircraftIdent?.toUpperCase();
+    const entryType = entry.aircraftType?.toLowerCase();
+
+    // Check tail number match
+    if (entryTail === tailNumber) {
+      tailNumberFlights++;
+      if (!lastFlownDate || new Date(entry.date) > lastFlownDate) {
+        lastFlownDate = new Date(entry.date);
+      }
+    }
+
+    // Check aircraft type match (fuzzy match)
+    if (entryType && aircraftModel && (
+      entryType.includes(aircraftModel) ||
+      aircraftModel.includes(entryType) ||
+      entryType.split(' ')[0] === aircraftModel.split(' ')[0]
+    )) {
+      typeFlights++;
+      hoursInType += entry.totalTime || 0;
+    }
+  }
+
+  // Determine aircraft familiarity level
+  let aircraftFamiliarityLevel: 'unfamiliar' | 'low' | 'moderate' | 'high' = 'unfamiliar';
+  if (tailNumberFlights >= 10 || hoursInType >= 50) {
+    aircraftFamiliarityLevel = 'high';
+  } else if (tailNumberFlights >= 3 || hoursInType >= 20) {
+    aircraftFamiliarityLevel = 'moderate';
+  } else if (tailNumberFlights >= 1 || typeFlights >= 1) {
+    aircraftFamiliarityLevel = 'low';
+  }
+
+  // Route familiarity - check airports visited
+  const depAirport = departureAirport?.toUpperCase();
+  const arrAirport = arrivalAirport?.toUpperCase();
+  let departureVisits = 0;
+  let arrivalVisits = 0;
+  let routeFlown = false;
+
+  for (const entry of flightEntries) {
+    const from = entry.from?.toUpperCase();
+    const to = entry.to?.toUpperCase();
+
+    if (from === depAirport || to === depAirport) departureVisits++;
+    if (arrAirport && (from === arrAirport || to === arrAirport)) arrivalVisits++;
+
+    // Check if exact route was flown
+    if (from === depAirport && to === arrAirport) routeFlown = true;
+    if (from === arrAirport && to === depAirport) routeFlown = true;
+  }
+
+  // Determine route familiarity level
+  let routeFamiliarityLevel: 'unfamiliar' | 'low' | 'moderate' | 'high' = 'unfamiliar';
+  if (routeFlown || (departureVisits >= 5 && (!arrAirport || arrivalVisits >= 5))) {
+    routeFamiliarityLevel = 'high';
+  } else if (departureVisits >= 2 && (!arrAirport || arrivalVisits >= 2)) {
+    routeFamiliarityLevel = 'moderate';
+  } else if (departureVisits >= 1 || arrivalVisits >= 1) {
+    routeFamiliarityLevel = 'low';
+  }
+
+  // Calculate overall familiarity score (0-100)
+  let overallFamiliarityScore = 0;
+
+  // Aircraft familiarity (50 points)
+  if (aircraftFamiliarityLevel === 'high') overallFamiliarityScore += 50;
+  else if (aircraftFamiliarityLevel === 'moderate') overallFamiliarityScore += 35;
+  else if (aircraftFamiliarityLevel === 'low') overallFamiliarityScore += 20;
+
+  // Route familiarity (50 points)
+  if (routeFamiliarityLevel === 'high') overallFamiliarityScore += 50;
+  else if (routeFamiliarityLevel === 'moderate') overallFamiliarityScore += 35;
+  else if (routeFamiliarityLevel === 'low') overallFamiliarityScore += 20;
+
+  // Generate risk factors
+  if (aircraftFamiliarityLevel === 'unfamiliar') {
+    riskFactors.push(`No prior flights in ${tailNumber || 'this aircraft'} or similar type`);
+  } else if (aircraftFamiliarityLevel === 'low') {
+    riskFactors.push(`Limited experience in ${aircraftModel || 'this type'}: ${typeFlights} flights, ${hoursInType.toFixed(1)} hours`);
+  }
+
+  if (routeFamiliarityLevel === 'unfamiliar') {
+    riskFactors.push(`No prior visits to ${depAirport}${arrAirport ? ` or ${arrAirport}` : ''}`);
+  } else if (routeFamiliarityLevel === 'low') {
+    riskFactors.push(`Limited familiarity with route: ${departureVisits} visits to departure${arrAirport ? `, ${arrivalVisits} to destination` : ''}`);
+  }
+
+  // Check recency - unfamiliar with aircraft if not flown in 90 days
+  if (lastFlownDate) {
+    const daysSinceFlown = Math.floor((Date.now() - lastFlownDate.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysSinceFlown > 90) {
+      riskFactors.push(`Last flew this aircraft ${daysSinceFlown} days ago - skills may have degraded`);
+      overallFamiliarityScore = Math.max(0, overallFamiliarityScore - 20);
+    }
+  }
+
+  return {
+    aircraftFamiliarity: {
+      tailNumberFlights,
+      typeFlights,
+      hoursInType,
+      lastFlownDate,
+      familiarityLevel: aircraftFamiliarityLevel,
+    },
+    routeFamiliarity: {
+      departureVisits,
+      arrivalVisits,
+      routeFlown,
+      familiarityLevel: routeFamiliarityLevel,
+    },
+    overallFamiliarityScore,
+    riskFactors,
+  };
+}
+
+// Calculate survival-based safety score /100
+function calculateSurvivalScore(
+  pilotAnalysis: IComprehensiveSafetyAnalysis['pilotAnalysis'],
+  aircraftAnalysis: IComprehensiveSafetyAnalysis['aircraftAnalysis'],
+  familiarityAnalysis: IFamiliarityAnalysis,
+  weatherVsPilot: ReturnType<typeof analyzeWeatherVsPilot>,
+  weatherVsAircraft: ReturnType<typeof analyzeWeatherVsAircraft>,
+  departureWeather: IEnhancedWeatherData | null,
+  scenarios: IRiskScenario[]
+): ISurvivalScoreBreakdown {
+  // Aircraft Score (/25) - based on maintenance and AI safety analysis
+  let aircraftScore = 25;
+  if (aircraftAnalysis.maintenanceStatus === 'overdue') aircraftScore -= 15;
+  else if (aircraftAnalysis.maintenanceStatus === 'due_soon') aircraftScore -= 5;
+
+  if (aircraftAnalysis.mechanicalRisks.some(r => r.includes('CRITICAL'))) aircraftScore -= 10;
+  else if (aircraftAnalysis.mechanicalRisks.length > 2) aircraftScore -= 5;
+
+  // Factor in AI safety score if available (100-based, convert to adjustment)
+  if (aircraftAnalysis.aiSafetyScore !== undefined) {
+    const aiAdjust = ((aircraftAnalysis.aiSafetyScore - 50) / 100) * 10;
+    aircraftScore += aiAdjust;
+  }
+  aircraftScore = Math.max(0, Math.min(25, aircraftScore));
+
+  // Pilot Score (/25) - based on currency, experience, and AI safety analysis
+  let pilotScore = 25;
+  if (pilotAnalysis.currencyStatus === 'expired') pilotScore -= 15;
+  else if (pilotAnalysis.currencyStatus === 'expiring') pilotScore -= 5;
+
+  if (pilotAnalysis.experienceLevel === 'student') pilotScore -= 8;
+  else if (pilotAnalysis.experienceLevel === 'low_time') pilotScore -= 4;
+
+  if (!pilotAnalysis.qualifiedForConditions) pilotScore -= 10;
+
+  // Factor in AI safety score (10-based, convert to adjustment)
+  if (pilotAnalysis.aiSafetyScore !== undefined) {
+    // Higher score = higher risk in pilot analysis (10 = bad)
+    const aiAdjust = ((10 - pilotAnalysis.aiSafetyScore) / 10) * 5;
+    pilotScore += aiAdjust;
+  }
+  pilotScore = Math.max(0, Math.min(25, pilotScore));
+
+  // Weather Score (/20) - based on flight category and conditions
+  let weatherScore = 20;
+  if (departureWeather) {
+    if (departureWeather.flightCategory === 'LIFR') weatherScore -= 18;
+    else if (departureWeather.flightCategory === 'IFR') weatherScore -= 12;
+    else if (departureWeather.flightCategory === 'MVFR') weatherScore -= 6;
+
+    if (departureWeather.trend === 'deteriorating') weatherScore -= 4;
+    if ((departureWeather.wind?.gust || 0) > 25) weatherScore -= 4;
+    if ((departureWeather.densityAltitude || 0) > 7000) weatherScore -= 4;
+  }
+
+  if (!weatherVsPilot.legal) weatherScore -= 10;
+  if (!weatherVsPilot.safeRecommendation) weatherScore -= 5;
+  if (!weatherVsAircraft.safeToOperate) weatherScore -= 8;
+
+  weatherScore = Math.max(0, Math.min(20, weatherScore));
+
+  // Familiarity Score (/15) - pilot familiarity with aircraft and route
+  let familiarityScore = Math.round(familiarityAnalysis.overallFamiliarityScore * 0.15);
+  familiarityScore = Math.max(0, Math.min(15, familiarityScore));
+
+  // Failure Probability Score (/15) - based on component failure probabilities
+  let failureProbScore = 15;
+  const criticalScenarios = scenarios.filter(s => s.severity === 'critical');
+  const highScenarios = scenarios.filter(s => s.severity === 'high');
+
+  // Deduct for high-probability failure scenarios
+  for (const scenario of criticalScenarios) {
+    failureProbScore -= Math.min(5, scenario.probability / 10);
+  }
+  for (const scenario of highScenarios) {
+    failureProbScore -= Math.min(3, scenario.probability / 15);
+  }
+  failureProbScore = Math.max(0, Math.min(15, failureProbScore));
+
+  // Calculate total survival score
+  const totalScore = Math.round(aircraftScore + pilotScore + weatherScore + familiarityScore + failureProbScore);
+
+  // Determine survival probability text
+  let survivalProbability = 'Very High';
+  if (totalScore < 30) survivalProbability = 'Critical Risk';
+  else if (totalScore < 50) survivalProbability = 'High Risk';
+  else if (totalScore < 70) survivalProbability = 'Moderate Risk';
+  else if (totalScore < 85) survivalProbability = 'Low Risk';
+
+  return {
+    aircraftScore: Math.round(aircraftScore),
+    pilotScore: Math.round(pilotScore),
+    weatherScore: Math.round(weatherScore),
+    familiarityScore,
+    failureProbScore: Math.round(failureProbScore),
+    totalScore,
+    survivalProbability,
   };
 }
 

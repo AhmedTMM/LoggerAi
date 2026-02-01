@@ -70,7 +70,7 @@ export interface IFlightPlannerData {
 export interface IComprehensiveSafetyAnalysis {
   generatedAt: Date;
   overallRiskLevel: 'low' | 'medium' | 'high' | 'critical';
-  overallScore: number; // 1-100, higher is safer
+  overallScore: number; // 1-100, higher is safer (survival score)
 
   weatherAnalysis: {
     departureConditions: IWeatherData | null;
@@ -102,6 +102,36 @@ export interface IComprehensiveSafetyAnalysis {
     performanceMargins: 'adequate' | 'marginal' | 'inadequate';
     mechanicalRisks: string[];
     aiSafetyScore?: number;
+  };
+
+  // Pilot familiarity with aircraft and route
+  familiarityAnalysis?: {
+    aircraftFamiliarity: {
+      tailNumberFlights: number;
+      typeFlights: number;
+      hoursInType: number;
+      lastFlownDate?: Date;
+      familiarityLevel: 'unfamiliar' | 'low' | 'moderate' | 'high';
+    };
+    routeFamiliarity: {
+      departureVisits: number;
+      arrivalVisits: number;
+      routeFlown: boolean;
+      familiarityLevel: 'unfamiliar' | 'low' | 'moderate' | 'high';
+    };
+    overallFamiliarityScore: number;
+    riskFactors: string[];
+  };
+
+  // Survival-based score breakdown /100
+  survivalScoreBreakdown?: {
+    aircraftScore: number;      // /25
+    pilotScore: number;         // /25
+    weatherScore: number;       // /20
+    familiarityScore: number;   // /15
+    failureProbScore: number;   // /15
+    totalScore: number;         // /100
+    survivalProbability: string;
   };
 
   combinedRiskScenarios: {
@@ -271,6 +301,32 @@ const ComprehensiveSafetyAnalysisSchema = new Schema({
     performanceMargins: { type: String, enum: ['adequate', 'marginal', 'inadequate'] },
     mechanicalRisks: [{ type: String }],
     aiSafetyScore: { type: Number },
+  },
+  familiarityAnalysis: {
+    aircraftFamiliarity: {
+      tailNumberFlights: { type: Number },
+      typeFlights: { type: Number },
+      hoursInType: { type: Number },
+      lastFlownDate: { type: Date },
+      familiarityLevel: { type: String, enum: ['unfamiliar', 'low', 'moderate', 'high'] },
+    },
+    routeFamiliarity: {
+      departureVisits: { type: Number },
+      arrivalVisits: { type: Number },
+      routeFlown: { type: Boolean },
+      familiarityLevel: { type: String, enum: ['unfamiliar', 'low', 'moderate', 'high'] },
+    },
+    overallFamiliarityScore: { type: Number },
+    riskFactors: [{ type: String }],
+  },
+  survivalScoreBreakdown: {
+    aircraftScore: { type: Number },
+    pilotScore: { type: Number },
+    weatherScore: { type: Number },
+    familiarityScore: { type: Number },
+    failureProbScore: { type: Number },
+    totalScore: { type: Number },
+    survivalProbability: { type: String },
   },
   combinedRiskScenarios: [RiskScenarioSchema],
   goNoGoRecommendation: { type: String, enum: ['go', 'caution', 'no-go'] },

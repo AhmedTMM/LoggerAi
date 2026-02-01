@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
-import { Plane, Plus, AlertTriangle, CheckCircle, Wrench, Trash2, RefreshCw, Clock, Shield, History } from 'lucide-react';
-import { useAircraft, useCreateAircraft, useDeleteAircraft } from '@/lib/hooks';
+import { useState, useEffect } from 'react';
+import { Plane, Plus, AlertTriangle, CheckCircle, Wrench, Trash2, RefreshCw, Clock, Shield, History, FileText, ChevronDown, ChevronUp } from 'lucide-react';
+import { useAircraft, useCreateAircraft, useDeleteAircraft, useParsedDocuments, useGenerateSafetyAnalysis } from '@/lib/hooks';
 import type { Aircraft } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -26,10 +26,34 @@ export default function AircraftPage() {
     const { data: fleet, isLoading, error, refetch } = useAircraft();
     const createAircraft = useCreateAircraft();
     const deleteAircraft = useDeleteAircraft();
+    const generateSafetyAnalysis = useGenerateSafetyAnalysis();
 
     const [selectedAircraft, setSelectedAircraft] = useState<Aircraft | null>(null);
     const [showAddModal, setShowAddModal] = useState(false);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [isGeneratingAnalysis, setIsGeneratingAnalysis] = useState(false);
+
+    // Auto-generate safety analysis when aircraft is selected without one
+    useEffect(() => {
+        if (selectedAircraft && !selectedAircraft.safetyAnalysis && !isGeneratingAnalysis) {
+            // Only generate if the aircraft has logs to analyze
+            const hasLogs = (selectedAircraft.logs && selectedAircraft.logs.length > 0) ||
+                           (selectedAircraft.logbooks && Object.values(selectedAircraft.logbooks).some(arr => arr && arr.length > 0));
+
+            if (hasLogs) {
+                setIsGeneratingAnalysis(true);
+                generateSafetyAnalysis.mutate(selectedAircraft._id, {
+                    onSuccess: () => {
+                        refetch();
+                        setIsGeneratingAnalysis(false);
+                    },
+                    onError: () => {
+                        setIsGeneratingAnalysis(false);
+                    },
+                });
+            }
+        }
+    }, [selectedAircraft?._id, selectedAircraft?.safetyAnalysis]);
 
     const getMaintenanceStatus = (date: Date | string) => {
         const days = getDaysUntil(date);
@@ -271,10 +295,44 @@ export default function AircraftPage() {
 
                                     {/* Safety Analysis */}
                                     <div>
-                                        <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3 flex items-center gap-2">
-                                            <Shield className="w-4 h-4" /> Safety Analysis
-                                        </h4>
-                                        {selectedAircraft.safetyAnalysis?.findings && selectedAircraft.safetyAnalysis.findings.length > 0 ? (
+                                        <div className="flex items-center justify-between mb-3">
+                                            <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                                                <Shield className="w-4 h-4" /> Safety Analysis
+                                            </h4>
+                                            {selectedAircraft.safetyAnalysis && (
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => {
+                                                        setIsGeneratingAnalysis(true);
+                                                        generateSafetyAnalysis.mutate(selectedAircraft._id, {
+                                                            onSuccess: () => {
+                                                                refetch();
+                                                                setIsGeneratingAnalysis(false);
+                                                            },
+                                                            onError: () => setIsGeneratingAnalysis(false),
+                                                        });
+                                                    }}
+                                                    disabled={isGeneratingAnalysis}
+                                                    className="text-xs"
+                                                >
+                                                    {isGeneratingAnalysis ? (
+                                                        <RefreshCw className="w-3 h-3 animate-spin mr-1" />
+                                                    ) : (
+                                                        <RefreshCw className="w-3 h-3 mr-1" />
+                                                    )}
+                                                    Regenerate
+                                                </Button>
+                                            )}
+                                        </div>
+                                        {isGeneratingAnalysis ? (
+                                            <div className="p-4 bg-zinc-50 dark:bg-zinc-900 rounded-lg text-center">
+                                                <RefreshCw className="w-8 h-8 text-blue-500 mx-auto mb-2 animate-spin" />
+                                                <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                                                    Generating safety analysis...
+                                                </p>
+                                            </div>
+                                        ) : selectedAircraft.safetyAnalysis?.findings && selectedAircraft.safetyAnalysis.findings.length > 0 ? (
                                             <div className="space-y-2">
                                                 <div className="flex items-center justify-between mb-3">
                                                     <span className="text-sm text-zinc-500 dark:text-zinc-400">
@@ -326,68 +384,38 @@ export default function AircraftPage() {
                                                 <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
                                                     Upload maintenance logs to generate analysis
                                                 </p>
+                                                {(selectedAircraft.logs?.length > 0 || (selectedAircraft.logbooks && Object.values(selectedAircraft.logbooks).some(arr => arr && arr.length > 0))) && (
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="mt-3"
+                                                        onClick={() => {
+                                                            setIsGeneratingAnalysis(true);
+                                                            generateSafetyAnalysis.mutate(selectedAircraft._id, {
+                                                                onSuccess: () => {
+                                                                    refetch();
+                                                                    setIsGeneratingAnalysis(false);
+                                                                },
+                                                                onError: () => setIsGeneratingAnalysis(false),
+                                                            });
+                                                        }}
+                                                    >
+                                                        <Shield className="w-4 h-4 mr-2" />
+                                                        Generate Analysis
+                                                    </Button>
+                                                )}
                                             </div>
                                         )}
                                     </div>
 
                                     {/* Maintenance History */}
-                                    <div>
-                                        <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3 flex items-center gap-2">
-                                            <History className="w-4 h-4" /> Maintenance History
-                                        </h4>
-                                        {selectedAircraft.logs && selectedAircraft.logs.length > 0 ? (
-                                            <div className="space-y-2 max-h-64 overflow-y-auto">
-                                                {selectedAircraft.logs
-                                                    .slice()
-                                                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-                                                    .slice(0, 20)
-                                                    .map((log, idx) => (
-                                                    <div
-                                                        key={idx}
-                                                        className="p-3 bg-zinc-50 dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700"
-                                                    >
-                                                        <div className="flex items-center justify-between mb-1">
-                                                            <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                                                                {new Date(log.date).toLocaleDateString()}
-                                                            </span>
-                                                            <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-                                                                {log.tachTime > 0 && <span>Tach: {log.tachTime.toFixed(1)}</span>}
-                                                                {log.hobbsTime > 0 && <span>Hobbs: {log.hobbsTime.toFixed(1)}</span>}
-                                                            </div>
-                                                        </div>
-                                                        <p className="text-sm text-zinc-600 dark:text-zinc-400 line-clamp-2">
-                                                            {log.description}
-                                                        </p>
-                                                        {log.mechanic && (
-                                                            <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
-                                                                Mechanic: {log.mechanic}
-                                                            </p>
-                                                        )}
-                                                        {log.category && (
-                                                            <Badge variant="outline" className="mt-2 text-xs">
-                                                                {log.category}
-                                                            </Badge>
-                                                        )}
-                                                    </div>
-                                                ))}
-                                                {selectedAircraft.logs.length > 20 && (
-                                                    <p className="text-xs text-center text-zinc-500 dark:text-zinc-400 py-2">
-                                                        Showing 20 of {selectedAircraft.logs.length} entries
-                                                    </p>
-                                                )}
-                                            </div>
-                                        ) : (
-                                            <div className="p-4 bg-zinc-50 dark:bg-zinc-900 rounded-lg text-center">
-                                                <History className="w-8 h-8 text-zinc-300 dark:text-zinc-600 mx-auto mb-2" />
-                                                <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                                                    No maintenance history available
-                                                </p>
-                                                <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
-                                                    Upload a maintenance logbook to see history
-                                                </p>
-                                            </div>
-                                        )}
-                                    </div>
+                                    <MaintenanceHistorySection
+                                        aircraftId={selectedAircraft._id}
+                                        aircraftLogs={selectedAircraft.logs}
+                                    />
+
+                                    {/* Linked Documents */}
+                                    <LinkedDocumentsSection aircraftId={selectedAircraft._id} />
                                 </div>
                             </div>
                         ) : (
@@ -443,6 +471,244 @@ export default function AircraftPage() {
                             </Button>
                         </div>
                     </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function MaintenanceHistorySection({ aircraftId, aircraftLogs }: { aircraftId: string; aircraftLogs?: any[] }) {
+    const { data: documents, isLoading } = useParsedDocuments({ aircraftId });
+
+    // Combine entries from aircraft logs and linked documents
+    const allEntries: any[] = [];
+
+    // Add aircraft logs
+    if (aircraftLogs && aircraftLogs.length > 0) {
+        allEntries.push(...aircraftLogs.map(log => ({
+            ...log,
+            source: 'aircraft',
+        })));
+    }
+
+    // Add entries from linked documents
+    const linkedDocs = documents?.filter((doc: any) => doc.status === 'completed') || [];
+    for (const doc of linkedDocs) {
+        if (doc.entries && doc.entries.length > 0) {
+            allEntries.push(...doc.entries.map((entry: any) => ({
+                date: entry.date,
+                description: entry.description || entry.workPerformed || entry.remarks || 'Maintenance entry',
+                hobbsTime: entry.hobbsTime || entry.hobbs || 0,
+                tachTime: entry.tachTime || entry.tach || 0,
+                mechanic: entry.mechanic || entry.signedBy,
+                category: entry.category,
+                source: 'document',
+                docName: doc.originalFilename || doc.filename,
+            })));
+        }
+    }
+
+    // Sort by date (newest first)
+    allEntries.sort((a, b) => {
+        const dateA = new Date(a.date || 0).getTime();
+        const dateB = new Date(b.date || 0).getTime();
+        return dateB - dateA;
+    });
+
+    if (isLoading) {
+        return (
+            <div>
+                <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3 flex items-center gap-2">
+                    <History className="w-4 h-4" /> Maintenance History
+                </h4>
+                <div className="p-4 bg-zinc-50 dark:bg-zinc-900 rounded-lg text-center">
+                    <RefreshCw className="w-6 h-6 text-zinc-400 mx-auto animate-spin" />
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div>
+            <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3 flex items-center gap-2">
+                <History className="w-4 h-4" /> Maintenance History
+                {allEntries.length > 0 && (
+                    <Badge variant="secondary" className="text-xs">{allEntries.length}</Badge>
+                )}
+            </h4>
+            {allEntries.length > 0 ? (
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {allEntries.slice(0, 30).map((entry, idx) => (
+                        <div
+                            key={idx}
+                            className="p-3 bg-zinc-50 dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700"
+                        >
+                            <div className="flex items-center justify-between mb-1">
+                                <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                                    {entry.date ? new Date(entry.date).toLocaleDateString() : 'No date'}
+                                </span>
+                                <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+                                    {entry.tachTime > 0 && <span>Tach: {typeof entry.tachTime === 'number' ? entry.tachTime.toFixed(1) : entry.tachTime}</span>}
+                                    {entry.hobbsTime > 0 && <span>Hobbs: {typeof entry.hobbsTime === 'number' ? entry.hobbsTime.toFixed(1) : entry.hobbsTime}</span>}
+                                </div>
+                            </div>
+                            <p className="text-sm text-zinc-600 dark:text-zinc-400 line-clamp-2">
+                                {entry.description}
+                            </p>
+                            {entry.mechanic && (
+                                <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
+                                    Mechanic: {entry.mechanic}
+                                </p>
+                            )}
+                            <div className="flex items-center gap-2 mt-1">
+                                {entry.category && (
+                                    <Badge variant="outline" className="text-xs">
+                                        {entry.category}
+                                    </Badge>
+                                )}
+                                {entry.source === 'document' && entry.docName && (
+                                    <span className="text-xs text-blue-500 dark:text-blue-400 truncate max-w-[150px]">
+                                        from {entry.docName}
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                    {allEntries.length > 30 && (
+                        <p className="text-xs text-center text-zinc-500 dark:text-zinc-400 py-2">
+                            Showing 30 of {allEntries.length} entries
+                        </p>
+                    )}
+                </div>
+            ) : (
+                <div className="p-4 bg-zinc-50 dark:bg-zinc-900 rounded-lg text-center">
+                    <History className="w-8 h-8 text-zinc-300 dark:text-zinc-600 mx-auto mb-2" />
+                    <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                        No maintenance history available
+                    </p>
+                    <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
+                        Upload a maintenance logbook to see history
+                    </p>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function LinkedDocumentsSection({ aircraftId }: { aircraftId: string }) {
+    const { data: documents, isLoading } = useParsedDocuments({ aircraftId });
+    const [expandedDoc, setExpandedDoc] = useState<string | null>(null);
+
+    if (isLoading) {
+        return (
+            <div className="p-4 bg-zinc-50 dark:bg-zinc-900 rounded-lg text-center">
+                <RefreshCw className="w-6 h-6 text-zinc-400 mx-auto animate-spin" />
+            </div>
+        );
+    }
+
+    const linkedDocs = documents?.filter((doc: any) => doc.status === 'completed') || [];
+
+    return (
+        <div>
+            <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3 flex items-center gap-2">
+                <FileText className="w-4 h-4" /> Linked Documents
+                {linkedDocs.length > 0 && (
+                    <Badge variant="secondary" className="text-xs">{linkedDocs.length}</Badge>
+                )}
+            </h4>
+            {linkedDocs.length > 0 ? (
+                <div className="space-y-2">
+                    {linkedDocs.map((doc: any) => {
+                        const isExpanded = expandedDoc === doc._id;
+                        const entries = doc.entries || [];
+
+                        return (
+                            <div
+                                key={doc._id}
+                                className="bg-zinc-50 dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden"
+                            >
+                                {/* Document Header */}
+                                <div
+                                    className="p-3 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                                    onClick={() => setExpandedDoc(isExpanded ? null : doc._id)}
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <FileText className="w-4 h-4 text-blue-500" />
+                                            <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate max-w-[200px]">
+                                                {doc.originalFilename || doc.filename}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <Badge variant="outline" className="text-xs">
+                                                {entries.length} entries
+                                            </Badge>
+                                            {isExpanded ? (
+                                                <ChevronUp className="w-4 h-4 text-zinc-400" />
+                                            ) : (
+                                                <ChevronDown className="w-4 h-4 text-zinc-400" />
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-3 mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                                        <span>{doc.documentType?.replace(/_/g, ' ')}</span>
+                                        {doc.summary?.dateRange && (
+                                            <span>
+                                                {doc.summary.dateRange.from} - {doc.summary.dateRange.to}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Expanded Entries */}
+                                {isExpanded && entries.length > 0 && (
+                                    <div className="border-t border-zinc-200 dark:border-zinc-700 max-h-64 overflow-y-auto">
+                                        {entries.slice(0, 50).map((entry: any, idx: number) => (
+                                            <div
+                                                key={idx}
+                                                className="p-3 border-b border-zinc-100 dark:border-zinc-800 last:border-b-0"
+                                            >
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                                                        {entry.date || 'No date'}
+                                                    </span>
+                                                    <div className="flex items-center gap-2 text-xs text-zinc-500">
+                                                        {entry.tachTime > 0 && <span>Tach: {entry.tachTime}</span>}
+                                                        {entry.hobbsTime > 0 && <span>Hobbs: {entry.hobbsTime}</span>}
+                                                        {entry.totalTime > 0 && <span>{entry.totalTime}h</span>}
+                                                    </div>
+                                                </div>
+                                                <p className="text-xs text-zinc-600 dark:text-zinc-400 line-clamp-2">
+                                                    {entry.description || entry.remarks || entry.workPerformed || 'No description'}
+                                                </p>
+                                                {entry.mechanic && (
+                                                    <p className="text-xs text-zinc-400 mt-1">
+                                                        Mechanic: {entry.mechanic}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        ))}
+                                        {entries.length > 50 && (
+                                            <p className="text-xs text-center text-zinc-500 py-2">
+                                                Showing 50 of {entries.length} entries
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            ) : (
+                <div className="p-4 bg-zinc-50 dark:bg-zinc-900 rounded-lg text-center">
+                    <FileText className="w-8 h-8 text-zinc-300 dark:text-zinc-600 mx-auto mb-2" />
+                    <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                        No linked documents
+                    </p>
+                    <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
+                        Upload logbooks from the Files page and link them to this aircraft
+                    </p>
                 </div>
             )}
         </div>

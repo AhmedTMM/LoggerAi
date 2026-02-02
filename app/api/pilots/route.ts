@@ -2,11 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/db';
 import Pilot from '@/lib/models/Pilot';
 import { parseDocument, aggregateLogbookHours } from '@/lib/services/reductoService';
+import { requireAuth } from '@/lib/auth-helpers';
 
 export async function GET() {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await dbConnect();
-    const pilots = await Pilot.find().select('-flightEntries -linkedDocuments').sort({ name: 1 });
+    const pilots = await Pilot.find({ userId }).select('-flightEntries -linkedDocuments').sort({ name: 1 });
     return NextResponse.json({ success: true, data: pilots });
   } catch (error) {
     return NextResponse.json(
@@ -18,11 +22,15 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await dbConnect();
     const body = await request.json();
 
     // Pilot Data from user input
     const pilotData = {
+      userId,
       name: body.name,
       email: body.email,
       certificates: body.certificates || {

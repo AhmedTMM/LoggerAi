@@ -15,6 +15,7 @@ export { DOCUMENT_TYPE_META } from '@/lib/documentTypes';
 import type { ProgressStep, DocumentType, DocumentAnalysis } from '@/lib/documentTypes';
 
 export interface IParsedDocument extends Document {
+    userId: string;
     filename: string;
     originalFilename: string;
     documentType: DocumentType;
@@ -70,6 +71,7 @@ const DOCUMENT_TYPE_VALUES: DocumentType[] = [
 ];
 
 const ParsedDocumentSchema = new Schema<IParsedDocument>({
+    userId: { type: String, required: true, index: true },
     filename: { type: String, required: true },
     originalFilename: { type: String },
     documentType: {

@@ -87,6 +87,7 @@ export interface IMELItem {
 
 export interface IAircraft {
   _id: mongoose.Types.ObjectId;
+  userId: string;
   tailNumber: string;
   model: string;
   serial: string;
@@ -233,10 +234,14 @@ const MELItemSchema = new Schema({
 
 const AircraftSchema = new Schema<IAircraft>(
   {
+    userId: {
+      type: String,
+      required: true,
+      index: true,
+    },
     tailNumber: {
       type: String,
       required: true,
-      unique: true,
       uppercase: true,
       trim: true,
     },

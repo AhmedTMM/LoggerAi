@@ -165,6 +165,7 @@ export interface IComprehensiveSafetyAnalysis {
 
 export interface IFlight {
   _id: mongoose.Types.ObjectId;
+  userId: string;
   pilot: Types.ObjectId;
   aircraft: Types.ObjectId;
   // Safety Audit Reference (Skyris Integration)
@@ -367,6 +368,11 @@ const ComprehensiveSafetyAnalysisSchema = new Schema({
 
 const FlightSchema = new Schema<IFlight>(
   {
+    userId: {
+      type: String,
+      required: true,
+      index: true,
+    },
     pilot: {
       type: Schema.Types.ObjectId,
       ref: 'Pilot',

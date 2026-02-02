@@ -5,9 +5,13 @@ import dbConnect from '@/lib/db';
 import Aircraft from '@/lib/models/Aircraft';
 import Pilot from '@/lib/models/Pilot';
 import ParsedDocument from '@/lib/models/ParsedDocument';
+import { requireAuth } from '@/lib/auth-helpers';
 
 export async function POST(request: NextRequest) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     const body = await request.json();
     const { fileBase64, fileType, documentType, aircraftId, pilotId, filename, background } = body;
 
@@ -22,6 +26,7 @@ export async function POST(request: NextRequest) {
 
     // Create a pending document record
     const doc = await ParsedDocument.create({
+      userId,
       filename: filename || `${documentType}_${Date.now()}.${fileType}`,
       documentType,
       fileType,
@@ -101,6 +106,9 @@ export async function POST(request: NextRequest) {
 // GET: List all parsed documents
 export async function GET(request: NextRequest) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await dbConnect();
 
     const { searchParams } = new URL(request.url);
@@ -109,7 +117,7 @@ export async function GET(request: NextRequest) {
     const documentType = searchParams.get('documentType');
     const status = searchParams.get('status');
 
-    const query: Record<string, any> = {};
+    const query: Record<string, any> = { userId };
     if (aircraftId) query.aircraft = aircraftId;
     if (pilotId) query.pilot = pilotId;
     if (documentType) query.documentType = documentType;

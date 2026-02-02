@@ -49,6 +49,7 @@ export interface IFlightEntry {
 
 export interface IPilot {
   _id: mongoose.Types.ObjectId;
+  userId: string;
   name: string;
   email: string;
   certificates: ICertificate;
@@ -128,6 +129,11 @@ const FlightEntrySchema = new Schema<IFlightEntry>({
 
 const PilotSchema = new Schema<IPilot>(
   {
+    userId: {
+      type: String,
+      required: true,
+      index: true,
+    },
     name: {
       type: String,
       required: true,
@@ -137,7 +143,6 @@ const PilotSchema = new Schema<IPilot>(
     email: {
       type: String,
       required: true,
-      unique: true,
       lowercase: true,
       trim: true,
     },

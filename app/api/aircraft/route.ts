@@ -3,13 +3,17 @@ import dbConnect from '@/lib/db';
 import Aircraft from '@/lib/models/Aircraft';
 import { fetchAircraftDetails } from '@/lib/services/firecrawlService';
 import { parsePOHFromUrl } from '@/lib/services/reductoService';
+import { requireAuth } from '@/lib/auth-helpers';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await dbConnect();
-    const aircraft = await Aircraft.find().select('-logs -linkedDocuments').sort({ tailNumber: 1 });
+    const aircraft = await Aircraft.find({ userId }).select('-logs -linkedDocuments').sort({ tailNumber: 1 });
     return NextResponse.json({ success: true, data: aircraft });
   } catch (error) {
     return NextResponse.json(
@@ -21,6 +25,9 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await dbConnect();
     const body = await request.json();
 
@@ -38,6 +45,7 @@ export async function POST(request: NextRequest) {
 
       let aircraftData = {
         ...details.data,
+        userId,
         tailNumber: body.tailNumber,
         currentHours: { hobbs: 0, tach: 0 },
         maintenanceDates: {
@@ -82,7 +90,7 @@ export async function POST(request: NextRequest) {
 
     } else {
       // Normal manual add (fallback)
-      const aircraft = new Aircraft(body);
+      const aircraft = new Aircraft({ ...body, userId });
       await aircraft.save();
       return NextResponse.json({ success: true, data: aircraft }, { status: 201 });
     }
@@ -98,6 +106,9 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await dbConnect();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
@@ -109,7 +120,8 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    await Aircraft.findByIdAndDelete(id);
+    // Only delete if it belongs to the user
+    await Aircraft.findOneAndDelete({ _id: id, userId });
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Delete aircraft error:', error);

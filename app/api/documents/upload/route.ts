@@ -7,6 +7,7 @@ import { parseDocument } from '@/lib/services/reductoService';
 import { classifyDocumentFast, FastDocumentClassification } from '@/lib/services/aiService';
 import { saveFile } from '@/lib/services/fileStorage';
 import { reconcileDocumentLinks } from '@/lib/services/reconciliationService';
+import { requireAuth } from '@/lib/auth-helpers';
 
 // Allow longer timeout for large file processing
 export const maxDuration = 300;
@@ -18,6 +19,9 @@ const MONGODB_SAFE_SIZE = 10 * 1024 * 1024; // 10MB base64
 // Upload endpoint - handles both small files (store for later) and large files (parse inline)
 export async function POST(request: NextRequest) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     // Use text() instead of json() to handle larger payloads
     let body;
     try {
@@ -106,6 +110,7 @@ export async function POST(request: NextRequest) {
 
     // Create document record
     const doc = await ParsedDocument.create({
+      userId,
       filename: suggestedName,
       originalFilename,
       documentType,

@@ -1,13 +1,15 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Plane, Plus, AlertTriangle, CheckCircle, Wrench, Trash2, RefreshCw, Clock, Shield, History, FileText, ChevronDown, ChevronUp, Pencil, Check, X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Plane, Plus, AlertTriangle, CheckCircle, Wrench, Trash2, RefreshCw, Clock, Shield, History, FileText, ChevronDown, ChevronUp, Pencil, Check, X, Info } from 'lucide-react';
 import { useAircraft, useCreateAircraft, useDeleteAircraft, useUpdateAircraft, useParsedDocuments, useGenerateSafetyAnalysis } from '@/lib/hooks';
 import type { Aircraft } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { LoadingSpinner } from '@/components/ui/LoadingSkeleton';
 import { cn, getDaysUntil } from '@/lib/utils';
+
+type TabType = 'overview' | 'maintenance' | 'safety' | 'documents';
 
 // Estimate Hobbs from Tach if not available
 // Typical Hobbs runs ~10-15% higher than Tach (cruise vs continuous)
@@ -35,6 +37,7 @@ export default function AircraftPage() {
     const [isGeneratingAnalysis, setIsGeneratingAnalysis] = useState(false);
     const [editingDate, setEditingDate] = useState<string | null>(null);
     const [editDateValue, setEditDateValue] = useState('');
+    const [activeTab, setActiveTab] = useState<TabType>('overview');
 
     // Auto-generate safety analysis when aircraft is selected without one
     useEffect(() => {
@@ -74,6 +77,13 @@ export default function AircraftPage() {
     );
 
     const maintenanceDue = fleet?.filter(ac => getDaysUntil(ac.maintenanceDates?.annual) < 30).length || 0;
+
+    const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
+        { id: 'overview', label: 'Overview', icon: <Info className="w-4 h-4" /> },
+        { id: 'maintenance', label: 'Maintenance', icon: <Wrench className="w-4 h-4" /> },
+        { id: 'safety', label: 'Safety', icon: <Shield className="w-4 h-4" /> },
+        { id: 'documents', label: 'Documents', icon: <FileText className="w-4 h-4" /> },
+    ];
 
     return (
         <div className="space-y-6">
@@ -118,7 +128,7 @@ export default function AircraftPage() {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 sm:gap-6">
                 {/* Aircraft List */}
                 <div className="lg:col-span-1">
                     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
@@ -133,11 +143,14 @@ export default function AircraftPage() {
                                 return (
                                     <div
                                         key={ac._id}
-                                        onClick={() => setSelectedAircraft(ac)}
+                                        onClick={() => {
+                                            setSelectedAircraft(ac);
+                                            setActiveTab('overview');
+                                        }}
                                         className={cn(
                                             "p-4 border-b border-zinc-100 cursor-pointer transition-colors",
                                             isSelected
-                                                ? "bg-blue-50"
+                                                ? "bg-blue-50 border-l-4 border-l-blue-500"
                                                 : "hover:bg-zinc-50"
                                         )}
                                     >
@@ -177,8 +190,8 @@ export default function AircraftPage() {
                 </div>
 
                 {/* Aircraft Details */}
-                <div className="lg:col-span-2">
-                    <div className="bg-white rounded-xl border border-zinc-200 min-h-[350px] lg:min-h-[500px]">
+                <div className="lg:col-span-3">
+                    <div className="bg-white rounded-xl border border-zinc-200 min-h-[350px] lg:min-h-[600px]">
                         {selectedAircraft ? (
                             <div className="h-full flex flex-col">
                                 {/* Header */}
@@ -212,287 +225,60 @@ export default function AircraftPage() {
                                     </div>
                                 </div>
 
-                                {/* Content */}
-                                <div className="p-4 sm:p-6 flex-1 overflow-y-auto space-y-4 sm:space-y-6">
-                                    {/* Safety Status At A Glance */}
-                                    <SafetyStatusCard
-                                        aircraft={selectedAircraft}
-                                        getMaintenanceStatus={getMaintenanceStatus}
-                                    />
-
-                                    {/* Times */}
-                                    <div>
-                                        <h4 className="font-semibold text-zinc-900 mb-3 flex items-center gap-2">
-                                            <Clock className="w-4 h-4" /> Aircraft Times
-                                        </h4>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            {(() => {
-                                                const hobbsInfo = getDisplayHobbs(
-                                                    selectedAircraft.currentHours?.hobbs,
-                                                    selectedAircraft.currentHours?.tach
-                                                );
-                                                return (
-                                                    <div className="bg-zinc-50 rounded-lg p-4">
-                                                        <p className="text-xs text-zinc-500 uppercase flex items-center gap-1">
-                                                            Hobbs
-                                                            {hobbsInfo.isEstimated && (
-                                                                <span className="text-amber-500">(est.)</span>
-                                                            )}
-                                                        </p>
-                                                        <p className={cn(
-                                                            "text-2xl font-bold",
-                                                            hobbsInfo.isEstimated
-                                                                ? "text-amber-600"
-                                                                : "text-zinc-900"
-                                                        )}>
-                                                            {hobbsInfo.value.toFixed(1)}
-                                                        </p>
-                                                        {hobbsInfo.isEstimated && (
-                                                            <p className="text-xs text-amber-600 mt-1">
-                                                                Based on Tach × 1.1
-                                                            </p>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })()}
-                                            <div className="bg-zinc-50 rounded-lg p-4">
-                                                <p className="text-xs text-zinc-500 uppercase">Tach</p>
-                                                <p className="text-2xl font-bold text-zinc-900">{selectedAircraft.currentHours?.tach?.toFixed(1) || 0}</p>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Maintenance */}
-                                    <div>
-                                        <h4 className="font-semibold text-zinc-900 mb-3 flex items-center gap-2">
-                                            <Wrench className="w-4 h-4" /> Maintenance Status
-                                        </h4>
-                                        <div className="space-y-3">
-                                            {[
-                                                { key: 'annual', label: 'Annual Inspection', date: selectedAircraft.maintenanceDates?.annual },
-                                                { key: 'transponder', label: 'Transponder Check', date: selectedAircraft.maintenanceDates?.transponder },
-                                                { key: 'staticSystem', label: 'Pitot-Static', date: selectedAircraft.maintenanceDates?.staticSystem },
-                                                { key: 'hundredHour', label: '100-Hour Inspection', date: selectedAircraft.maintenanceDates?.hundredHour },
-                                            ].map((item) => {
-                                                const status = item.date ? getMaintenanceStatus(item.date) : null;
-                                                const isEditing = editingDate === item.key;
-
-                                                const handleSave = () => {
-                                                    if (!editDateValue) return;
-                                                    updateAircraft.mutate({
-                                                        id: selectedAircraft._id as string,
-                                                        aircraft: {
-                                                            maintenanceDates: {
-                                                                ...selectedAircraft.maintenanceDates,
-                                                                [item.key]: new Date(editDateValue),
-                                                            },
-                                                        },
-                                                    }, {
-                                                        onSuccess: () => {
-                                                            setEditingDate(null);
-                                                            refetch();
-                                                        },
-                                                    });
-                                                };
-
-                                                const handleStartEdit = () => {
-                                                    setEditingDate(item.key);
-                                                    setEditDateValue(
-                                                        item.date
-                                                            ? new Date(item.date).toISOString().split('T')[0]
-                                                            : new Date().toISOString().split('T')[0]
-                                                    );
-                                                };
-
-                                                return (
-                                                    <div key={item.key} className="flex items-center justify-between p-3 bg-zinc-50 rounded-lg">
-                                                        <span className="text-zinc-700">{item.label}</span>
-                                                        <div className="flex items-center gap-2">
-                                                            {isEditing ? (
-                                                                <>
-                                                                    <input
-                                                                        type="date"
-                                                                        value={editDateValue}
-                                                                        onChange={(e) => setEditDateValue(e.target.value)}
-                                                                        className="px-2 py-1 text-sm border border-zinc-300 rounded bg-white text-zinc-900"
-                                                                    />
-                                                                    <button
-                                                                        onClick={handleSave}
-                                                                        disabled={updateAircraft.isPending}
-                                                                        className="p-1 text-emerald-600 hover:bg-emerald-100 rounded"
-                                                                    >
-                                                                        {updateAircraft.isPending ? (
-                                                                            <RefreshCw className="w-4 h-4 animate-spin" />
-                                                                        ) : (
-                                                                            <Check className="w-4 h-4" />
-                                                                        )}
-                                                                    </button>
-                                                                    <button
-                                                                        onClick={() => setEditingDate(null)}
-                                                                        className="p-1 text-zinc-500 hover:bg-zinc-200 rounded"
-                                                                    >
-                                                                        <X className="w-4 h-4" />
-                                                                    </button>
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <span className="text-sm text-zinc-500">
-                                                                        {item.date ? new Date(item.date).toLocaleDateString() : 'Not set'}
-                                                                    </span>
-                                                                    {status && <Badge variant={status.badge as any}>{status.text}</Badge>}
-                                                                    <button
-                                                                        onClick={handleStartEdit}
-                                                                        className="p-1 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-200 rounded"
-                                                                    >
-                                                                        <Pencil className="w-3.5 h-3.5" />
-                                                                    </button>
-                                                                </>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-
-                                    {/* Details */}
-                                    <div>
-                                        <h4 className="font-semibold text-zinc-900 mb-3">Details</h4>
-                                        <div className="grid grid-cols-2 gap-3 text-sm">
-                                            <div className="p-3 bg-zinc-50 rounded-lg">
-                                                <p className="text-zinc-500">Serial</p>
-                                                <p className="font-medium text-zinc-900">{selectedAircraft.serial || 'N/A'}</p>
-                                            </div>
-                                            <div className="p-3 bg-zinc-50 rounded-lg">
-                                                <p className="text-zinc-500">Year</p>
-                                                <p className="font-medium text-zinc-900">{selectedAircraft.year || 'N/A'}</p>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Safety Analysis */}
-                                    <div>
-                                        <div className="flex items-center justify-between mb-3">
-                                            <h4 className="font-semibold text-zinc-900 flex items-center gap-2">
-                                                <Shield className="w-4 h-4" /> Safety Analysis
-                                            </h4>
-                                            {selectedAircraft.safetyAnalysis && (
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    onClick={() => {
-                                                        setIsGeneratingAnalysis(true);
-                                                        generateSafetyAnalysis.mutate(selectedAircraft._id, {
-                                                            onSuccess: () => {
-                                                                refetch();
-                                                                setIsGeneratingAnalysis(false);
-                                                            },
-                                                            onError: () => setIsGeneratingAnalysis(false),
-                                                        });
-                                                    }}
-                                                    disabled={isGeneratingAnalysis}
-                                                    className="text-xs"
-                                                >
-                                                    {isGeneratingAnalysis ? (
-                                                        <RefreshCw className="w-3 h-3 animate-spin mr-1" />
-                                                    ) : (
-                                                        <RefreshCw className="w-3 h-3 mr-1" />
-                                                    )}
-                                                    Regenerate
-                                                </Button>
-                                            )}
-                                        </div>
-                                        {isGeneratingAnalysis ? (
-                                            <div className="p-4 bg-zinc-50 rounded-lg text-center">
-                                                <RefreshCw className="w-8 h-8 text-blue-500 mx-auto mb-2 animate-spin" />
-                                                <p className="text-sm text-zinc-500">
-                                                    Generating safety analysis...
-                                                </p>
-                                            </div>
-                                        ) : selectedAircraft.safetyAnalysis?.findings && selectedAircraft.safetyAnalysis.findings.length > 0 ? (
-                                            <div className="space-y-2">
-                                                <div className="flex items-center justify-between mb-3">
-                                                    <span className="text-sm text-zinc-500">
-                                                        Last analyzed: {new Date(selectedAircraft.safetyAnalysis.lastAnalyzed).toLocaleDateString()}
-                                                    </span>
-                                                    <Badge variant={
-                                                        selectedAircraft.safetyAnalysis.score >= 80 ? 'success' :
-                                                        selectedAircraft.safetyAnalysis.score >= 60 ? 'warning' : 'destructive'
-                                                    }>
-                                                        Score: {selectedAircraft.safetyAnalysis.score}
-                                                    </Badge>
-                                                </div>
-                                                {selectedAircraft.safetyAnalysis.findings.map((finding, idx) => (
-                                                    <div
-                                                        key={idx}
-                                                        className={cn(
-                                                            "p-3 rounded-lg border",
-                                                            finding.status === 'critical'
-                                                                ? "bg-red-50 border-red-200"
-                                                                : finding.status === 'warning'
-                                                                ? "bg-amber-50 border-amber-200"
-                                                                : "bg-emerald-50 border-emerald-200"
-                                                        )}
-                                                    >
-                                                        <div className="flex items-center gap-2 mb-1">
-                                                            {finding.status === 'critical' ? (
-                                                                <AlertTriangle className="w-4 h-4 text-red-500" />
-                                                            ) : finding.status === 'warning' ? (
-                                                                <AlertTriangle className="w-4 h-4 text-amber-500" />
-                                                            ) : (
-                                                                <CheckCircle className="w-4 h-4 text-emerald-500" />
-                                                            )}
-                                                            <span className="font-medium text-zinc-900">
-                                                                {finding.component}
-                                                            </span>
-                                                        </div>
-                                                        <p className="text-sm text-zinc-600 ml-6">
-                                                            {finding.message}
-                                                        </p>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        ) : (
-                                            <div className="p-4 bg-zinc-50 rounded-lg text-center">
-                                                <Shield className="w-8 h-8 text-zinc-300 mx-auto mb-2" />
-                                                <p className="text-sm text-zinc-500">
-                                                    No safety analysis available
-                                                </p>
-                                                <p className="text-xs text-zinc-400 mt-1">
-                                                    Upload maintenance logs to generate analysis
-                                                </p>
-                                                {(selectedAircraft.logs?.length > 0 || (selectedAircraft.logbooks && Object.values(selectedAircraft.logbooks).some(arr => arr && arr.length > 0))) && (
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="mt-3"
-                                                        onClick={() => {
-                                                            setIsGeneratingAnalysis(true);
-                                                            generateSafetyAnalysis.mutate(selectedAircraft._id, {
-                                                                onSuccess: () => {
-                                                                    refetch();
-                                                                    setIsGeneratingAnalysis(false);
-                                                                },
-                                                                onError: () => setIsGeneratingAnalysis(false),
-                                                            });
-                                                        }}
-                                                    >
-                                                        <Shield className="w-4 h-4 mr-2" />
-                                                        Generate Analysis
-                                                    </Button>
+                                {/* Tabs */}
+                                <div className="border-b border-zinc-200 px-4 sm:px-6">
+                                    <nav className="flex gap-1 -mb-px overflow-x-auto">
+                                        {tabs.map((tab) => (
+                                            <button
+                                                key={tab.id}
+                                                onClick={() => setActiveTab(tab.id)}
+                                                className={cn(
+                                                    "flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap",
+                                                    activeTab === tab.id
+                                                        ? "border-blue-500 text-blue-600"
+                                                        : "border-transparent text-zinc-500 hover:text-zinc-700 hover:border-zinc-300"
                                                 )}
-                                            </div>
-                                        )}
-                                    </div>
+                                            >
+                                                {tab.icon}
+                                                {tab.label}
+                                            </button>
+                                        ))}
+                                    </nav>
+                                </div>
 
-                                    {/* Maintenance History */}
-                                    <MaintenanceHistorySection
-                                        aircraftId={selectedAircraft._id}
-                                        aircraftLogs={selectedAircraft.logs}
-                                    />
-
-                                    {/* Linked Documents */}
-                                    <LinkedDocumentsSection aircraftId={selectedAircraft._id} />
+                                {/* Tab Content */}
+                                <div className="p-4 sm:p-6 flex-1 overflow-y-auto">
+                                    {activeTab === 'overview' && (
+                                        <OverviewTab
+                                            aircraft={selectedAircraft}
+                                            getMaintenanceStatus={getMaintenanceStatus}
+                                            getDisplayHobbs={getDisplayHobbs}
+                                        />
+                                    )}
+                                    {activeTab === 'maintenance' && (
+                                        <MaintenanceTab
+                                            aircraft={selectedAircraft}
+                                            getMaintenanceStatus={getMaintenanceStatus}
+                                            editingDate={editingDate}
+                                            setEditingDate={setEditingDate}
+                                            editDateValue={editDateValue}
+                                            setEditDateValue={setEditDateValue}
+                                            updateAircraft={updateAircraft}
+                                            refetch={refetch}
+                                        />
+                                    )}
+                                    {activeTab === 'safety' && (
+                                        <SafetyTab
+                                            aircraft={selectedAircraft}
+                                            isGeneratingAnalysis={isGeneratingAnalysis}
+                                            setIsGeneratingAnalysis={setIsGeneratingAnalysis}
+                                            generateSafetyAnalysis={generateSafetyAnalysis}
+                                            refetch={refetch}
+                                        />
+                                    )}
+                                    {activeTab === 'documents' && (
+                                        <DocumentsTab aircraftId={selectedAircraft._id} />
+                                    )}
                                 </div>
                             </div>
                         ) : (
@@ -696,6 +482,517 @@ function SafetyStatusCard({
     );
 }
 
+// Overview Tab Component
+function OverviewTab({
+    aircraft,
+    getMaintenanceStatus,
+    getDisplayHobbs,
+}: {
+    aircraft: Aircraft;
+    getMaintenanceStatus: (date: Date | string) => { color: string; badge: string; text: string };
+    getDisplayHobbs: (hobbs: number | undefined, tach: number | undefined) => { value: number; isEstimated: boolean };
+}) {
+    return (
+        <div className="space-y-6">
+            {/* Safety Status At A Glance */}
+            <SafetyStatusCard
+                aircraft={aircraft}
+                getMaintenanceStatus={getMaintenanceStatus}
+            />
+
+            {/* Aircraft Times */}
+            <div>
+                <h4 className="font-semibold text-zinc-900 mb-3 flex items-center gap-2">
+                    <Clock className="w-4 h-4" /> Aircraft Times
+                </h4>
+                <div className="grid grid-cols-2 gap-4">
+                    {(() => {
+                        const hobbsInfo = getDisplayHobbs(
+                            aircraft.currentHours?.hobbs,
+                            aircraft.currentHours?.tach
+                        );
+                        return (
+                            <div className="bg-zinc-50 rounded-lg p-4">
+                                <p className="text-xs text-zinc-500 uppercase flex items-center gap-1">
+                                    Hobbs
+                                    {hobbsInfo.isEstimated && (
+                                        <span className="text-amber-500">(est.)</span>
+                                    )}
+                                </p>
+                                <p className={cn(
+                                    "text-2xl font-bold",
+                                    hobbsInfo.isEstimated
+                                        ? "text-amber-600"
+                                        : "text-zinc-900"
+                                )}>
+                                    {hobbsInfo.value.toFixed(1)}
+                                </p>
+                                {hobbsInfo.isEstimated && (
+                                    <p className="text-xs text-amber-600 mt-1">
+                                        Based on Tach × 1.1
+                                    </p>
+                                )}
+                            </div>
+                        );
+                    })()}
+                    <div className="bg-zinc-50 rounded-lg p-4">
+                        <p className="text-xs text-zinc-500 uppercase">Tach</p>
+                        <p className="text-2xl font-bold text-zinc-900">{aircraft.currentHours?.tach?.toFixed(1) || 0}</p>
+                    </div>
+                </div>
+            </div>
+
+            {/* Details */}
+            <div>
+                <h4 className="font-semibold text-zinc-900 mb-3">Details</h4>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                    <div className="p-3 bg-zinc-50 rounded-lg">
+                        <p className="text-zinc-500">Manufacturer</p>
+                        <p className="font-medium text-zinc-900">{aircraft.manufacturer || 'N/A'}</p>
+                    </div>
+                    <div className="p-3 bg-zinc-50 rounded-lg">
+                        <p className="text-zinc-500">Model</p>
+                        <p className="font-medium text-zinc-900">{aircraft.model || 'N/A'}</p>
+                    </div>
+                    <div className="p-3 bg-zinc-50 rounded-lg">
+                        <p className="text-zinc-500">Serial</p>
+                        <p className="font-medium text-zinc-900">{aircraft.serial || 'N/A'}</p>
+                    </div>
+                    <div className="p-3 bg-zinc-50 rounded-lg">
+                        <p className="text-zinc-500">Year</p>
+                        <p className="font-medium text-zinc-900">{aircraft.year || 'N/A'}</p>
+                    </div>
+                </div>
+            </div>
+
+            {/* Quick Maintenance Status */}
+            <div>
+                <h4 className="font-semibold text-zinc-900 mb-3 flex items-center gap-2">
+                    <Wrench className="w-4 h-4" /> Maintenance Quick View
+                </h4>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {[
+                        { key: 'annual', label: 'Annual', date: aircraft.maintenanceDates?.annual },
+                        { key: 'transponder', label: 'Transponder', date: aircraft.maintenanceDates?.transponder },
+                        { key: 'staticSystem', label: 'Pitot-Static', date: aircraft.maintenanceDates?.staticSystem },
+                        { key: 'hundredHour', label: '100-Hour', date: aircraft.maintenanceDates?.hundredHour },
+                    ].map((item) => {
+                        const status = item.date ? getMaintenanceStatus(item.date) : null;
+                        return (
+                            <div key={item.key} className="p-3 bg-zinc-50 rounded-lg">
+                                <div className="flex items-center justify-between mb-1">
+                                    <p className="text-xs text-zinc-500">{item.label}</p>
+                                    {status && (
+                                        <Badge variant={status.badge as any} className="text-xs">
+                                            {status.text}
+                                        </Badge>
+                                    )}
+                                </div>
+                                <p className="text-sm font-medium text-zinc-900">
+                                    {item.date ? new Date(item.date).toLocaleDateString() : 'Not set'}
+                                </p>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// Maintenance Tab Component
+function MaintenanceTab({
+    aircraft,
+    getMaintenanceStatus,
+    editingDate,
+    setEditingDate,
+    editDateValue,
+    setEditDateValue,
+    updateAircraft,
+    refetch,
+}: {
+    aircraft: Aircraft;
+    getMaintenanceStatus: (date: Date | string) => { color: string; badge: string; text: string };
+    editingDate: string | null;
+    setEditingDate: (date: string | null) => void;
+    editDateValue: string;
+    setEditDateValue: (value: string) => void;
+    updateAircraft: any;
+    refetch: () => void;
+}) {
+    return (
+        <div className="space-y-6">
+            {/* Maintenance Status */}
+            <div>
+                <h4 className="font-semibold text-zinc-900 mb-3 flex items-center gap-2">
+                    <Wrench className="w-4 h-4" /> Maintenance Status
+                </h4>
+                <div className="space-y-3">
+                    {[
+                        { key: 'annual', label: 'Annual Inspection', date: aircraft.maintenanceDates?.annual },
+                        { key: 'transponder', label: 'Transponder Check', date: aircraft.maintenanceDates?.transponder },
+                        { key: 'staticSystem', label: 'Pitot-Static', date: aircraft.maintenanceDates?.staticSystem },
+                        { key: 'hundredHour', label: '100-Hour Inspection', date: aircraft.maintenanceDates?.hundredHour },
+                    ].map((item) => {
+                        const status = item.date ? getMaintenanceStatus(item.date) : null;
+                        const isEditing = editingDate === item.key;
+
+                        const handleSave = () => {
+                            if (!editDateValue) return;
+                            updateAircraft.mutate({
+                                id: aircraft._id as string,
+                                aircraft: {
+                                    maintenanceDates: {
+                                        ...aircraft.maintenanceDates,
+                                        [item.key]: new Date(editDateValue),
+                                    },
+                                },
+                            }, {
+                                onSuccess: () => {
+                                    setEditingDate(null);
+                                    refetch();
+                                },
+                            });
+                        };
+
+                        const handleStartEdit = () => {
+                            setEditingDate(item.key);
+                            setEditDateValue(
+                                item.date
+                                    ? new Date(item.date).toISOString().split('T')[0]
+                                    : new Date().toISOString().split('T')[0]
+                            );
+                        };
+
+                        return (
+                            <div key={item.key} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-zinc-50 rounded-lg gap-2">
+                                <span className="text-zinc-700 font-medium">{item.label}</span>
+                                <div className="flex items-center gap-2">
+                                    {isEditing ? (
+                                        <>
+                                            <input
+                                                type="date"
+                                                value={editDateValue}
+                                                onChange={(e) => setEditDateValue(e.target.value)}
+                                                className="px-2 py-1 text-sm border border-zinc-300 rounded bg-white text-zinc-900"
+                                            />
+                                            <button
+                                                onClick={handleSave}
+                                                disabled={updateAircraft.isPending}
+                                                className="p-1 text-emerald-600 hover:bg-emerald-100 rounded"
+                                            >
+                                                {updateAircraft.isPending ? (
+                                                    <RefreshCw className="w-4 h-4 animate-spin" />
+                                                ) : (
+                                                    <Check className="w-4 h-4" />
+                                                )}
+                                            </button>
+                                            <button
+                                                onClick={() => setEditingDate(null)}
+                                                className="p-1 text-zinc-500 hover:bg-zinc-200 rounded"
+                                            >
+                                                <X className="w-4 h-4" />
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span className="text-sm text-zinc-500">
+                                                {item.date ? new Date(item.date).toLocaleDateString() : 'Not set'}
+                                            </span>
+                                            {status && <Badge variant={status.badge as any}>{status.text}</Badge>}
+                                            <button
+                                                onClick={handleStartEdit}
+                                                className="p-1 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-200 rounded"
+                                            >
+                                                <Pencil className="w-3.5 h-3.5" />
+                                            </button>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+
+            {/* Maintenance History */}
+            <MaintenanceHistorySection
+                aircraftId={aircraft._id}
+                aircraftLogs={aircraft.logs}
+            />
+        </div>
+    );
+}
+
+// Safety Tab Component
+function SafetyTab({
+    aircraft,
+    isGeneratingAnalysis,
+    setIsGeneratingAnalysis,
+    generateSafetyAnalysis,
+    refetch,
+}: {
+    aircraft: Aircraft;
+    isGeneratingAnalysis: boolean;
+    setIsGeneratingAnalysis: (value: boolean) => void;
+    generateSafetyAnalysis: any;
+    refetch: () => void;
+}) {
+    const handleRegenerate = () => {
+        setIsGeneratingAnalysis(true);
+        generateSafetyAnalysis.mutate(aircraft._id, {
+            onSuccess: () => {
+                refetch();
+                setIsGeneratingAnalysis(false);
+            },
+            onError: () => setIsGeneratingAnalysis(false),
+        });
+    };
+
+    if (isGeneratingAnalysis) {
+        return (
+            <div className="p-8 text-center">
+                <RefreshCw className="w-10 h-10 text-blue-500 mx-auto mb-3 animate-spin" />
+                <p className="text-zinc-600 font-medium">Generating Safety Analysis...</p>
+                <p className="text-sm text-zinc-500 mt-1">Analyzing maintenance records and aircraft data</p>
+            </div>
+        );
+    }
+
+    if (!aircraft.safetyAnalysis?.findings || aircraft.safetyAnalysis.findings.length === 0) {
+        const hasLogs = (aircraft.logs && aircraft.logs.length > 0) ||
+            (aircraft.logbooks && Object.values(aircraft.logbooks).some(arr => arr && arr.length > 0));
+
+        return (
+            <div className="p-8 text-center">
+                <Shield className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
+                <p className="text-zinc-600 font-medium">No Safety Analysis Available</p>
+                <p className="text-sm text-zinc-500 mt-1">
+                    {hasLogs
+                        ? 'Generate an analysis to assess aircraft safety'
+                        : 'Upload maintenance logs to generate analysis'}
+                </p>
+                {hasLogs && (
+                    <Button onClick={handleRegenerate} className="mt-4">
+                        <Shield className="w-4 h-4 mr-2" />
+                        Generate Analysis
+                    </Button>
+                )}
+            </div>
+        );
+    }
+
+    const { score, findings } = aircraft.safetyAnalysis;
+    const scoreColor = score >= 80 ? 'emerald' : score >= 60 ? 'amber' : 'red';
+
+    return (
+        <div className="space-y-6">
+            {/* Score Card */}
+            <div className={cn(
+                "rounded-lg p-6 border",
+                scoreColor === 'emerald' ? "bg-gradient-to-br from-emerald-50 to-emerald-100 border-emerald-200" :
+                scoreColor === 'amber' ? "bg-gradient-to-br from-amber-50 to-amber-100 border-amber-200" :
+                "bg-gradient-to-br from-red-50 to-red-100 border-red-200"
+            )}>
+                <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                        <Shield className={cn(
+                            "w-8 h-8",
+                            scoreColor === 'emerald' ? "text-emerald-600" :
+                            scoreColor === 'amber' ? "text-amber-600" : "text-red-600"
+                        )} />
+                        <div>
+                            <h3 className="font-semibold text-zinc-900">Safety Score</h3>
+                            <p className="text-sm text-zinc-600">
+                                Based on maintenance history and inspection status
+                            </p>
+                        </div>
+                    </div>
+                    <div className="text-right">
+                        <p className={cn(
+                            "text-4xl font-bold",
+                            scoreColor === 'emerald' ? "text-emerald-700" :
+                            scoreColor === 'amber' ? "text-amber-700" : "text-red-700"
+                        )}>
+                            {score}
+                        </p>
+                        <p className="text-sm text-zinc-500">
+                            {score >= 80 ? 'Excellent' : score >= 60 ? 'Fair' : 'Needs Attention'}
+                        </p>
+                    </div>
+                </div>
+                <div className="flex items-center justify-between">
+                    <span className="text-sm text-zinc-500">
+                        Last analyzed: {new Date(aircraft.safetyAnalysis.lastAnalyzed).toLocaleDateString()}
+                    </span>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleRegenerate}
+                        disabled={isGeneratingAnalysis}
+                    >
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Regenerate
+                    </Button>
+                </div>
+            </div>
+
+            {/* Findings */}
+            <div>
+                <h4 className="font-semibold text-zinc-900 mb-3">Analysis Findings</h4>
+                <div className="space-y-2">
+                    {findings.map((finding, idx) => (
+                        <div
+                            key={idx}
+                            className={cn(
+                                "p-3 rounded-lg border",
+                                finding.status === 'critical'
+                                    ? "bg-red-50 border-red-200"
+                                    : finding.status === 'warning'
+                                    ? "bg-amber-50 border-amber-200"
+                                    : "bg-emerald-50 border-emerald-200"
+                            )}
+                        >
+                            <div className="flex items-center gap-2 mb-1">
+                                {finding.status === 'critical' ? (
+                                    <AlertTriangle className="w-4 h-4 text-red-500" />
+                                ) : finding.status === 'warning' ? (
+                                    <AlertTriangle className="w-4 h-4 text-amber-500" />
+                                ) : (
+                                    <CheckCircle className="w-4 h-4 text-emerald-500" />
+                                )}
+                                <span className="font-medium text-zinc-900">
+                                    {finding.component}
+                                </span>
+                            </div>
+                            <p className="text-sm text-zinc-600 ml-6">
+                                {finding.message}
+                            </p>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// Documents Tab Component
+function DocumentsTab({ aircraftId }: { aircraftId: string }) {
+    const { data: documents, isLoading } = useParsedDocuments({ aircraftId });
+    const [expandedDoc, setExpandedDoc] = useState<string | null>(null);
+
+    if (isLoading) {
+        return (
+            <div className="p-8 text-center">
+                <RefreshCw className="w-8 h-8 text-zinc-400 mx-auto animate-spin" />
+                <p className="text-sm text-zinc-500 mt-2">Loading documents...</p>
+            </div>
+        );
+    }
+
+    const linkedDocs = documents?.filter((doc: any) => doc.status === 'completed') || [];
+
+    if (linkedDocs.length === 0) {
+        return (
+            <div className="p-8 text-center">
+                <FileText className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
+                <p className="text-zinc-600 font-medium">No Documents Linked</p>
+                <p className="text-sm text-zinc-500 mt-1">
+                    Upload logbooks from the Files page and link them to this aircraft
+                </p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-4">
+            <div className="flex items-center justify-between">
+                <h4 className="font-semibold text-zinc-900">Linked Documents</h4>
+                <Badge variant="secondary">{linkedDocs.length} documents</Badge>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {linkedDocs.map((doc: any) => {
+                    const isExpanded = expandedDoc === doc._id;
+                    const entries = doc.entries || [];
+
+                    return (
+                        <div
+                            key={doc._id}
+                            className="bg-zinc-50 rounded-lg border border-zinc-200 overflow-hidden hover:border-zinc-300 transition-colors"
+                        >
+                            {/* Document Header */}
+                            <div
+                                className="p-4 cursor-pointer"
+                                onClick={() => setExpandedDoc(isExpanded ? null : doc._id)}
+                            >
+                                <div className="flex items-start gap-3">
+                                    <div className="p-2 bg-blue-100 rounded-lg">
+                                        <FileText className="w-5 h-5 text-blue-600" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <h5 className="text-sm font-medium text-zinc-900 truncate">
+                                            {doc.originalFilename || doc.filename}
+                                        </h5>
+                                        <div className="flex items-center gap-2 mt-1 text-xs text-zinc-500">
+                                            <Badge variant="outline" className="text-xs">
+                                                {doc.documentType?.replace(/_/g, ' ')}
+                                            </Badge>
+                                            <span>{entries.length} entries</span>
+                                        </div>
+                                        {doc.summary?.dateRange && (
+                                            <p className="text-xs text-zinc-500 mt-1">
+                                                {doc.summary.dateRange.from} to {doc.summary.dateRange.to}
+                                            </p>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center">
+                                        {isExpanded ? (
+                                            <ChevronUp className="w-5 h-5 text-zinc-400" />
+                                        ) : (
+                                            <ChevronDown className="w-5 h-5 text-zinc-400" />
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Expanded Entries */}
+                            {isExpanded && entries.length > 0 && (
+                                <div className="border-t border-zinc-200 max-h-64 overflow-y-auto">
+                                    {entries.slice(0, 20).map((entry: any, idx: number) => (
+                                        <div
+                                            key={idx}
+                                            className="p-3 border-b border-zinc-100 last:border-b-0"
+                                        >
+                                            <div className="flex items-center justify-between mb-1">
+                                                <span className="text-xs font-medium text-zinc-700">
+                                                    {entry.date || 'No date'}
+                                                </span>
+                                                <div className="flex items-center gap-2 text-xs text-zinc-500">
+                                                    {entry.tachTime > 0 && <span>Tach: {entry.tachTime}</span>}
+                                                    {entry.hobbsTime > 0 && <span>Hobbs: {entry.hobbsTime}</span>}
+                                                </div>
+                                            </div>
+                                            <p className="text-xs text-zinc-600 line-clamp-2">
+                                                {entry.description || entry.remarks || entry.workPerformed || 'No description'}
+                                            </p>
+                                        </div>
+                                    ))}
+                                    {entries.length > 20 && (
+                                        <p className="text-xs text-center text-zinc-500 py-2">
+                                            Showing 20 of {entries.length} entries
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
 function MaintenanceHistorySection({ aircraftId, aircraftLogs }: { aircraftId: string; aircraftLogs?: any[] }) {
     const { data: documents, isLoading } = useParsedDocuments({ aircraftId });
 
@@ -807,126 +1104,6 @@ function MaintenanceHistorySection({ aircraftId, aircraftLogs }: { aircraftId: s
                     </p>
                     <p className="text-xs text-zinc-400 mt-1">
                         Upload a maintenance logbook to see history
-                    </p>
-                </div>
-            )}
-        </div>
-    );
-}
-
-function LinkedDocumentsSection({ aircraftId }: { aircraftId: string }) {
-    const { data: documents, isLoading } = useParsedDocuments({ aircraftId });
-    const [expandedDoc, setExpandedDoc] = useState<string | null>(null);
-
-    if (isLoading) {
-        return (
-            <div className="p-4 bg-zinc-50 rounded-lg text-center">
-                <RefreshCw className="w-6 h-6 text-zinc-400 mx-auto animate-spin" />
-            </div>
-        );
-    }
-
-    const linkedDocs = documents?.filter((doc: any) => doc.status === 'completed') || [];
-
-    return (
-        <div>
-            <h4 className="font-semibold text-zinc-900 mb-3 flex items-center gap-2">
-                <FileText className="w-4 h-4" /> Linked Documents
-                {linkedDocs.length > 0 && (
-                    <Badge variant="secondary" className="text-xs">{linkedDocs.length}</Badge>
-                )}
-            </h4>
-            {linkedDocs.length > 0 ? (
-                <div className="space-y-2">
-                    {linkedDocs.map((doc: any) => {
-                        const isExpanded = expandedDoc === doc._id;
-                        const entries = doc.entries || [];
-
-                        return (
-                            <div
-                                key={doc._id}
-                                className="bg-zinc-50 rounded-lg border border-zinc-200 overflow-hidden"
-                            >
-                                {/* Document Header */}
-                                <div
-                                    className="p-3 cursor-pointer hover:bg-zinc-100 transition-colors"
-                                    onClick={() => setExpandedDoc(isExpanded ? null : doc._id)}
-                                >
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2">
-                                            <FileText className="w-4 h-4 text-blue-500" />
-                                            <span className="text-sm font-medium text-zinc-900 truncate max-w-[200px]">
-                                                {doc.originalFilename || doc.filename}
-                                            </span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <Badge variant="outline" className="text-xs">
-                                                {entries.length} entries
-                                            </Badge>
-                                            {isExpanded ? (
-                                                <ChevronUp className="w-4 h-4 text-zinc-400" />
-                                            ) : (
-                                                <ChevronDown className="w-4 h-4 text-zinc-400" />
-                                            )}
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-3 mt-1 text-xs text-zinc-500">
-                                        <span>{doc.documentType?.replace(/_/g, ' ')}</span>
-                                        {doc.summary?.dateRange && (
-                                            <span>
-                                                {doc.summary.dateRange.from} - {doc.summary.dateRange.to}
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Expanded Entries */}
-                                {isExpanded && entries.length > 0 && (
-                                    <div className="border-t border-zinc-200 max-h-64 overflow-y-auto">
-                                        {entries.slice(0, 50).map((entry: any, idx: number) => (
-                                            <div
-                                                key={idx}
-                                                className="p-3 border-b border-zinc-100 last:border-b-0"
-                                            >
-                                                <div className="flex items-center justify-between mb-1">
-                                                    <span className="text-xs font-medium text-zinc-700">
-                                                        {entry.date || 'No date'}
-                                                    </span>
-                                                    <div className="flex items-center gap-2 text-xs text-zinc-500">
-                                                        {entry.tachTime > 0 && <span>Tach: {entry.tachTime}</span>}
-                                                        {entry.hobbsTime > 0 && <span>Hobbs: {entry.hobbsTime}</span>}
-                                                        {entry.totalTime > 0 && <span>{entry.totalTime}h</span>}
-                                                    </div>
-                                                </div>
-                                                <p className="text-xs text-zinc-600 line-clamp-2">
-                                                    {entry.description || entry.remarks || entry.workPerformed || 'No description'}
-                                                </p>
-                                                {entry.mechanic && (
-                                                    <p className="text-xs text-zinc-400 mt-1">
-                                                        Mechanic: {entry.mechanic}
-                                                    </p>
-                                                )}
-                                            </div>
-                                        ))}
-                                        {entries.length > 50 && (
-                                            <p className="text-xs text-center text-zinc-500 py-2">
-                                                Showing 50 of {entries.length} entries
-                                            </p>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                        );
-                    })}
-                </div>
-            ) : (
-                <div className="p-4 bg-zinc-50 rounded-lg text-center">
-                    <FileText className="w-8 h-8 text-zinc-300 mx-auto mb-2" />
-                    <p className="text-sm text-zinc-500">
-                        No linked documents
-                    </p>
-                    <p className="text-xs text-zinc-400 mt-1">
-                        Upload logbooks from the Files page and link them to this aircraft
                     </p>
                 </div>
             )}

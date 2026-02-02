@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useSession, signOut } from 'next-auth/react';
 import { cn } from '@/lib/utils';
-import { Plane, Users, LayoutDashboard, FolderOpen } from 'lucide-react';
+import { Plane, Users, LayoutDashboard, FolderOpen, LogOut } from 'lucide-react';
 
 const tabs = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -15,6 +16,12 @@ const tabs = [
 
 export function TabNav() {
     const pathname = usePathname();
+    const { data: session, status } = useSession();
+
+    // Don't show nav on login page
+    if (pathname === '/login') {
+        return null;
+    }
 
     return (
         <header className="sticky top-0 z-40 w-full border-b border-zinc-200 bg-white/90 backdrop-blur-md">
@@ -50,6 +57,42 @@ export function TabNav() {
                         );
                     })}
                 </nav>
+
+                {/* User Section */}
+                <div className="ml-auto flex items-center gap-3">
+                    {status === 'loading' ? (
+                        <div className="h-8 w-8 rounded-full bg-zinc-200 animate-pulse" />
+                    ) : session?.user ? (
+                        <>
+                            <div className="hidden sm:flex items-center gap-2">
+                                {session.user.image && (
+                                    <img
+                                        src={session.user.image}
+                                        alt={session.user.name || 'User'}
+                                        className="h-8 w-8 rounded-full"
+                                    />
+                                )}
+                                <span className="text-sm font-medium text-zinc-700">
+                                    {session.user.name}
+                                </span>
+                            </div>
+                            <button
+                                onClick={() => signOut({ callbackUrl: '/login' })}
+                                className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg transition-colors"
+                            >
+                                <LogOut className="h-4 w-4" />
+                                <span className="hidden md:inline">Sign Out</span>
+                            </button>
+                        </>
+                    ) : (
+                        <Link
+                            href="/login"
+                            className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                        >
+                            Sign In
+                        </Link>
+                    )}
+                </div>
             </div>
         </header>
     );

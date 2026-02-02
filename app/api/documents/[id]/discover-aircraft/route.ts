@@ -71,7 +71,7 @@ export async function POST(
     const aircraftMap = new Map<string, any>();
 
     // Process each tail number - fetch details but don't create Aircraft records
-    for (const tailNumber of tailNumbers) {
+    for (const tailNumber of Array.from(tailNumbers)) {
       try {
         // Fetch details from FAA registry via Firecrawl
         console.log(`[DiscoverAircraft] Fetching details for ${tailNumber}`);

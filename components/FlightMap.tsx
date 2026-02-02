@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, Tooltip, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { Plane, Users, Calendar, AlertTriangle, Clock, Cloud, Wind, Eye, Thermometer, ArrowRight } from 'lucide-react';
+import { Plane, Users, Calendar, AlertTriangle, Clock, Cloud, Wind, Eye, Thermometer, ArrowRight, MapPin } from 'lucide-react';
 import { getAirportCoordinates, getApproximatePosition, airportDatabase } from '@/lib/airportData';
 import type { Flight, Aircraft, Pilot } from '@/lib/types';
 
@@ -64,6 +64,30 @@ function createColoredIcon(color: 'green' | 'yellow' | 'red') {
 const greenIcon = createColoredIcon('green');
 const yellowIcon = createColoredIcon('yellow');
 const redIcon = createColoredIcon('red');
+
+// Create custom airport marker icon
+function createAirportIcon() {
+  return L.divIcon({
+    className: 'custom-airport-marker',
+    html: `
+      <div style="
+        position: relative;
+        width: 24px;
+        height: 24px;
+      ">
+        <svg viewBox="0 0 24 24" width="24" height="24" style="filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));">
+          <circle cx="12" cy="12" r="10" fill="#3b82f6" stroke="white" stroke-width="2"/>
+          <circle cx="12" cy="12" r="4" fill="white"/>
+        </svg>
+      </div>
+    `,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
+    popupAnchor: [0, -12],
+  });
+}
+
+const airportIcon = createAirportIcon();
 
 function getIconForRisk(overallStatus: 'go' | 'caution' | 'no-go') {
   switch (overallStatus) {
@@ -302,6 +326,41 @@ export default function FlightMap({ flights, aircraft, pilots }: FlightMapProps)
     return flightsWithPositions.map((f) => f.position);
   }, [flightsWithPositions]);
 
+  // Collect unique airports from all flights
+  const uniqueAirports = useMemo(() => {
+    const airportMap = new Map<string, { code: string; name: string; city?: string; position: [number, number] }>();
+
+    flightsWithPositions.forEach(({ flight, departurePos, arrivalPos, departureAirport, arrivalAirport }) => {
+      // Add departure airport
+      if (departurePos && departureAirport) {
+        const code = flight.departureAirport.toUpperCase();
+        if (!airportMap.has(code)) {
+          airportMap.set(code, {
+            code,
+            name: departureAirport.name || code,
+            city: departureAirport.city,
+            position: departurePos,
+          });
+        }
+      }
+
+      // Add arrival airport
+      if (arrivalPos && arrivalAirport && flight.arrivalAirport) {
+        const code = flight.arrivalAirport.toUpperCase();
+        if (!airportMap.has(code)) {
+          airportMap.set(code, {
+            code,
+            name: arrivalAirport.name || code,
+            city: arrivalAirport.city,
+            position: arrivalPos,
+          });
+        }
+      }
+    });
+
+    return Array.from(airportMap.values());
+  }, [flightsWithPositions]);
+
   // Get pilot experience level text
   function getPilotExperience(pilot: Pilot | string): string {
     if (typeof pilot === 'string') return 'Unknown';
@@ -362,19 +421,25 @@ export default function FlightMap({ flights, aircraft, pilots }: FlightMapProps)
 
       {/* Risk Legend */}
       <div className="absolute bottom-4 left-4 z-[1000] bg-white/90 backdrop-blur rounded-lg shadow-lg p-3">
-        <div className="text-xs font-semibold text-zinc-600 mb-2">Risk Level</div>
-        <div className="flex gap-3">
-          <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
-            <span className="text-xs text-zinc-600">Go</span>
+        <div className="text-xs font-semibold text-zinc-600 mb-2">Map Legend</div>
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-3">
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
+              <span className="text-xs text-zinc-600">Go</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded-full bg-amber-500"></div>
+              <span className="text-xs text-zinc-600">Caution</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded-full bg-red-500"></div>
+              <span className="text-xs text-zinc-600">No-Go</span>
+            </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-amber-500"></div>
-            <span className="text-xs text-zinc-600">Caution</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-red-500"></div>
-            <span className="text-xs text-zinc-600">No-Go</span>
+          <div className="flex items-center gap-1.5 border-t border-zinc-200 pt-2">
+            <div className="w-3 h-3 rounded-full bg-blue-500 border border-white"></div>
+            <span className="text-xs text-zinc-600">Airport</span>
           </div>
         </div>
       </div>
@@ -416,6 +481,38 @@ export default function FlightMap({ flights, aircraft, pilots }: FlightMapProps)
 
         {allPositions.length > 0 && <FitBounds positions={allPositions} />}
 
+        {/* Airport Markers */}
+        {uniqueAirports.map((airport) => (
+          <Marker
+            key={`airport-${airport.code}`}
+            position={airport.position}
+            icon={airportIcon}
+          >
+            <Tooltip direction="top" offset={[0, -10]} opacity={0.95}>
+              <div className="text-center">
+                <div className="font-bold text-zinc-900">{airport.code}</div>
+                <div className="text-xs text-zinc-600">{airport.name}</div>
+                {airport.city && (
+                  <div className="text-xs text-zinc-500">{airport.city}</div>
+                )}
+              </div>
+            </Tooltip>
+            <Popup>
+              <div className="min-w-[150px]">
+                <div className="flex items-center gap-2 mb-2">
+                  <MapPin className="w-4 h-4 text-blue-500" />
+                  <span className="font-bold text-zinc-800">{airport.code}</span>
+                </div>
+                <div className="text-sm text-zinc-600">{airport.name}</div>
+                {airport.city && (
+                  <div className="text-xs text-zinc-500 mt-1">{airport.city}</div>
+                )}
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+
+        {/* Flight Markers */}
         {flightsWithPositions.map(({ flight, position, departurePos, arrivalPos, departureAirport, arrivalAirport }) => {
           const pilot = typeof flight.pilot === 'object' ? flight.pilot : null;
           const ac = typeof flight.aircraft === 'object' ? flight.aircraft : null;

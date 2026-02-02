@@ -70,7 +70,7 @@ async function processUploadJob(job: UploadJob) {
     const { parseDocumentFast } = await import('@/lib/services/reductoService');
     const result = await parseDocumentFast(
       fileBase64,
-      fileType,
+      fileType as 'pdf' | 'image',
       parseType,
       async (log) => {
         const mappedProgress = 10 + Math.round((log.progress / 100) * 70);
@@ -268,7 +268,7 @@ async function enrichEntriesWithAircraftDetails(entries: any[], userId: string) 
   console.log(`[BackgroundProcessor] Researching ${aircraftMap.size} unique aircraft...`);
 
   // Find or create aircraft records
-  for (const [tailNumber, data] of aircraftMap.entries()) {
+  for (const [tailNumber, data] of Array.from(aircraftMap.entries())) {
     try {
       // Check if aircraft already exists
       let aircraft = await Aircraft.findOne({ userId, tailNumber });
@@ -314,15 +314,16 @@ async function enrichEntriesWithAircraftDetails(entries: any[], userId: string) 
         const details = await fetchAircraftDetails(tailNumber);
 
         if (details.success && details.data) {
-          aircraft.manufacturer = details.data.manufacturer || aircraft.manufacturer;
-          aircraft.model = details.data.model || aircraft.model;
-          aircraft.serial = details.data.serial || aircraft.serial;
-          aircraft.year = details.data.year || aircraft.year;
-          if (details.data.imageUrl) aircraft.imageUrl = details.data.imageUrl;
-          if (details.data.operatingLimits) aircraft.operatingLimits = details.data.operatingLimits;
+          const updateFields: any = {};
+          if (details.data.manufacturer) updateFields.manufacturer = details.data.manufacturer;
+          if (details.data.model) updateFields.model = details.data.model;
+          if (details.data.serial) updateFields.serial = details.data.serial;
+          if (details.data.year) updateFields.year = details.data.year;
+          if (details.data.imageUrl) updateFields.imageUrl = details.data.imageUrl;
+          if (details.data.operatingLimits) updateFields.operatingLimits = details.data.operatingLimits;
 
-          await aircraft.save();
-          console.log(`[BackgroundProcessor] Enriched aircraft ${tailNumber}: ${aircraft.manufacturer} ${aircraft.model}`);
+          await Aircraft.updateOne({ _id: aircraft._id }, { $set: updateFields });
+          console.log(`[BackgroundProcessor] Enriched aircraft ${tailNumber}`);
         }
       }
 

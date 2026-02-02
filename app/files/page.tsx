@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 
 interface UploadingFile {
   id: string;
-  documentId: string;
+  documentId?: string;
   name: string;
   status: 'uploading' | 'queued' | 'parsing' | 'completed' | 'failed';
   progress: number;
@@ -220,10 +220,12 @@ export default function FilesPage() {
 
             // Start polling for restored files
             restoredFiles.forEach(file => {
-              const interval = setInterval(() => {
-                pollDocumentStatus(file.id, file.documentId);
-              }, 2000);
-              pollingIntervalsRef.current.set(file.id, interval);
+              if (file.documentId) {
+                const interval = setInterval(() => {
+                  pollDocumentStatus(file.id, file.documentId!);
+                }, 2000);
+                pollingIntervalsRef.current.set(file.id, interval);
+              }
             });
           }
         }

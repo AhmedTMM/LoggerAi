@@ -43,7 +43,7 @@ export async function POST(
     }
 
     // Use departure weather for analysis
-    const weather = flight.departureWeather;
+    const weather = flight.weather;
     if (!weather || !weather.flightCategory) {
       return NextResponse.json(
         { success: false, error: 'Flight has no weather data' },
@@ -58,8 +58,8 @@ export async function POST(
       flightEntries
     );
 
-    // Update flight with analysis snapshot
-    flight.safetyAnalysisSnapshot = safetyAnalysis;
+    // Update flight with analysis snapshot (store in legacy format)
+    flight.legacySafetySnapshot = safetyAnalysis as any;
     await flight.save();
 
     return NextResponse.json({

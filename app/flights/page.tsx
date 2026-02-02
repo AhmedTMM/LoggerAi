@@ -682,9 +682,9 @@ function NewFlightModal({
                 onChange={(e) => setFormData({ ...formData, departureAirport: e.target.value.toUpperCase() })}
                 placeholder="KJFK"
                 className="w-full px-3 py-2 border border-zinc-300 rounded-lg bg-white text-zinc-900 uppercase font-mono"
-                maxLength={4}
                 required
               />
+              <p className="text-xs text-zinc-500 mt-1">Enter any ICAO code (e.g., KJFK, EGLL)</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-zinc-700 mb-1">To</label>
@@ -694,8 +694,8 @@ function NewFlightModal({
                 onChange={(e) => setFormData({ ...formData, arrivalAirport: e.target.value.toUpperCase() })}
                 placeholder="KBOS"
                 className="w-full px-3 py-2 border border-zinc-300 rounded-lg bg-white text-zinc-900 uppercase font-mono"
-                maxLength={4}
               />
+              <p className="text-xs text-zinc-500 mt-1">Enter any ICAO code (optional)</p>
             </div>
           </div>
 

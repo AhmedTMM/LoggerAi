@@ -384,85 +384,85 @@ export default function FlightMap({ flights, aircraft, pilots }: FlightMapProps)
   }
 
   return (
-    <div className="relative w-full h-[500px] rounded-xl overflow-hidden border border-zinc-200 bg-zinc-100">
-      {/* Stats Overlay */}
-      <div className="absolute top-4 left-4 z-[1000] flex flex-wrap gap-2">
+    <div className="relative w-full h-[300px] sm:h-[400px] lg:h-[500px] rounded-xl overflow-hidden border border-zinc-200 bg-zinc-100">
+      {/* Stats Overlay - Responsive */}
+      <div className="absolute top-2 sm:top-4 left-2 sm:left-4 right-2 sm:right-auto z-[1000] flex flex-wrap gap-1 sm:gap-2">
         <div
-          className={`flex items-center gap-2 px-3 py-2 rounded-lg shadow-lg cursor-pointer transition-all ${
+          className={`flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg shadow-lg cursor-pointer transition-all text-xs sm:text-sm ${
             showFlying ? 'bg-emerald-500 text-white' : 'bg-white/90 text-zinc-700 hover:bg-white'
           }`}
           onClick={() => setShowFlying(!showFlying)}
         >
-          <Plane className="w-4 h-4" />
+          <Plane className="w-3 h-3 sm:w-4 sm:h-4" />
           <span className="font-semibold">{stats.flyingNow}</span>
-          <span className="text-sm opacity-80">Flying Now</span>
+          <span className="hidden sm:inline opacity-80">Flying Now</span>
         </div>
         <div
-          className={`flex items-center gap-2 px-3 py-2 rounded-lg shadow-lg cursor-pointer transition-all ${
+          className={`flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg shadow-lg cursor-pointer transition-all text-xs sm:text-sm ${
             showPlanned ? 'bg-blue-500 text-white' : 'bg-white/90 text-zinc-700 hover:bg-white'
           }`}
           onClick={() => setShowPlanned(!showPlanned)}
         >
-          <Calendar className="w-4 h-4" />
+          <Calendar className="w-3 h-3 sm:w-4 sm:h-4" />
           <span className="font-semibold">{stats.planned}</span>
-          <span className="text-sm opacity-80">Planned</span>
+          <span className="hidden sm:inline opacity-80">Planned</span>
         </div>
-        <div className="flex items-center gap-2 px-3 py-2 bg-white/90 backdrop-blur rounded-lg shadow-lg">
+        <div className="hidden md:flex items-center gap-2 px-3 py-2 bg-white/90 backdrop-blur rounded-lg shadow-lg">
           <Plane className="w-4 h-4 text-blue-500" />
           <span className="font-semibold text-zinc-700">{stats.availableAircraft}</span>
           <span className="text-sm text-zinc-500">Available Aircraft</span>
         </div>
-        <div className="flex items-center gap-2 px-3 py-2 bg-white/90 backdrop-blur rounded-lg shadow-lg">
+        <div className="hidden md:flex items-center gap-2 px-3 py-2 bg-white/90 backdrop-blur rounded-lg shadow-lg">
           <Users className="w-4 h-4 text-emerald-500" />
           <span className="font-semibold text-zinc-700">{stats.totalPilots}</span>
           <span className="text-sm text-zinc-500">Pilots</span>
         </div>
       </div>
 
-      {/* Risk Legend */}
-      <div className="absolute bottom-4 left-4 z-[1000] bg-white/90 backdrop-blur rounded-lg shadow-lg p-3">
-        <div className="text-xs font-semibold text-zinc-600 mb-2">Map Legend</div>
-        <div className="flex flex-col gap-2">
-          <div className="flex gap-3">
-            <div className="flex items-center gap-1.5">
-              <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
-              <span className="text-xs text-zinc-600">Go</span>
+      {/* Risk Legend - Hidden on very small screens */}
+      <div className="absolute bottom-2 sm:bottom-4 left-2 sm:left-4 z-[1000] bg-white/90 backdrop-blur rounded-lg shadow-lg p-2 sm:p-3">
+        <div className="text-xs font-semibold text-zinc-600 mb-1 sm:mb-2 hidden sm:block">Map Legend</div>
+        <div className="flex sm:flex-col gap-2">
+          <div className="flex gap-2 sm:gap-3">
+            <div className="flex items-center gap-1 sm:gap-1.5">
+              <div className="w-2 h-2 sm:w-3 sm:h-3 rounded-full bg-emerald-500"></div>
+              <span className="text-[10px] sm:text-xs text-zinc-600">Go</span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <div className="w-3 h-3 rounded-full bg-amber-500"></div>
-              <span className="text-xs text-zinc-600">Caution</span>
+            <div className="flex items-center gap-1 sm:gap-1.5">
+              <div className="w-2 h-2 sm:w-3 sm:h-3 rounded-full bg-amber-500"></div>
+              <span className="text-[10px] sm:text-xs text-zinc-600">Caution</span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <div className="w-3 h-3 rounded-full bg-red-500"></div>
-              <span className="text-xs text-zinc-600">No-Go</span>
+            <div className="flex items-center gap-1 sm:gap-1.5">
+              <div className="w-2 h-2 sm:w-3 sm:h-3 rounded-full bg-red-500"></div>
+              <span className="text-[10px] sm:text-xs text-zinc-600">No-Go</span>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 border-t border-zinc-200 pt-2">
+          <div className="hidden sm:flex items-center gap-1.5 border-t border-zinc-200 pt-2">
             <div className="w-3 h-3 rounded-full bg-blue-500 border border-white"></div>
             <span className="text-xs text-zinc-600">Airport</span>
           </div>
         </div>
       </div>
 
-      {/* Weather Legend */}
-      <div className="absolute bottom-4 right-4 z-[1000] bg-white/90 backdrop-blur rounded-lg shadow-lg p-3">
-        <div className="text-xs font-semibold text-zinc-600 mb-2">Flight Category</div>
+      {/* Weather Legend - Hidden on mobile */}
+      <div className="hidden sm:block absolute bottom-2 sm:bottom-4 right-2 sm:right-4 z-[1000] bg-white/90 backdrop-blur rounded-lg shadow-lg p-2 sm:p-3">
+        <div className="text-xs font-semibold text-zinc-600 mb-1 sm:mb-2">Flight Category</div>
         <div className="flex gap-2">
           <div className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded" style={{ backgroundColor: '#10b981' }}></div>
-            <span className="text-xs text-zinc-600">VFR</span>
+            <div className="w-2 h-2 sm:w-3 sm:h-3 rounded" style={{ backgroundColor: '#10b981' }}></div>
+            <span className="text-[10px] sm:text-xs text-zinc-600">VFR</span>
           </div>
           <div className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded" style={{ backgroundColor: '#3b82f6' }}></div>
-            <span className="text-xs text-zinc-600">MVFR</span>
+            <div className="w-2 h-2 sm:w-3 sm:h-3 rounded" style={{ backgroundColor: '#3b82f6' }}></div>
+            <span className="text-[10px] sm:text-xs text-zinc-600">MVFR</span>
           </div>
           <div className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded" style={{ backgroundColor: '#ef4444' }}></div>
-            <span className="text-xs text-zinc-600">IFR</span>
+            <div className="w-2 h-2 sm:w-3 sm:h-3 rounded" style={{ backgroundColor: '#ef4444' }}></div>
+            <span className="text-[10px] sm:text-xs text-zinc-600">IFR</span>
           </div>
           <div className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded" style={{ backgroundColor: '#a855f7' }}></div>
-            <span className="text-xs text-zinc-600">LIFR</span>
+            <div className="w-2 h-2 sm:w-3 sm:h-3 rounded" style={{ backgroundColor: '#a855f7' }}></div>
+            <span className="text-[10px] sm:text-xs text-zinc-600">LIFR</span>
           </div>
         </div>
       </div>

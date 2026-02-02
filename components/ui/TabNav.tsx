@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
 import { useState, useRef, useEffect } from 'react';
 import { cn } from '@/lib/utils';
-import { Plane, Users, LayoutDashboard, FolderOpen, LogOut, ChevronDown } from 'lucide-react';
+import { Plane, Users, LayoutDashboard, FolderOpen, LogOut, ChevronDown, Menu, X } from 'lucide-react';
 
 const tabs = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -29,7 +29,9 @@ export function TabNav() {
     const pathname = usePathname();
     const { data: session, status } = useSession();
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
+    const mobileMenuRef = useRef<HTMLDivElement>(null);
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -37,10 +39,18 @@ export function TabNav() {
             if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
                 setIsDropdownOpen(false);
             }
+            if (mobileMenuRef.current && !mobileMenuRef.current.contains(event.target as Node)) {
+                setIsMobileMenuOpen(false);
+            }
         }
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
+
+    // Close mobile menu on route change
+    useEffect(() => {
+        setIsMobileMenuOpen(false);
+    }, [pathname]);
 
     // Don't show nav on login page
     if (pathname === '/login') {
@@ -48,39 +58,49 @@ export function TabNav() {
     }
 
     return (
-        <header className="sticky top-0 z-40 w-full border-b border-zinc-200 bg-white/90 backdrop-blur-md">
-            <div className="flex h-14 items-center px-4 md:px-6">
-                {/* Brand */}
-                <Link href="/" className="flex items-center gap-2 font-bold text-zinc-900 mr-6">
-                    <div className="h-8 w-8 rounded-lg bg-blue-600 flex items-center justify-center text-white">
-                        <Plane className="h-5 w-5" />
-                    </div>
-                    <span className="hidden sm:inline-block text-lg">LogHacker</span>
-                </Link>
+        <>
+            <header className="sticky top-0 z-40 w-full border-b border-zinc-200 bg-white/90 backdrop-blur-md">
+                <div className="flex h-14 items-center px-4 md:px-6">
+                    {/* Mobile Menu Button */}
+                    <button
+                        onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                        className="md:hidden p-2 -ml-2 mr-2 text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg transition-colors"
+                        aria-label="Toggle menu"
+                    >
+                        {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+                    </button>
 
-                {/* Navigation */}
-                <nav className="flex items-center gap-1">
-                    {tabs.map((tab) => {
-                        const isActive = pathname === tab.href || (tab.href !== '/' && pathname.startsWith(tab.href));
-                        const Icon = tab.icon;
+                    {/* Brand */}
+                    <Link href="/" className="flex items-center gap-2 font-bold text-zinc-900 mr-6">
+                        <div className="h-8 w-8 rounded-lg bg-blue-600 flex items-center justify-center text-white">
+                            <Plane className="h-5 w-5" />
+                        </div>
+                        <span className="hidden sm:inline-block text-lg">LogHacker</span>
+                    </Link>
 
-                        return (
-                            <Link
-                                key={tab.href}
-                                href={tab.href}
-                                className={cn(
-                                    "flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-colors",
-                                    isActive
-                                        ? "bg-blue-100 text-blue-700"
-                                        : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100"
-                                )}
-                            >
-                                <Icon className="h-4 w-4" />
-                                <span className="hidden md:inline">{tab.name}</span>
-                            </Link>
-                        );
-                    })}
-                </nav>
+                    {/* Desktop Navigation */}
+                    <nav className="hidden md:flex items-center gap-1">
+                        {tabs.map((tab) => {
+                            const isActive = pathname === tab.href || (tab.href !== '/' && pathname.startsWith(tab.href));
+                            const Icon = tab.icon;
+
+                            return (
+                                <Link
+                                    key={tab.href}
+                                    href={tab.href}
+                                    className={cn(
+                                        "flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-colors",
+                                        isActive
+                                            ? "bg-blue-100 text-blue-700"
+                                            : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100"
+                                    )}
+                                >
+                                    <Icon className="h-4 w-4" />
+                                    <span>{tab.name}</span>
+                                </Link>
+                            );
+                        })}
+                    </nav>
 
                 {/* User Section */}
                 <div className="ml-auto flex items-center">
@@ -171,5 +191,102 @@ export function TabNav() {
                 </div>
             </div>
         </header>
+
+            {/* Mobile Menu Drawer */}
+            {isMobileMenuOpen && (
+                <div className="md:hidden fixed inset-0 z-50">
+                    {/* Backdrop */}
+                    <div
+                        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+                        onClick={() => setIsMobileMenuOpen(false)}
+                    />
+                    {/* Drawer */}
+                    <div
+                        ref={mobileMenuRef}
+                        className="absolute top-0 left-0 h-full w-72 bg-white shadow-xl transform transition-transform"
+                    >
+                        {/* Drawer Header */}
+                        <div className="flex items-center justify-between p-4 border-b border-zinc-200">
+                            <Link href="/" className="flex items-center gap-2 font-bold text-zinc-900">
+                                <div className="h-8 w-8 rounded-lg bg-blue-600 flex items-center justify-center text-white">
+                                    <Plane className="h-5 w-5" />
+                                </div>
+                                <span className="text-lg">LogHacker</span>
+                            </Link>
+                            <button
+                                onClick={() => setIsMobileMenuOpen(false)}
+                                className="p-2 text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg transition-colors"
+                            >
+                                <X className="h-5 w-5" />
+                            </button>
+                        </div>
+
+                        {/* Navigation Links */}
+                        <nav className="p-4 space-y-1">
+                            {tabs.map((tab) => {
+                                const isActive = pathname === tab.href || (tab.href !== '/' && pathname.startsWith(tab.href));
+                                const Icon = tab.icon;
+
+                                return (
+                                    <Link
+                                        key={tab.href}
+                                        href={tab.href}
+                                        onClick={() => setIsMobileMenuOpen(false)}
+                                        className={cn(
+                                            "flex items-center gap-3 px-4 py-3 text-base font-medium rounded-lg transition-colors",
+                                            isActive
+                                                ? "bg-blue-100 text-blue-700"
+                                                : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100"
+                                        )}
+                                    >
+                                        <Icon className="h-5 w-5" />
+                                        <span>{tab.name}</span>
+                                    </Link>
+                                );
+                            })}
+                        </nav>
+
+                        {/* User Info in Drawer */}
+                        {session?.user && (
+                            <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-zinc-200 bg-zinc-50">
+                                <div className="flex items-center gap-3 mb-3">
+                                    {session.user.image ? (
+                                        <img
+                                            src={session.user.image}
+                                            alt={session.user.name || 'User'}
+                                            className="h-10 w-10 rounded-full"
+                                        />
+                                    ) : (
+                                        <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center">
+                                            <span className="text-sm font-semibold text-white">
+                                                {getInitials(session.user.name)}
+                                            </span>
+                                        </div>
+                                    )}
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-semibold text-zinc-900 truncate">
+                                            {session.user.name}
+                                        </p>
+                                        <p className="text-xs text-zinc-500 truncate">
+                                            {session.user.email}
+                                        </p>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        setIsMobileMenuOpen(false);
+                                        signOut({ callbackUrl: '/login' });
+                                    }}
+                                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-zinc-600 bg-white border border-zinc-200 rounded-lg hover:bg-zinc-50 transition-colors"
+                                >
+                                    <LogOut className="h-4 w-4" />
+                                    Sign out
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+        </>
     );
 }

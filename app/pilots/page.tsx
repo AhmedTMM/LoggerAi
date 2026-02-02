@@ -121,7 +121,7 @@ export default function PilotsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-zinc-900">Pilots</h1>
           <p className="text-zinc-500">Manage your pilot roster</p>
@@ -158,14 +158,14 @@ export default function PilotsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
         {/* Pilot List */}
         <div className="lg:col-span-1">
           <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
             <div className="p-3 border-b border-zinc-200 bg-zinc-50">
               <h3 className="font-semibold text-zinc-900">Pilot Roster</h3>
             </div>
-            <div className="max-h-[500px] overflow-y-auto">
+            <div className="max-h-[250px] sm:max-h-[350px] lg:max-h-[500px] overflow-y-auto">
               {pilots?.map((pilot) => {
                 const isSelected = selectedPilot?._id === pilot._id;
                 const medicalStatus = getExpirationStatus(pilot.medicalExpiration);
@@ -211,15 +211,15 @@ export default function PilotsPage() {
 
         {/* Pilot Details */}
         <div className="lg:col-span-2">
-          <div className="bg-white rounded-xl border border-zinc-200 min-h-[500px]">
+          <div className="bg-white rounded-xl border border-zinc-200 min-h-[350px] lg:min-h-[500px]">
             {selectedPilot ? (
               <div className="h-full flex flex-col">
                 {/* Header */}
-                <div className="p-6 border-b border-zinc-200">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-14 h-14 bg-zinc-100 rounded-full flex items-center justify-center">
-                        <User className="w-7 h-7 text-zinc-500" />
+                <div className="p-4 sm:p-6 border-b border-zinc-200">
+                  <div className="flex items-start sm:items-center justify-between gap-3 sm:gap-4">
+                    <div className="flex items-start sm:items-center gap-3 sm:gap-4">
+                      <div className="w-10 h-10 sm:w-14 sm:h-14 bg-zinc-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <User className="w-5 h-5 sm:w-7 sm:h-7 text-zinc-500" />
                       </div>
                       <div>
                         {/* Editable Name */}
@@ -300,13 +300,13 @@ export default function PilotsPage() {
                 </div>
 
                 {/* Content */}
-                <div className="p-6 flex-1 overflow-y-auto space-y-6">
+                <div className="p-4 sm:p-6 flex-1 overflow-y-auto space-y-4 sm:space-y-6">
                   {/* Experience */}
                   <div>
                     <h4 className="font-semibold text-zinc-900 mb-3 flex items-center gap-2">
                       <Award className="w-4 h-4" /> Experience
                     </h4>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
                       <div className="bg-zinc-50 rounded-lg p-3">
                         <p className="text-xs text-zinc-500">Total Hours</p>
                         <p className="text-lg font-bold text-zinc-900">{selectedPilot.experience?.totalHours || 0}</p>

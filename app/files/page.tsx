@@ -329,13 +329,13 @@ export default function FilesPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6">
-      <div className="max-w-4xl mx-auto space-y-6">
+    <div className="min-h-screen bg-slate-50 p-4 sm:p-6">
+      <div className="max-w-4xl mx-auto space-y-4 sm:space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Files</h1>
-            <p className="text-slate-500 text-sm">Drop files to auto-process, link, and audit</p>
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Files</h1>
+            <p className="text-slate-500 text-xs sm:text-sm">Drop files to auto-process, link, and audit</p>
           </div>
         </div>
 
@@ -346,7 +346,7 @@ export default function FilesPage() {
           onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
           onClick={() => fileInputRef.current?.click()}
           className={cn(
-            "border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all",
+            "border-2 border-dashed rounded-xl p-6 sm:p-12 text-center cursor-pointer transition-all",
             isDragging
               ? "border-blue-500 bg-blue-50"
               : "border-slate-300 hover:border-blue-400 hover:bg-slate-50"
@@ -360,11 +360,11 @@ export default function FilesPage() {
             onChange={handleFileInput}
             className="hidden"
           />
-          <Upload className={cn("w-12 h-12 mx-auto mb-4", isDragging ? "text-blue-500" : "text-slate-400")} />
-          <p className="font-medium text-slate-700">
+          <Upload className={cn("w-10 h-10 sm:w-12 sm:h-12 mx-auto mb-3 sm:mb-4", isDragging ? "text-blue-500" : "text-slate-400")} />
+          <p className="font-medium text-slate-700 text-sm sm:text-base">
             {isDragging ? "Drop files here" : "Click or drop files"}
           </p>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-xs sm:text-sm text-slate-500 mt-1">
             PDF or images - upload multiple at once
           </p>
         </div>
@@ -473,69 +473,73 @@ export default function FilesPage() {
                 <div
                   key={doc._id}
                   className={cn(
-                    "flex items-center gap-4 p-4 bg-white rounded-xl border transition-all",
+                    "flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-3 sm:p-4 bg-white rounded-xl border transition-all",
                     (doc.status === 'parsing' || doc.status === 'queued' || doc.status === 'analyzing') && "border-amber-200 bg-amber-50/50",
                     doc.status === 'failed' && "border-red-200 bg-red-50/50"
                   )}
                 >
-                  {/* Icon */}
-                  <div className={cn(
-                    "p-2 rounded-lg",
-                    (doc.status === 'parsing' || doc.status === 'queued' || doc.status === 'analyzing') ? "bg-amber-100" :
-                    doc.status === 'failed' ? "bg-red-100" :
-                    "bg-slate-100"
-                  )}>
-                    {(doc.status === 'parsing' || doc.status === 'queued' || doc.status === 'analyzing') ? (
-                      <Loader2 className="w-5 h-5 text-amber-600 animate-spin" />
-                    ) : doc.status === 'failed' ? (
-                      <AlertTriangle className="w-5 h-5 text-red-600" />
-                    ) : (
-                      <FileText className="w-5 h-5 text-slate-600" />
-                    )}
-                  </div>
+                  <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
+                    {/* Icon */}
+                    <div className={cn(
+                      "p-2 rounded-lg flex-shrink-0",
+                      (doc.status === 'parsing' || doc.status === 'queued' || doc.status === 'analyzing') ? "bg-amber-100" :
+                      doc.status === 'failed' ? "bg-red-100" :
+                      "bg-slate-100"
+                    )}>
+                      {(doc.status === 'parsing' || doc.status === 'queued' || doc.status === 'analyzing') ? (
+                        <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 text-amber-600 animate-spin" />
+                      ) : doc.status === 'failed' ? (
+                        <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5 text-red-600" />
+                      ) : (
+                        <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-slate-600" />
+                      )}
+                    </div>
 
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-slate-900 truncate">{doc.filename}</p>
-                    <div className="flex flex-wrap items-center gap-2 mt-1">
-                      <Badge variant="outline" className="text-xs">
-                        {doc.documentType || 'other'}
-                      </Badge>
-                      {doc.status === 'completed' && doc.summary && (
-                        <span className="text-xs text-slate-500">
-                          {doc.summary.totalEntries} entries
-                          {doc.summary.totalHours > 0 && ` • ${doc.summary.totalHours}h`}
-                        </span>
-                      )}
-                      {doc.status === 'failed' && (
-                        <span className="text-xs text-red-600">{doc.error || 'Failed'}</span>
-                      )}
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-slate-900 truncate text-sm sm:text-base">{doc.filename}</p>
+                      <div className="flex flex-wrap items-center gap-1 sm:gap-2 mt-1">
+                        <Badge variant="outline" className="text-xs">
+                          {doc.documentType || 'other'}
+                        </Badge>
+                        {doc.status === 'completed' && doc.summary && (
+                          <span className="text-xs text-slate-500">
+                            {doc.summary.totalEntries} entries
+                            {doc.summary.totalHours > 0 && ` • ${doc.summary.totalHours}h`}
+                          </span>
+                        )}
+                        {doc.status === 'failed' && (
+                          <span className="text-xs text-red-600">{doc.error || 'Failed'}</span>
+                        )}
+                      </div>
                     </div>
                   </div>
 
-                  {/* Links */}
-                  <div className="flex items-center gap-2">
-                    {linkedPilot && (
-                      <span className="inline-flex items-center gap-1 text-xs bg-emerald-50 text-emerald-700 px-2 py-1 rounded">
-                        <User className="w-3 h-3" /> {linkedPilot.name}
-                      </span>
-                    )}
-                    {linkedAircraft && (
-                      <span className="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded">
-                        <Plane className="w-3 h-3" /> {linkedAircraft.tailNumber}
-                      </span>
-                    )}
-                  </div>
+                  {/* Links and Delete */}
+                  <div className="flex items-center justify-between sm:justify-end gap-2 pl-11 sm:pl-0">
+                    <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
+                      {linkedPilot && (
+                        <span className="inline-flex items-center gap-1 text-xs bg-emerald-50 text-emerald-700 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded">
+                          <User className="w-3 h-3" /> <span className="hidden xs:inline">{linkedPilot.name}</span>
+                        </span>
+                      )}
+                      {linkedAircraft && (
+                        <span className="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded">
+                          <Plane className="w-3 h-3" /> {linkedAircraft.tailNumber}
+                        </span>
+                      )}
+                    </div>
 
-                  {/* Delete */}
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => handleDelete(doc._id)}
-                    className="text-slate-400 hover:text-red-600"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+                    {/* Delete */}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => handleDelete(doc._id)}
+                      className="text-slate-400 hover:text-red-600 flex-shrink-0"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </div>
               );
             })}

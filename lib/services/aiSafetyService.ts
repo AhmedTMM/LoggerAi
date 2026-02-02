@@ -40,7 +40,7 @@ export async function generateAISafetyAnalysis(
   }
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' });
 
     // Build context for AI
     const flightContext = buildFlightContext(flight, pilot, aircraft, existingAnalysis);

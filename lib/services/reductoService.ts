@@ -81,7 +81,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { repairAndParseJSON } from '@/lib/utils/jsonRepair';
 
 // Gemini Flash for fast structured extraction
-const GEMINI_FLASH_MODEL = 'gemini-2.0-flash';
+const GEMINI_FLASH_MODEL = 'gemini-3-flash-preview';
 
 // Base timeout constants for API calls (scaled up for large files)
 const REDUCTO_UPLOAD_TIMEOUT_BASE = 60000;   // 60 seconds base for upload
@@ -314,8 +314,18 @@ export async function parseDocumentUltraFast(
     };
 
   } catch (error) {
+    const errorMessage = (error as Error).message;
     console.error('[UltraFast] Error:', error);
-    await log('error', `Direct extraction failed: ${(error as Error).message}`, 0);
+
+    // Check if it's a quota error
+    if (errorMessage.includes('quota') || errorMessage.includes('429')) {
+      console.log('[UltraFast] Gemini quota exceeded, skipping AI extraction entirely');
+      await log('error', 'AI quota exceeded, using OCR-only mode', 0);
+      // Skip to parseDocument (no Gemini) instead of parseDocumentFast (uses Gemini)
+      return parseDocument(fileBase64, fileType, documentType, onStep);
+    }
+
+    await log('error', `Direct extraction failed: ${errorMessage}`, 0);
 
     // Fall back to the OCR-based method
     console.log('[UltraFast] Falling back to OCR pipeline...');
@@ -574,13 +584,24 @@ export async function parseDocumentFast(
       ? LOGBOOK_GEMINI_EXTRACTION_PROMPT
       : MAINTENANCE_GEMINI_EXTRACTION_PROMPT;
 
-    const result = await model.generateContent([
-      prompt,
-      `\n\nDOCUMENT TEXT (from OCR):\n${extractedText}`
-    ]);
+    let result, response, aiText;
+    try {
+      result = await model.generateContent([
+        prompt,
+        `\n\nDOCUMENT TEXT (from OCR):\n${extractedText}`
+      ]);
 
-    const response = await result.response;
-    const aiText = response.text();
+      response = await result.response;
+      aiText = response.text();
+    } catch (geminiError: any) {
+      // Check if it's a quota error
+      if (geminiError.message?.includes('quota') || geminiError.message?.includes('429')) {
+        console.error('[FastParse] Gemini quota exceeded, falling back to standard extraction');
+        await log('error', 'AI quota exceeded, using standard extraction', 60);
+        return parseDocument(fileBase64, fileType, documentType, onStep);
+      }
+      throw geminiError;
+    }
 
     console.log(`[FastParse] ========== AI RAW RESPONSE ==========`);
     console.log(`[FastParse] Response length: ${aiText.length} characters`);

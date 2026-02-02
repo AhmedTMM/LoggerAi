@@ -6,7 +6,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { IFlightPlannerData } from '../models/Flight';
 
 // Gemini model for structured extraction
-const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_MODEL = 'gemini-3-flash-preview';
 
 interface ParsedFlightPlan {
   source: 'paperlessfbo' | 'foreflight' | 'garmin' | 'manual' | 'photo_upload';

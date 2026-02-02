@@ -118,10 +118,6 @@ export default function FlightsPage() {
             <Trash2 className="w-4 h-4 mr-2" />
             Wipe All
           </Button>
-          <Button variant="outline" onClick={() => refetch()}>
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Refresh
-          </Button>
           <Button onClick={() => setShowNewFlightModal(true)}>
             <Plus className="w-4 h-4 mr-2" />
             New Flight
@@ -260,22 +256,26 @@ export default function FlightsPage() {
                   )}
 
                   {/* AI Analysis Results */}
-                  {(selectedFlight.safetyAnalysisSnapshot as any)?.aiAnalysis && !auditProgress && (
+                  {(selectedFlight.safetyAnalysisSnapshot as any)?.aiAnalysis?.summary && !auditProgress && (
                     <div className="bg-gradient-to-r from-violet-50 to-indigo-50 border border-violet-200 rounded-lg p-4">
                       <div className="flex items-center gap-2 mb-3">
                         <Bot className="w-5 h-5 text-violet-600" />
                         <h4 className="font-semibold text-violet-900">AI Safety Analysis</h4>
-                        <Badge className="bg-violet-100 text-violet-700">
-                          {(selectedFlight.safetyAnalysisSnapshot as any)?.aiAnalysis?.confidenceLevel}% confidence
-                        </Badge>
+                        {(selectedFlight.safetyAnalysisSnapshot as any)?.aiAnalysis?.confidenceLevel && (
+                          <Badge className="bg-violet-100 text-violet-700">
+                            {(selectedFlight.safetyAnalysisSnapshot as any)?.aiAnalysis?.confidenceLevel}% confidence
+                          </Badge>
+                        )}
                       </div>
 
                       {/* AI Summary */}
-                      <div className="bg-white/50/50 rounded-lg p-3 mb-3">
-                        <p className="text-sm text-zinc-700">
-                          {(selectedFlight.safetyAnalysisSnapshot as any)?.aiAnalysis?.summary}
-                        </p>
-                      </div>
+                      {(selectedFlight.safetyAnalysisSnapshot as any)?.aiAnalysis?.summary && (
+                        <div className="bg-white/50 rounded-lg p-3 mb-3">
+                          <p className="text-sm text-zinc-700">
+                            {(selectedFlight.safetyAnalysisSnapshot as any)?.aiAnalysis?.summary}
+                          </p>
+                        </div>
+                      )}
 
                       {/* AI Key Risks */}
                       {(selectedFlight.safetyAnalysisSnapshot as any)?.aiAnalysis?.keyRisks?.length > 0 && (
@@ -322,12 +322,14 @@ export default function FlightsPage() {
                       )}
 
                       {/* AI Go/No-Go Reasoning */}
-                      <div className="bg-white/50/50 rounded-lg p-3 mt-3">
-                        <p className="text-xs font-semibold text-violet-800 mb-1">Decision Reasoning:</p>
-                        <p className="text-xs text-zinc-600 line-clamp-3">
-                          {(selectedFlight.safetyAnalysisSnapshot as any)?.aiAnalysis?.goNoGoReasoning}
-                        </p>
-                      </div>
+                      {(selectedFlight.safetyAnalysisSnapshot as any)?.aiAnalysis?.goNoGoReasoning && (
+                        <div className="bg-white/50 rounded-lg p-3 mt-3">
+                          <p className="text-xs font-semibold text-violet-800 mb-1">Decision Reasoning:</p>
+                          <p className="text-xs text-zinc-600 line-clamp-3">
+                            {(selectedFlight.safetyAnalysisSnapshot as any)?.aiAnalysis?.goNoGoReasoning}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
 

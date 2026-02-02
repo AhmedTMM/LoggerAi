@@ -359,10 +359,6 @@ export default function MaintenancePage() {
               AV1ONICS Compliance & Aircraft Logbook Management
             </p>
           </div>
-          <Button onClick={() => refetch()} variant="outline">
-            <RefreshCw className={cn("w-4 h-4 mr-2", isLoading && "animate-spin")} />
-            Refresh
-          </Button>
         </div>
 
         {/* Fleet Overview Cards */}

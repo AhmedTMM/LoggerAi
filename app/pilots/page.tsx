@@ -126,16 +126,10 @@ export default function PilotsPage() {
           <h1 className="text-2xl font-bold text-zinc-900">Pilots</h1>
           <p className="text-zinc-500">Manage your pilot roster</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => refetch()}>
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Refresh
-          </Button>
-          <Button onClick={() => setShowAddModal(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            Add Pilot
-          </Button>
-        </div>
+        <Button onClick={() => setShowAddModal(true)}>
+          <Plus className="w-4 h-4 mr-2" />
+          Add Pilot
+        </Button>
       </div>
 
       {/* Stats */}

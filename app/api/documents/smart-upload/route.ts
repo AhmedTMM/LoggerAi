@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import dbConnect from '@/lib/db';
 import ParsedDocument from '@/lib/models/ParsedDocument';
+import { auth } from '@/lib/auth';
 import Aircraft, { LogbookCategory } from '@/lib/models/Aircraft';
 import Pilot from '@/lib/models/Pilot';
 import { parseDocumentUltraFast } from '@/lib/services/reductoService';
@@ -8,6 +9,7 @@ import { classifyDocumentFast } from '@/lib/services/aiService';
 import { saveFile } from '@/lib/services/fileStorage';
 import { runLegalityAudit } from '@/lib/services/auditEngine';
 import { generateSafetyAnalysis } from '@/lib/services/safetyAnalysisService';
+import { fetchAircraftDetails } from '@/lib/services/firecrawlService';
 import {
   mapDetectedTypeToStorageType,
   isPilotDocument,
@@ -112,6 +114,17 @@ export async function POST(request: NextRequest) {
         progress(5, 'Connecting to database...');
         await dbConnect();
 
+        // Get authenticated user
+        const session = await auth();
+        const userId = session?.user?.id;
+        console.log('[Smart-Upload] Auth check:', { hasSession: !!session, hasUser: !!session?.user, userId });
+        if (!userId) {
+          console.error('[Smart-Upload] No userId found in session');
+          send({ type: 'error', message: 'Authentication required' });
+          safeClose();
+          return;
+        }
+
         progress(10, 'Analyzing document with AI...');
 
         // Classify document
@@ -180,6 +193,7 @@ export async function POST(request: NextRequest) {
             // Create new pilot
             progress(45, `Creating new pilot: ${analysis.pilotName}`);
             const newPilot = await Pilot.create({
+              userId,
               name: analysis.pilotName,
               email: `${analysis.pilotName.toLowerCase().replace(/\s+/g, '.')}@placeholder.com`,
               certificates: {
@@ -239,7 +253,10 @@ export async function POST(request: NextRequest) {
           // Create new aircraft if not found and this is an aircraft document
           if (!aircraftId && tailNumbers[0]) {
             progress(55, `Creating new aircraft: ${tailNumbers[0]}`);
-            const newAircraft = await Aircraft.create({
+
+            // Try to fetch enriched data from FAA registry
+            let aircraftData: any = {
+              userId,
               tailNumber: tailNumbers[0].toUpperCase(),
               model: analysis?.aircraftType || 'Unknown',
               serial: 'Unknown',
@@ -255,7 +272,31 @@ export async function POST(request: NextRequest) {
                 tach: 0,
               },
               logs: [],
-            });
+            };
+
+            try {
+              progress(56, 'Fetching aircraft details from FAA registry...');
+              const details = await fetchAircraftDetails(tailNumbers[0]);
+
+              if (details.success && details.data) {
+                // Merge enriched data
+                aircraftData = {
+                  ...aircraftData,
+                  manufacturer: details.data.manufacturer || aircraftData.manufacturer,
+                  model: details.data.model || aircraftData.model,
+                  serial: details.data.serial || aircraftData.serial,
+                  year: details.data.year || aircraftData.year,
+                  imageUrl: details.data.imageUrl,
+                  operatingLimits: details.data.operatingLimits,
+                };
+                progress(57, `Enriched aircraft data from FAA registry`);
+              }
+            } catch (error) {
+              console.error('Failed to fetch aircraft details:', error);
+              // Continue with basic data
+            }
+
+            const newAircraft = await Aircraft.create(aircraftData);
             aircraftId = newAircraft._id.toString();
             created.aircraft = true;
             invalidateAllCaches();
@@ -266,6 +307,7 @@ export async function POST(request: NextRequest) {
 
         // Create document
         const doc = await ParsedDocument.create({
+          userId,
           filename: filename || `document_${Date.now()}.${fileType === 'pdf' ? 'pdf' : 'png'}`,
           originalFilename: filename,
           documentType,
@@ -341,7 +383,7 @@ export async function POST(request: NextRequest) {
           // Update aircraft from maintenance docs
           if (aircraftId && ['aircraft_logbook', 'maintenance', 'inspection'].includes(documentType) && entries.length > 0) {
             console.log(`[Smart-Upload] Updating aircraft ${aircraftId} with ${entries.length} entries (docType: ${documentType})`);
-            await updateAircraftFromEntries(aircraftId, entries, categoryFromFilename || undefined);
+            await updateAircraftFromEntries(aircraftId, entries, categoryFromFilename || undefined, userId);
           } else {
             console.log(`[Smart-Upload] Skipping aircraft update: aircraftId=${aircraftId}, docType=${documentType}, entries=${entries.length}`);
           }
@@ -507,13 +549,19 @@ async function updatePilotExperience(pilotId: string, entries: any[]) {
 async function updateAircraftFromEntries(
   aircraftId: string,
   entries: any[],
-  filenameCategory?: LogbookCategory
+  filenameCategory?: LogbookCategory,
+  userId?: string
 ) {
   console.log(`[updateAircraftFromEntries] Starting update for aircraft ${aircraftId} with ${entries.length} entries`);
   const aircraft = await Aircraft.findById(aircraftId);
   if (!aircraft) {
     console.log(`[updateAircraftFromEntries] Aircraft ${aircraftId} not found!`);
     return;
+  }
+
+  // Ensure userId is set (for legacy records)
+  if (!aircraft.userId && userId) {
+    aircraft.userId = userId;
   }
 
   // Extract maintenance info

@@ -22,7 +22,7 @@ export interface IParsedDocument extends Document {
     fileType: 'pdf' | 'image';
     uploadedAt: Date;
     parsedAt?: Date;
-    status: 'pending' | 'analyzing' | 'parsing' | 'completed' | 'failed';
+    status: 'pending' | 'queued' | 'analyzing' | 'parsing' | 'completed' | 'failed';
 
     // Progress tracking
     progress: number;           // 0-100 percentage
@@ -84,7 +84,7 @@ const ParsedDocumentSchema = new Schema<IParsedDocument>({
     parsedAt: { type: Date },
     status: {
         type: String,
-        enum: ['pending', 'analyzing', 'parsing', 'completed', 'failed'],
+        enum: ['pending', 'queued', 'analyzing', 'parsing', 'completed', 'failed'],
         default: 'pending'
     },
     progress: { type: Number, default: 0, min: 0, max: 100 },
@@ -142,6 +142,11 @@ const ParsedDocumentSchema = new Schema<IParsedDocument>({
 ParsedDocumentSchema.index({ aircraft: 1, documentType: 1 });
 ParsedDocumentSchema.index({ pilot: 1, documentType: 1 });
 ParsedDocumentSchema.index({ status: 1 });
+
+// Force recompile in dev to ensure schema updates are picked up
+if (process.env.NODE_ENV === 'development' && mongoose.models.ParsedDocument) {
+  delete mongoose.models.ParsedDocument;
+}
 
 const ParsedDocument: Model<IParsedDocument> =
     mongoose.models.ParsedDocument || mongoose.model<IParsedDocument>('ParsedDocument', ParsedDocumentSchema);

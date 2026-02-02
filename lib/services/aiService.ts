@@ -5,7 +5,7 @@ import { DetectedDocumentType, DocumentType } from '@/lib/models/ParsedDocument'
 const GEMINI_MODEL = 'gemini-3-pro-preview';
 
 // Gemini Flash - For fast classification (much faster, under 5 seconds)
-const GEMINI_FLASH_MODEL = 'gemini-2.0-flash';
+const GEMINI_FLASH_MODEL = 'gemini-3-flash-preview';
 
 // Document classification result type with expanded types
 export interface FastDocumentClassification {

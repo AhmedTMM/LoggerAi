@@ -83,16 +83,10 @@ export default function AircraftPage() {
                     <h1 className="text-2xl font-bold text-zinc-900">Aircraft</h1>
                     <p className="text-zinc-500">Manage your fleet</p>
                 </div>
-                <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => refetch()}>
-                        <RefreshCw className="w-4 h-4 mr-2" />
-                        Refresh
-                    </Button>
-                    <Button onClick={() => setShowAddModal(true)}>
-                        <Plus className="w-4 h-4 mr-2" />
-                        Add Aircraft
-                    </Button>
-                </div>
+                <Button onClick={() => setShowAddModal(true)}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Aircraft
+                </Button>
             </div>
 
             {/* Stats */}
@@ -191,7 +185,7 @@ export default function AircraftPage() {
                                 <div className="p-6 border-b border-zinc-200">
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-4">
-                                            <div className="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center overflow-hidden">
+                                            <div className="w-20 h-20 bg-gradient-to-br from-blue-50 to-blue-100 rounded-2xl flex items-center justify-center overflow-hidden border-2 border-blue-200 shadow-sm">
                                                 {selectedAircraft.imageUrl ? (
                                                     <img
                                                         src={selectedAircraft.imageUrl}
@@ -199,12 +193,12 @@ export default function AircraftPage() {
                                                         className="w-full h-full object-cover"
                                                     />
                                                 ) : (
-                                                    <Plane className="w-7 h-7 text-blue-600" />
+                                                    <Plane className="w-10 h-10 text-blue-600" />
                                                 )}
                                             </div>
                                             <div>
                                                 <h2 className="text-xl font-bold text-zinc-900">{selectedAircraft.tailNumber}</h2>
-                                                <p className="text-zinc-500">{selectedAircraft.year} {selectedAircraft.manufacturer} {selectedAircraft.model}</p>
+                                                <p className="text-zinc-500">{selectedAircraft.year !== new Date().getFullYear() ? selectedAircraft.year : ''} {selectedAircraft.manufacturer !== 'Unknown' ? selectedAircraft.manufacturer : ''} {selectedAircraft.model !== 'Unknown' ? selectedAircraft.model : 'Aircraft'}</p>
                                             </div>
                                         </div>
                                         <Button
@@ -220,6 +214,12 @@ export default function AircraftPage() {
 
                                 {/* Content */}
                                 <div className="p-6 flex-1 overflow-y-auto space-y-6">
+                                    {/* Safety Status At A Glance */}
+                                    <SafetyStatusCard
+                                        aircraft={selectedAircraft}
+                                        getMaintenanceStatus={getMaintenanceStatus}
+                                    />
+
                                     {/* Times */}
                                     <div>
                                         <h4 className="font-semibold text-zinc-900 mb-3 flex items-center gap-2">
@@ -550,6 +550,148 @@ export default function AircraftPage() {
                     </div>
                 </div>
             )}
+        </div>
+    );
+}
+
+function SafetyStatusCard({
+    aircraft,
+    getMaintenanceStatus
+}: {
+    aircraft: Aircraft;
+    getMaintenanceStatus: (date: Date | string) => { color: string; badge: string; text: string };
+}) {
+    // Calculate maintenance status
+    const maintenanceItems = [
+        { key: 'annual', label: 'Annual', date: aircraft.maintenanceDates?.annual },
+        { key: 'transponder', label: 'Transponder', date: aircraft.maintenanceDates?.transponder },
+        { key: 'staticSystem', label: 'Pitot-Static', date: aircraft.maintenanceDates?.staticSystem },
+        { key: 'hundredHour', label: '100-Hour', date: aircraft.maintenanceDates?.hundredHour },
+    ];
+
+    const overdueItems = maintenanceItems.filter(item =>
+        item.date && getDaysUntil(item.date) < 0
+    );
+
+    const dueItems = maintenanceItems.filter(item =>
+        item.date && getDaysUntil(item.date) >= 0 && getDaysUntil(item.date) < 30
+    );
+
+    // Calculate overall airworthiness
+    const hasOverdue = overdueItems.length > 0;
+    const hasDueSoon = dueItems.length > 0;
+    const safetyScore = aircraft.safetyAnalysis?.score || null;
+
+    let overallStatus: 'NO-GO' | 'CAUTION' | 'GO';
+    let statusColor: string;
+    let statusBg: string;
+    let statusIcon: typeof AlertTriangle;
+
+    if (hasOverdue || (safetyScore !== null && safetyScore < 60)) {
+        overallStatus = 'NO-GO';
+        statusColor = 'text-red-600';
+        statusBg = 'bg-red-50 border-red-200';
+        statusIcon = AlertTriangle;
+    } else if (hasDueSoon || (safetyScore !== null && safetyScore < 80)) {
+        overallStatus = 'CAUTION';
+        statusColor = 'text-amber-600';
+        statusBg = 'bg-amber-50 border-amber-200';
+        statusIcon = AlertTriangle;
+    } else {
+        overallStatus = 'GO';
+        statusColor = 'text-emerald-600';
+        statusBg = 'bg-emerald-50 border-emerald-200';
+        statusIcon = CheckCircle;
+    }
+
+    const StatusIcon = statusIcon;
+
+    return (
+        <div className={cn("rounded-lg border-2 p-5", statusBg)}>
+            <div className="flex items-start justify-between mb-4">
+                <div>
+                    <h4 className="font-semibold text-zinc-900 mb-1 flex items-center gap-2">
+                        <Shield className="w-5 h-5" /> Airworthiness Status
+                    </h4>
+                    <p className="text-xs text-zinc-500">Overall safety assessment</p>
+                </div>
+                <div className="flex flex-col items-end gap-1">
+                    <div className={cn("flex items-center gap-2 px-3 py-1 rounded-lg font-bold text-lg",
+                        overallStatus === 'NO-GO' ? 'bg-red-100' :
+                        overallStatus === 'CAUTION' ? 'bg-amber-100' : 'bg-emerald-100'
+                    )}>
+                        <StatusIcon className={cn("w-5 h-5", statusColor)} />
+                        <span className={statusColor}>{overallStatus}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+                {/* Overdue Items */}
+                <div className="bg-white/60 rounded-lg p-3 border border-white/50">
+                    <p className="text-xs text-zinc-500 uppercase mb-1">Overdue</p>
+                    <p className={cn(
+                        "text-2xl font-bold",
+                        overdueItems.length > 0 ? "text-red-600" : "text-zinc-400"
+                    )}>
+                        {overdueItems.length}
+                    </p>
+                    {overdueItems.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                            {overdueItems.map(item => (
+                                <p key={item.key} className="text-xs text-red-600">
+                                    • {item.label}
+                                </p>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* Due Soon */}
+                <div className="bg-white/60 rounded-lg p-3 border border-white/50">
+                    <p className="text-xs text-zinc-500 uppercase mb-1">Due Soon</p>
+                    <p className={cn(
+                        "text-2xl font-bold",
+                        dueItems.length > 0 ? "text-amber-600" : "text-zinc-400"
+                    )}>
+                        {dueItems.length}
+                    </p>
+                    {dueItems.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                            {dueItems.map(item => (
+                                <p key={item.key} className="text-xs text-amber-600">
+                                    • {item.label} ({getDaysUntil(item.date)}d)
+                                </p>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* Safety Score */}
+                <div className="bg-white/60 rounded-lg p-3 border border-white/50">
+                    <p className="text-xs text-zinc-500 uppercase mb-1">Safety Score</p>
+                    {safetyScore !== null ? (
+                        <>
+                            <p className={cn(
+                                "text-2xl font-bold",
+                                safetyScore >= 80 ? "text-emerald-600" :
+                                safetyScore >= 60 ? "text-amber-600" : "text-red-600"
+                            )}>
+                                {safetyScore}
+                            </p>
+                            <p className="text-xs text-zinc-500 mt-1">
+                                {safetyScore >= 80 ? 'Excellent' :
+                                 safetyScore >= 60 ? 'Fair' : 'Poor'}
+                            </p>
+                        </>
+                    ) : (
+                        <>
+                            <p className="text-2xl font-bold text-zinc-400">—</p>
+                            <p className="text-xs text-zinc-400 mt-1">Not analyzed</p>
+                        </>
+                    )}
+                </div>
+            </div>
         </div>
     );
 }

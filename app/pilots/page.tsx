@@ -1051,8 +1051,7 @@ function FlightCard({
           <div className="flex items-center gap-2">
             <span className="text-xs text-zinc-500">{formatDate(flightDate)}</span>
             <FlightPlaybackButton
-              onClick={(e) => {
-                e.stopPropagation();
+              onClick={() => {
                 const tailNumber = isLogbook
                   ? item.aircraftIdent
                   : (item.aircraftTailNumber || aircraft?.tailNumber || null);

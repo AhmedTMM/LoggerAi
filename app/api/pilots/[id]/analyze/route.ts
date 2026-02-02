@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/db';
 import Pilot from '@/lib/models/Pilot';
 import ParsedDocument from '@/lib/models/ParsedDocument';
-import { generatePilotSafetyAnalysis } from '@/lib/services/safetyAnalysisService';
+import { generatePilotSafetyAnalysis, generatePilotSafetyAnalysisWithWeather } from '@/lib/services/safetyAnalysisService';
 
 export async function POST(
   request: NextRequest,
@@ -11,6 +11,15 @@ export async function POST(
   try {
     await dbConnect();
     const { id } = params;
+
+    // Get weather experience from request body if provided
+    let weatherExperience = null;
+    try {
+      const body = await request.json();
+      weatherExperience = body.weatherExperience;
+    } catch {
+      // No body provided, that's fine
+    }
 
     const pilot = await Pilot.findById(id);
     if (!pilot) {
@@ -34,8 +43,15 @@ export async function POST(
       }
     }
 
-    // Generate safety analysis
-    const safetyAnalysis = generatePilotSafetyAnalysis(pilot, allFlightEntries);
+    // Generate safety analysis with or without weather experience data
+    let safetyAnalysis;
+    if (weatherExperience && weatherExperience.flightsWithWeather >= 3) {
+      // Use enhanced analysis with weather experience
+      safetyAnalysis = generatePilotSafetyAnalysisWithWeather(pilot, allFlightEntries, weatherExperience);
+    } else {
+      // Use standard analysis
+      safetyAnalysis = generatePilotSafetyAnalysis(pilot, allFlightEntries);
+    }
 
     // Update pilot with analysis
     pilot.safetyAnalysis = safetyAnalysis;

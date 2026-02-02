@@ -47,6 +47,16 @@ export interface IFlightEntry {
   remarks?: string;
 }
 
+export interface IWeatherExperience {
+  totalFlights: number;
+  flightsWithWeather: number;
+  vfr: number;
+  mvfr: number;
+  ifr: number;
+  lifr: number;
+  lastUpdated: Date;
+}
+
 export interface IPilot {
   _id: mongoose.Types.ObjectId;
   userId: string;
@@ -59,6 +69,7 @@ export interface IPilot {
   linkedDocuments: mongoose.Types.ObjectId[];
   medicalExpiration: Date;
   flightReviewExpiration: Date;
+  weatherExperience?: IWeatherExperience;
   safetyAnalysis?: {
     lastAnalyzed: Date;
     score: number;
@@ -170,6 +181,15 @@ const PilotSchema = new Schema<IPilot>(
     flightReviewExpiration: {
       type: Date,
       required: true,
+    },
+    weatherExperience: {
+      totalFlights: { type: Number, default: 0 },
+      flightsWithWeather: { type: Number, default: 0 },
+      vfr: { type: Number, default: 0 },
+      mvfr: { type: Number, default: 0 },
+      ifr: { type: Number, default: 0 },
+      lifr: { type: Number, default: 0 },
+      lastUpdated: { type: Date },
     },
     safetyAnalysis: {
       lastAnalyzed: { type: Date },

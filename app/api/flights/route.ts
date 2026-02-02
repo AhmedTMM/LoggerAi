@@ -3,11 +3,15 @@ import dbConnect from '@/lib/db';
 import Flight from '@/lib/models/Flight';
 import { runLegalityAudit } from '@/lib/services/legalityService';
 import { runComprehensiveSafetyAnalysis } from '@/lib/services/comprehensiveSafetyService';
+import { requireAuth } from '@/lib/auth-helpers';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await dbConnect();
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');
@@ -16,7 +20,7 @@ export async function GET(request: NextRequest) {
     const aircraftId = searchParams.get('aircraftId');
     const limit = searchParams.get('limit');
 
-    let query: Record<string, unknown> = {};
+    let query: Record<string, unknown> = { userId };
 
     if (status) {
       query.status = status;
@@ -56,6 +60,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await dbConnect();
     const body = await request.json();
 
@@ -77,6 +84,7 @@ export async function POST(request: NextRequest) {
 
     const flight = new Flight({
       ...restBody,
+      userId,
       scheduledDate: scheduledDate ? new Date(scheduledDate) : new Date(),
       scheduledTime,
       scheduledDateTime,

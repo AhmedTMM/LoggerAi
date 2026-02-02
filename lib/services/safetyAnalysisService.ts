@@ -451,6 +451,243 @@ export function generatePilotSafetyAnalysis(pilot: any, flightEntries?: any[]): 
 }
 
 /**
+ * Weather Experience Data (from client-side analysis)
+ */
+interface WeatherExperienceData {
+  totalFlights: number;
+  flightsWithWeather: number;
+  vfr: number;
+  mvfr: number;
+  ifr: number;
+  lifr: number;
+  lastUpdated?: Date;
+}
+
+/**
+ * Generate safety analysis for a pilot with enhanced weather experience data
+ * This uses client-stored weather experience for more accurate analysis
+ */
+export function generatePilotSafetyAnalysisWithWeather(
+  pilot: any,
+  flightEntries?: any[],
+  weatherExperience?: WeatherExperienceData
+): PilotSafetyAnalysis {
+  const findings: PilotSafetyFinding[] = [];
+  let score = 10; // Start with perfect score, deduct for issues
+
+  const now = new Date();
+
+  // Check medical expiration
+  if (pilot.medicalExpiration) {
+    const medicalDate = new Date(pilot.medicalExpiration);
+    const daysUntilMedical = Math.floor((medicalDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (daysUntilMedical < 0) {
+      findings.push({
+        category: 'Medical',
+        riskLevel: 'high',
+        message: `Medical certificate expired ${Math.abs(daysUntilMedical)} days ago`,
+      });
+      score -= 3;
+    } else if (daysUntilMedical < 30) {
+      findings.push({
+        category: 'Medical',
+        riskLevel: 'medium',
+        message: `Medical certificate expires in ${daysUntilMedical} days`,
+      });
+      score -= 1;
+    } else {
+      findings.push({
+        category: 'Medical',
+        riskLevel: 'low',
+        message: `Medical certificate current (expires ${medicalDate.toLocaleDateString()})`,
+      });
+    }
+  }
+
+  // Check flight review expiration
+  if (pilot.flightReviewExpiration) {
+    const bfrDate = new Date(pilot.flightReviewExpiration);
+    const daysUntilBfr = Math.floor((bfrDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (daysUntilBfr < 0) {
+      findings.push({
+        category: 'Flight Review',
+        riskLevel: 'high',
+        message: `Flight review expired ${Math.abs(daysUntilBfr)} days ago`,
+      });
+      score -= 3;
+    } else if (daysUntilBfr < 60) {
+      findings.push({
+        category: 'Flight Review',
+        riskLevel: 'medium',
+        message: `Flight review expires in ${daysUntilBfr} days`,
+      });
+      score -= 1;
+    } else {
+      findings.push({
+        category: 'Flight Review',
+        riskLevel: 'low',
+        message: `Flight review current (expires ${bfrDate.toLocaleDateString()})`,
+      });
+    }
+  }
+
+  // Check experience levels
+  const experience = pilot.experience || {};
+  const totalHours = experience.totalHours || 0;
+  const nightHours = experience.nightHours || 0;
+  const ifrHours = experience.ifrHours || 0;
+  const last30Days = experience.last30DaysHours || 0;
+
+  // Low total time warning
+  if (totalHours < 100) {
+    findings.push({
+      category: 'Experience',
+      riskLevel: 'medium',
+      message: `Low total time (${totalHours.toFixed(0)} hours). Consider additional training`,
+    });
+    score -= 1;
+  } else if (totalHours >= 500) {
+    findings.push({
+      category: 'Experience',
+      riskLevel: 'low',
+      message: `${totalHours.toFixed(0)} total flight hours`,
+    });
+  }
+
+  // Recent activity check
+  if (last30Days < 1) {
+    findings.push({
+      category: 'Currency',
+      riskLevel: 'high',
+      message: 'No flights in the last 30 days. Consider a proficiency flight',
+    });
+    score -= 2;
+  } else if (last30Days < 3) {
+    findings.push({
+      category: 'Currency',
+      riskLevel: 'medium',
+      message: `Only ${last30Days.toFixed(1)} hours in last 30 days`,
+    });
+    score -= 1;
+  } else {
+    findings.push({
+      category: 'Currency',
+      riskLevel: 'low',
+      message: `${last30Days.toFixed(1)} hours in last 30 days`,
+    });
+  }
+
+  // Night experience
+  if (nightHours < 10) {
+    findings.push({
+      category: 'Night Flying',
+      riskLevel: 'medium',
+      message: `Limited night experience (${nightHours.toFixed(1)} hours). Extra caution at night`,
+    });
+    score -= 1;
+  }
+
+  // IFR proficiency check for instrument-rated pilots
+  if (pilot.certificates?.instrumentRated) {
+    if (ifrHours < 20) {
+      findings.push({
+        category: 'IFR Currency',
+        riskLevel: 'medium',
+        message: `Low instrument time (${ifrHours.toFixed(1)} hours). Consider IPC`,
+      });
+      score -= 1;
+    }
+  }
+
+  // ENHANCED: Weather Experience Analysis from client-stored data
+  if (weatherExperience && weatherExperience.flightsWithWeather >= 3) {
+    const total = weatherExperience.flightsWithWeather;
+    const vfrPercent = Math.round((weatherExperience.vfr / total) * 100);
+    const mvfrPercent = Math.round((weatherExperience.mvfr / total) * 100);
+    const ifrPercent = Math.round(((weatherExperience.ifr + weatherExperience.lifr) / total) * 100);
+
+    // VFR-only pilot (>90% VFR)
+    if (vfrPercent > 90 && !pilot.certificates?.instrumentRated) {
+      findings.push({
+        category: 'Weather Experience',
+        riskLevel: 'medium',
+        message: `Primarily VFR experience (${vfrPercent}% of ${total} flights). Extra caution in marginal conditions`,
+      });
+      score -= 0.5;
+    }
+    // Good mixed weather experience
+    else if (ifrPercent >= 15 && pilot.certificates?.instrumentRated) {
+      findings.push({
+        category: 'Weather Experience',
+        riskLevel: 'low',
+        message: `Strong weather diversity: ${vfrPercent}% VFR, ${mvfrPercent}% MVFR, ${ifrPercent}% IFR across ${total} flights`,
+      });
+      score += 0.5; // Bonus for good weather experience
+    }
+    // Good MVFR experience
+    else if (mvfrPercent >= 20) {
+      findings.push({
+        category: 'Weather Experience',
+        riskLevel: 'low',
+        message: `Experienced with marginal conditions (${mvfrPercent}% MVFR across ${total} flights)`,
+      });
+    }
+    // Mostly VFR with some marginal
+    else if (vfrPercent >= 70 && mvfrPercent >= 10) {
+      findings.push({
+        category: 'Weather Experience',
+        riskLevel: 'low',
+        message: `Primarily VFR pilot (${vfrPercent}% VFR, ${mvfrPercent}% MVFR) based on ${total} flights`,
+      });
+    }
+
+    // WARNING: IFR flights without instrument rating
+    if (!pilot.certificates?.instrumentRated && (weatherExperience.ifr + weatherExperience.lifr) > 0) {
+      findings.push({
+        category: 'Weather Compliance',
+        riskLevel: 'high',
+        message: `${weatherExperience.ifr + weatherExperience.lifr} IFR/LIFR flights logged without instrument rating. Review flight conditions.`,
+      });
+      score -= 2;
+    }
+  }
+
+  // If no client weather experience, fall back to analyzing flight entries
+  else if (flightEntries && flightEntries.length > 0) {
+    const recentFlights = flightEntries.filter(e => {
+      const d = new Date(e.date);
+      return (now.getTime() - d.getTime()) < 90 * 24 * 60 * 60 * 1000;
+    });
+
+    if (recentFlights.length === 0) {
+      findings.push({
+        category: 'Recent Activity',
+        riskLevel: 'high',
+        message: 'No logged flights in the last 90 days',
+      });
+      score -= 2;
+    }
+  }
+
+  // Cap score between 0 and 10
+  score = Math.max(0, Math.min(10, score));
+
+  // Sort findings: high risk first, then medium, then low
+  findings.sort((a, b) => {
+    const order = { high: 0, medium: 1, low: 2 };
+    return order[a.riskLevel] - order[b.riskLevel];
+  });
+
+  return {
+    lastAnalyzed: new Date(),
+    score,
+    findings: findings.slice(0, 10),
+  };
+}
+
+/**
  * Flight Safety Analysis
  * Assesses safety of a specific flight based on pilot experience and weather conditions
  */

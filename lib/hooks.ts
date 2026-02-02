@@ -411,3 +411,87 @@ export function useGeneratePilotProfile() {
     },
   });
 }
+
+// Weather Experience Cache Hook
+// Stores weather experience data on the client for use in safety analysis
+export interface WeatherExperienceData {
+  pilotId: string;
+  totalFlights: number;
+  flightsWithWeather: number;
+  vfr: number;
+  mvfr: number;
+  ifr: number;
+  lifr: number;
+  lastUpdated: Date;
+}
+
+export function usePilotWeatherExperience(pilotId: string | undefined) {
+  return useQuery({
+    queryKey: ['pilotWeatherExperience', pilotId],
+    queryFn: async () => {
+      if (!pilotId) return null;
+
+      // Fetch from the new weather experience endpoint
+      const res = await fetch(`/api/pilots/${pilotId}/weather-experience`);
+      const data = await res.json();
+
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to fetch weather experience');
+      }
+
+      return data.weatherExperience as WeatherExperienceData;
+    },
+    enabled: !!pilotId,
+    staleTime: 10 * 60 * 1000, // 10 minutes - weather experience doesn't change often
+    gcTime: 60 * 60 * 1000, // 1 hour cache
+  });
+}
+
+// Update pilot weather experience cache
+export function useUpdatePilotWeatherExperience() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (params: {
+      pilotId: string;
+      weatherExperience: Omit<WeatherExperienceData, 'pilotId'>;
+    }) => {
+      const res = await fetch(`/api/pilots/${params.pilotId}/weather-experience`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params.weatherExperience),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['pilotWeatherExperience', variables.pilotId] });
+      queryClient.invalidateQueries({ queryKey: ['pilots'] });
+    },
+  });
+}
+
+// Generate pilot safety analysis with weather data
+export function useGeneratePilotSafetyAnalysisWithWeather() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (params: {
+      pilotId: string;
+      weatherExperience?: WeatherExperienceData;
+    }) => {
+      const res = await fetch(`/api/pilots/${params.pilotId}/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ weatherExperience: params.weatherExperience }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pilots'] });
+    },
+  });
+}

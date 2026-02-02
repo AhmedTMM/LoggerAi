@@ -173,32 +173,48 @@ export async function POST(request: NextRequest) {
       if (matchedPilot) {
         pilotId = matchedPilot._id.toString();
       } else {
-        // Create new pilot
-        const newPilot = await Pilot.create({
-          userId,
-          name: analysis.pilotName,
-          email: `${analysis.pilotName.toLowerCase().replace(/\s+/g, '.')}@placeholder.com`,
-          certificates: {
-            type: 'PPL',
-            instrumentRated: false,
-            multiEngineRated: false,
-          },
-          endorsements: [],
-          experience: {
-            totalHours: 0,
-            picHours: 0,
-            nightHours: 0,
-            ifrHours: 0,
-            crossCountryHours: 0,
-            last90DaysHours: 0,
-            last30DaysHours: 0,
-          },
-          medicalExpiration: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-          flightReviewExpiration: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-        });
-        pilotId = newPilot._id.toString();
-        created.pilot = true;
-        invalidateAllCaches();
+        // Create new pilot with unique email
+        try {
+          const uniqueEmail = `${analysis.pilotName.toLowerCase().replace(/\s+/g, '.')}.${Date.now()}@placeholder.com`;
+          const newPilot = await Pilot.create({
+            userId,
+            name: analysis.pilotName,
+            email: uniqueEmail,
+            certificates: {
+              type: 'PPL',
+              instrumentRated: false,
+              multiEngineRated: false,
+            },
+            endorsements: [],
+            experience: {
+              totalHours: 0,
+              picHours: 0,
+              nightHours: 0,
+              ifrHours: 0,
+              crossCountryHours: 0,
+              last90DaysHours: 0,
+              last30DaysHours: 0,
+            },
+            medicalExpiration: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+            flightReviewExpiration: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+          });
+          pilotId = newPilot._id.toString();
+          created.pilot = true;
+          invalidateAllCaches();
+        } catch (pilotError: any) {
+          // If duplicate key error, try to find existing pilot by email pattern
+          if (pilotError.code === 11000) {
+            const existingPilot = await Pilot.findOne({
+              userId,
+              name: { $regex: new RegExp(analysis.pilotName, 'i') }
+            });
+            if (existingPilot) {
+              pilotId = existingPilot._id.toString();
+            }
+          } else {
+            throw pilotError;
+          }
+        }
       }
     }
 

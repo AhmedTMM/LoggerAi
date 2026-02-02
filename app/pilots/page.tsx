@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, Plus, Clock, AlertTriangle, CheckCircle, Trash2, RefreshCw, Shield, Award, Mail, Save, FileText, ChevronDown, ChevronUp, Pencil, X, Check, Plane, Cloud, Wind, Eye, Thermometer, Navigation, MapPin } from 'lucide-react';
 import { usePilots, useCreatePilot, useDeletePilot, useParsedDocuments, useGeneratePilotSafetyAnalysis, useFlightsByPilot } from '@/lib/hooks';
 import type { Pilot, Flight, WeatherData } from '@/lib/types';
@@ -516,11 +516,11 @@ export default function PilotsPage() {
                     )}
                   </div>
 
+                  {/* Flight History with Weather - Combined logbook and planned flights */}
+                  <PilotFlightHistorySection pilotId={selectedPilot._id} pilotName={selectedPilot.name} />
+
                   {/* Linked Documents */}
                   <PilotLinkedDocumentsSection pilotId={selectedPilot._id} />
-
-                  {/* Flight History with Weather */}
-                  <PilotFlightHistorySection pilotId={selectedPilot._id} pilotName={selectedPilot.name} />
                 </div>
               </div>
             ) : (
@@ -584,7 +584,6 @@ export default function PilotsPage() {
 
 function PilotLinkedDocumentsSection({ pilotId }: { pilotId: string }) {
   const { data: documents, isLoading } = useParsedDocuments({ pilotId });
-  const [expandedDoc, setExpandedDoc] = useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -599,111 +598,45 @@ function PilotLinkedDocumentsSection({ pilotId }: { pilotId: string }) {
   return (
     <div>
       <h4 className="font-semibold text-zinc-900 mb-3 flex items-center gap-2">
-        <FileText className="w-4 h-4" /> Linked Documents
+        <FileText className="w-4 h-4" /> Source Documents
         {linkedDocs.length > 0 && (
           <Badge variant="secondary" className="text-xs">{linkedDocs.length}</Badge>
         )}
       </h4>
       {linkedDocs.length > 0 ? (
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {linkedDocs.map((doc: any) => {
-            const isExpanded = expandedDoc === doc._id;
             const entries = doc.entries || [];
 
             return (
               <div
                 key={doc._id}
-                className="bg-zinc-50 rounded-lg border border-zinc-200 overflow-hidden"
+                className="bg-zinc-50 rounded-lg border border-zinc-200 p-3"
               >
-                {/* Document Header */}
-                <div
-                  className="p-3 cursor-pointer hover:bg-zinc-100 transition-colors"
-                  onClick={() => setExpandedDoc(isExpanded ? null : doc._id)}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-blue-500" />
-                      <span className="text-sm font-medium text-zinc-900 truncate max-w-[200px]">
-                        {doc.originalFilename || doc.filename}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 bg-blue-100 rounded-lg">
+                    <FileText className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h5 className="text-sm font-medium text-zinc-900 truncate">
+                      {doc.originalFilename || doc.filename}
+                    </h5>
+                    <div className="flex items-center gap-2 mt-1 text-xs text-zinc-500">
                       <Badge variant="outline" className="text-xs">
-                        {entries.length} entries
+                        {doc.documentType?.replace(/_/g, ' ')}
                       </Badge>
-                      {isExpanded ? (
-                        <ChevronUp className="w-4 h-4 text-zinc-400" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 text-zinc-400" />
+                      <span>{entries.length} flights</span>
+                      {doc.summary?.totalHours && (
+                        <span>{doc.summary.totalHours.toFixed(1)}h</span>
                       )}
                     </div>
-                  </div>
-                  <div className="flex items-center gap-3 mt-1 text-xs text-zinc-500">
-                    <span>{doc.documentType?.replace(/_/g, ' ')}</span>
-                    {doc.summary?.totalHours && (
-                      <span>{doc.summary.totalHours.toFixed(1)} total hours</span>
-                    )}
                     {doc.summary?.dateRange && (
-                      <span>
-                        {doc.summary.dateRange.from} - {doc.summary.dateRange.to}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Expanded Flight Entries */}
-                {isExpanded && entries.length > 0 && (
-                  <div className="border-t border-zinc-200 max-h-72 overflow-y-auto">
-                    {entries.slice(0, 50).map((entry: any, idx: number) => (
-                      <div
-                        key={idx}
-                        className="p-3 border-b border-zinc-100 last:border-b-0"
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-medium text-zinc-700">
-                            {entry.date || 'No date'}
-                          </span>
-                          <div className="flex items-center gap-2 text-xs text-zinc-500">
-                            {entry.totalTime > 0 && (
-                              <span className="font-medium">{entry.totalTime}h</span>
-                            )}
-                            {entry.pic > 0 && <span>PIC: {entry.pic}</span>}
-                            {entry.night > 0 && <span>Night: {entry.night}</span>}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 text-xs text-zinc-600">
-                          {entry.aircraftIdent && (
-                            <span className="font-medium text-blue-600">
-                              {entry.aircraftIdent}
-                            </span>
-                          )}
-                          {(entry.from || entry.to) && (
-                            <span>
-                              {entry.from || '?'} → {entry.to || '?'}
-                            </span>
-                          )}
-                        </div>
-                        {entry.remarks && (
-                          <p className="text-xs text-zinc-500 mt-1 line-clamp-2">
-                            {entry.remarks}
-                          </p>
-                        )}
-                        <div className="flex items-center gap-2 mt-1 text-xs text-zinc-400">
-                          {entry.landingsDay > 0 && <span>Day: {entry.landingsDay}</span>}
-                          {entry.landingsNight > 0 && <span>Night: {entry.landingsNight}</span>}
-                          {entry.crossCountry > 0 && <span>XC: {entry.crossCountry}h</span>}
-                          {entry.actualInstrument > 0 && <span>Actual: {entry.actualInstrument}h</span>}
-                          {entry.simulatedInstrument > 0 && <span>Sim: {entry.simulatedInstrument}h</span>}
-                        </div>
-                      </div>
-                    ))}
-                    {entries.length > 50 && (
-                      <p className="text-xs text-center text-zinc-500 py-2">
-                        Showing 50 of {entries.length} entries
+                      <p className="text-xs text-zinc-500 mt-1">
+                        {doc.summary.dateRange.from} to {doc.summary.dateRange.to}
                       </p>
                     )}
                   </div>
-                )}
+                </div>
               </div>
             );
           })}
@@ -725,34 +658,125 @@ function PilotLinkedDocumentsSection({ pilotId }: { pilotId: string }) {
 
 function PilotFlightHistorySection({ pilotId, pilotName }: { pilotId: string; pilotName: string }) {
   const { data: flights, isLoading } = useFlightsByPilot(pilotId);
+  const { data: documents } = useParsedDocuments({ pilotId });
   const [expandedFlight, setExpandedFlight] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'all' | 'vfr' | 'mvfr' | 'ifr'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'planned' | 'logbook'>('all');
+  const [historicalWeather, setHistoricalWeather] = useState<Map<string, any>>(new Map());
+  const [loadingWeather, setLoadingWeather] = useState(false);
 
-  if (isLoading) {
-    return (
-      <div className="p-4 bg-zinc-50 rounded-lg text-center">
-        <RefreshCw className="w-6 h-6 text-zinc-400 mx-auto animate-spin" />
-        <p className="text-sm text-zinc-500 mt-2">Loading flight history...</p>
-      </div>
+  // Extract all logbook entries from linked documents
+  const logbookEntries = React.useMemo(() => {
+    if (!documents) return [];
+    const completedDocs = documents.filter((doc: any) => doc.status === 'completed');
+    return completedDocs.flatMap((doc: any) =>
+      (doc.entries || []).map((entry: any) => ({ ...entry, _source: 'logbook', _docId: doc._id }))
     );
-  }
+  }, [documents]);
 
-  // Filter flights based on active tab
-  const filteredFlights = flights?.filter((flight: Flight) => {
+  // Fetch historical weather for logbook entries
+  React.useEffect(() => {
+    if (logbookEntries.length === 0) return;
+
+    const fetchHistoricalWeather = async () => {
+      setLoadingWeather(true);
+      const weatherMap = new Map();
+
+      const batchSize = 5;
+      const entries = logbookEntries.slice(0, 50);
+
+      for (let i = 0; i < entries.length; i += batchSize) {
+        const batch = entries.slice(i, i + batchSize);
+
+        await Promise.all(
+          batch.map(async (entry: any, batchIdx: number) => {
+            if (!entry.date || !entry.from) return;
+
+            const entryIdx = i + batchIdx;
+
+            try {
+              const res = await fetch('/api/weather/historical', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  airport: entry.from,
+                  date: entry.date,
+                }),
+              });
+
+              const data = await res.json();
+              if (res.ok && data.success && data.weather) {
+                weatherMap.set(`logbook-${entryIdx}`, data.weather);
+              }
+            } catch (error) {
+              console.error(`Failed to fetch weather for ${entry.from}:`, error);
+            }
+          })
+        );
+
+        if (i + batchSize < entries.length) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+
+      setHistoricalWeather(weatherMap);
+      setLoadingWeather(false);
+    };
+
+    fetchHistoricalWeather();
+  }, [logbookEntries]);
+
+  // Combine planned flights and logbook entries
+  const allFlightsAndEntries = React.useMemo(() => {
+    const combined: any[] = [];
+
+    // Add planned flights
+    if (flights) {
+      flights.forEach((flight: Flight) => {
+        combined.push({
+          ...flight,
+          _type: 'planned',
+          _sortDate: new Date(flight.scheduledDate),
+        });
+      });
+    }
+
+    // Add logbook entries with historical weather
+    logbookEntries.forEach((entry: any, idx: number) => {
+      const weather = historicalWeather.get(`logbook-${idx}`);
+      combined.push({
+        ...entry,
+        _type: 'logbook',
+        _sortDate: entry.date ? new Date(entry.date) : new Date(0),
+        _weatherIdx: idx,
+        weather: weather ? {
+          ...weather.conditions,
+          metar: weather.metar,
+          flightCategory: weather.conditions.flightCategory,
+          station: entry.from,
+        } : undefined,
+      });
+    });
+
+    // Sort by date (newest first)
+    return combined.sort((a, b) => b._sortDate.getTime() - a._sortDate.getTime());
+  }, [flights, logbookEntries, historicalWeather]);
+
+  // Filter based on active tab
+  const filteredFlights = allFlightsAndEntries.filter((item: any) => {
     if (activeTab === 'all') return true;
-    const category = flight.weather?.flightCategory?.toUpperCase();
-    if (activeTab === 'vfr') return category === 'VFR';
-    if (activeTab === 'mvfr') return category === 'MVFR';
-    if (activeTab === 'ifr') return category === 'IFR' || category === 'LIFR';
+    if (activeTab === 'planned') return item._type === 'planned';
+    if (activeTab === 'logbook') return item._type === 'logbook';
     return true;
-  }) || [];
+  });
 
-  // Calculate weather stats for analysis
+  // Calculate weather stats
   const weatherStats = {
-    total: flights?.length || 0,
-    vfr: flights?.filter((f: Flight) => f.weather?.flightCategory === 'VFR').length || 0,
-    mvfr: flights?.filter((f: Flight) => f.weather?.flightCategory === 'MVFR').length || 0,
-    ifr: flights?.filter((f: Flight) => f.weather?.flightCategory === 'IFR' || f.weather?.flightCategory === 'LIFR').length || 0,
+    total: allFlightsAndEntries.length,
+    planned: allFlightsAndEntries.filter((f: any) => f._type === 'planned').length,
+    logbook: allFlightsAndEntries.filter((f: any) => f._type === 'logbook').length,
+    vfr: allFlightsAndEntries.filter((f: any) => f.weather?.flightCategory === 'VFR').length,
+    mvfr: allFlightsAndEntries.filter((f: any) => f.weather?.flightCategory === 'MVFR').length,
+    ifr: allFlightsAndEntries.filter((f: any) => f.weather?.flightCategory === 'IFR' || f.weather?.flightCategory === 'LIFR').length,
   };
 
   const getFlightCategoryColor = (category?: string) => {
@@ -788,19 +812,28 @@ function PilotFlightHistorySection({ pilotId, pilotName }: { pilotId: string; pi
     return time;
   };
 
+  if (isLoading) {
+    return (
+      <div className="p-4 bg-zinc-50 rounded-lg text-center">
+        <RefreshCw className="w-6 h-6 text-zinc-400 mx-auto animate-spin" />
+        <p className="text-sm text-zinc-500 mt-2">Loading flight history...</p>
+      </div>
+    );
+  }
+
   return (
     <div>
       <h4 className="font-semibold text-zinc-900 mb-3 flex items-center gap-2">
         <Plane className="w-4 h-4" /> Flight History & Weather Analysis
-        {flights && flights.length > 0 && (
-          <Badge variant="secondary" className="text-xs">{flights.length} flights</Badge>
+        {allFlightsAndEntries.length > 0 && (
+          <Badge variant="secondary" className="text-xs">{allFlightsAndEntries.length} total</Badge>
         )}
       </h4>
 
-      {flights && flights.length > 0 ? (
+      {allFlightsAndEntries.length > 0 ? (
         <>
-          {/* Weather Summary Stats */}
-          <div className="grid grid-cols-4 gap-2 mb-4">
+          {/* Filter Tabs */}
+          <div className="grid grid-cols-3 gap-2 mb-4">
             <button
               onClick={() => setActiveTab('all')}
               className={cn(
@@ -811,61 +844,68 @@ function PilotFlightHistorySection({ pilotId, pilotName }: { pilotId: string; pi
               )}
             >
               <p className="text-lg font-bold">{weatherStats.total}</p>
-              <p className="text-xs">All</p>
+              <p className="text-xs">All Flights</p>
             </button>
             <button
-              onClick={() => setActiveTab('vfr')}
+              onClick={() => setActiveTab('logbook')}
               className={cn(
                 "p-2 rounded-lg text-center transition-all border",
-                activeTab === 'vfr'
-                  ? "bg-emerald-600 text-white border-emerald-600"
-                  : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
-              )}
-            >
-              <p className="text-lg font-bold">{weatherStats.vfr}</p>
-              <p className="text-xs">VFR</p>
-            </button>
-            <button
-              onClick={() => setActiveTab('mvfr')}
-              className={cn(
-                "p-2 rounded-lg text-center transition-all border",
-                activeTab === 'mvfr'
+                activeTab === 'logbook'
                   ? "bg-blue-600 text-white border-blue-600"
                   : "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100"
               )}
             >
-              <p className="text-lg font-bold">{weatherStats.mvfr}</p>
-              <p className="text-xs">MVFR</p>
+              <p className="text-lg font-bold">{weatherStats.logbook}</p>
+              <p className="text-xs">From Logbook</p>
             </button>
             <button
-              onClick={() => setActiveTab('ifr')}
+              onClick={() => setActiveTab('planned')}
               className={cn(
                 "p-2 rounded-lg text-center transition-all border",
-                activeTab === 'ifr'
-                  ? "bg-red-600 text-white border-red-600"
-                  : "bg-red-50 text-red-700 border-red-200 hover:bg-red-100"
+                activeTab === 'planned'
+                  ? "bg-emerald-600 text-white border-emerald-600"
+                  : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
               )}
             >
-              <p className="text-lg font-bold">{weatherStats.ifr}</p>
-              <p className="text-xs">IFR/LIFR</p>
+              <p className="text-lg font-bold">{weatherStats.planned}</p>
+              <p className="text-xs">Planned</p>
             </button>
           </div>
 
-          {/* Ideal Weather Analysis */}
-          {weatherStats.total >= 3 && (
+          {/* Weather Summary */}
+          {loadingWeather && (
+            <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200 text-center">
+              <RefreshCw className="w-4 h-4 text-blue-500 mx-auto animate-spin mb-1" />
+              <p className="text-xs text-blue-700">Loading historical weather...</p>
+            </div>
+          )}
+
+          {/* Weather Experience Analysis */}
+          {weatherStats.logbook >= 3 && (weatherStats.vfr > 0 || weatherStats.mvfr > 0 || weatherStats.ifr > 0) && (
             <div className="mb-4 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
               <div className="flex items-center gap-2 mb-2">
                 <Cloud className="w-4 h-4 text-blue-600" />
-                <span className="text-sm font-medium text-blue-900">Weather Pattern Analysis</span>
+                <span className="text-sm font-medium text-blue-900">Weather Experience Analysis</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 mb-2">
+                <div className="text-center p-2 bg-emerald-100 rounded border border-emerald-200">
+                  <p className="text-lg font-bold text-emerald-700">{Math.round((weatherStats.vfr / weatherStats.logbook) * 100)}%</p>
+                  <p className="text-xs text-emerald-600">VFR</p>
+                </div>
+                <div className="text-center p-2 bg-blue-100 rounded border border-blue-200">
+                  <p className="text-lg font-bold text-blue-700">{Math.round((weatherStats.mvfr / weatherStats.logbook) * 100)}%</p>
+                  <p className="text-xs text-blue-600">MVFR</p>
+                </div>
+                <div className="text-center p-2 bg-red-100 rounded border border-red-200">
+                  <p className="text-lg font-bold text-red-700">{Math.round((weatherStats.ifr / weatherStats.logbook) * 100)}%</p>
+                  <p className="text-xs text-red-600">IFR/LIFR</p>
+                </div>
               </div>
               <p className="text-xs text-blue-700">
-                {pilotName} has flown {Math.round((weatherStats.vfr / weatherStats.total) * 100)}% VFR, {Math.round((weatherStats.mvfr / weatherStats.total) * 100)}% MVFR, and {Math.round((weatherStats.ifr / weatherStats.total) * 100)}% IFR/LIFR conditions.
-                {weatherStats.vfr > weatherStats.ifr && (
-                  <span className="block mt-1">Most experienced in clear weather conditions.</span>
-                )}
-                {weatherStats.ifr >= weatherStats.vfr && (
-                  <span className="block mt-1">Experienced in instrument conditions - strong IFR capability.</span>
-                )}
+                Based on {weatherStats.logbook} logbook entries with weather data.
+                {weatherStats.vfr / weatherStats.logbook >= 0.7 && ' Primarily flies in clear conditions.'}
+                {weatherStats.ifr / weatherStats.logbook >= 0.2 && weatherStats.vfr / weatherStats.logbook < 0.7 && ' Experienced with marginal and instrument conditions.'}
+                {weatherStats.ifr / weatherStats.logbook >= 0.4 && ' Strong IFR experience.'}
               </p>
             </div>
           )}
@@ -874,38 +914,45 @@ function PilotFlightHistorySection({ pilotId, pilotName }: { pilotId: string; pi
           <div className="space-y-2 max-h-96 overflow-y-auto">
             {filteredFlights.length === 0 ? (
               <div className="p-4 text-center text-zinc-500 text-sm">
-                No flights found for this weather category
+                No flights found
               </div>
             ) : (
-              filteredFlights.map((flight: Flight) => {
-                const isExpanded = expandedFlight === flight._id;
-                const weather = flight.weather;
-                const arrivalWeather = flight.arrivalWeather;
-                const aircraft = typeof flight.aircraft === 'object' ? flight.aircraft : null;
+              filteredFlights.map((item: any, idx: number) => {
+                const isLogbook = item._type === 'logbook';
+                const flightId = isLogbook ? `logbook-${idx}` : item._id;
+                const isExpanded = expandedFlight === flightId;
+                const weather = item.weather;
+
+                // For logbook entries
+                const departureAirport = isLogbook ? item.from : item.departureAirport;
+                const arrivalAirport = isLogbook ? item.to : (item.arrivalAirport || item.departureAirport);
+                const flightDate = isLogbook ? item.date : item.scheduledDate;
+                const aircraftIdent = isLogbook ? item.aircraftIdent : null;
+                const aircraft = !isLogbook && typeof item.aircraft === 'object' ? item.aircraft : null;
 
                 return (
                   <div
-                    key={flight._id}
+                    key={flightId}
                     className="bg-zinc-50 rounded-lg border border-zinc-200 overflow-hidden"
                   >
                     {/* Flight Header */}
                     <div
                       className="p-3 cursor-pointer hover:bg-zinc-100 transition-colors"
-                      onClick={() => setExpandedFlight(isExpanded ? null : flight._id)}
+                      onClick={() => setExpandedFlight(isExpanded ? null : flightId)}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                           <div className="flex items-center gap-1">
                             <MapPin className="w-3 h-3 text-zinc-400" />
                             <span className="font-medium text-zinc-900">
-                              {flight.departureAirport}
+                              {departureAirport}
                             </span>
                             <Navigation className="w-3 h-3 text-zinc-400 mx-1" />
                             <span className="font-medium text-zinc-900">
-                              {flight.arrivalAirport || flight.departureAirport}
+                              {arrivalAirport || departureAirport}
                             </span>
                           </div>
-                          {weather && (
+                          {weather?.flightCategory && (
                             <span className={cn(
                               "px-2 py-0.5 text-xs font-medium rounded border",
                               getFlightCategoryColor(weather.flightCategory)
@@ -913,14 +960,19 @@ function PilotFlightHistorySection({ pilotId, pilotName }: { pilotId: string; pi
                               {weather.flightCategory}
                             </span>
                           )}
+                          <Badge variant={isLogbook ? 'secondary' : 'default'} className="text-xs">
+                            {isLogbook ? 'Logbook' : 'Planned'}
+                          </Badge>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-zinc-500">
-                            {formatDate(flight.scheduledDate)}
+                            {formatDate(flightDate)}
                           </span>
-                          <Badge variant={getStatusBadgeColor(flight.status) as any} className="text-xs">
-                            {flight.status}
-                          </Badge>
+                          {!isLogbook && item.status && (
+                            <Badge variant={getStatusBadgeColor(item.status) as any} className="text-xs">
+                              {item.status}
+                            </Badge>
+                          )}
                           {isExpanded ? (
                             <ChevronUp className="w-4 h-4 text-zinc-400" />
                           ) : (
@@ -934,8 +986,16 @@ function PilotFlightHistorySection({ pilotId, pilotName }: { pilotId: string; pi
                             {aircraft.tailNumber} ({aircraft.model})
                           </span>
                         )}
-                        {flight.scheduledTime && (
-                          <span>@ {formatTime(flight.scheduledTime)}</span>
+                        {aircraftIdent && (
+                          <span className="font-medium text-blue-600">
+                            {aircraftIdent}
+                          </span>
+                        )}
+                        {isLogbook && item.totalTime > 0 && (
+                          <span>{item.totalTime}h total</span>
+                        )}
+                        {!isLogbook && item.scheduledTime && (
+                          <span>@ {formatTime(item.scheduledTime)}</span>
                         )}
                       </div>
                     </div>
@@ -943,54 +1003,82 @@ function PilotFlightHistorySection({ pilotId, pilotName }: { pilotId: string; pi
                     {/* Expanded Weather Details */}
                     {isExpanded && (
                       <div className="border-t border-zinc-200 p-3 bg-white">
-                        {/* Departure Weather */}
+                        {/* Logbook Flight Details */}
+                        {isLogbook && (
+                          <div className="mb-3 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-zinc-600">
+                            {item.pic > 0 && <div><span className="text-zinc-500">PIC:</span> {item.pic}h</div>}
+                            {item.night > 0 && <div><span className="text-zinc-500">Night:</span> {item.night}h</div>}
+                            {item.crossCountry > 0 && <div><span className="text-zinc-500">XC:</span> {item.crossCountry}h</div>}
+                            {item.actualInstrument > 0 && <div><span className="text-zinc-500">Actual:</span> {item.actualInstrument}h</div>}
+                            {item.landingsDay > 0 && <div><span className="text-zinc-500">Day Landings:</span> {item.landingsDay}</div>}
+                            {item.landingsNight > 0 && <div><span className="text-zinc-500">Night Landings:</span> {item.landingsNight}</div>}
+                          </div>
+                        )}
+
+                        {/* Weather Data */}
                         {weather ? (
                           <div className="mb-3">
                             <div className="flex items-center gap-2 mb-2">
                               <Cloud className="w-4 h-4 text-blue-500" />
                               <span className="text-sm font-medium text-zinc-700">
-                                Departure Weather ({weather.station})
+                                {isLogbook ? 'Historical Weather' : 'Departure Weather'} ({weather.station || departureAirport})
                               </span>
                             </div>
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                              <div className="flex items-center gap-2 p-2 bg-zinc-50 rounded">
-                                <Eye className="w-4 h-4 text-zinc-400" />
-                                <div>
-                                  <p className="text-xs text-zinc-500">Visibility</p>
-                                  <p className="text-sm font-medium text-zinc-900">{weather.visibility} SM</p>
+                              {weather.visibility !== undefined && (
+                                <div className="flex items-center gap-2 p-2 bg-zinc-50 rounded">
+                                  <Eye className="w-4 h-4 text-zinc-400" />
+                                  <div>
+                                    <p className="text-xs text-zinc-500">Visibility</p>
+                                    <p className="text-sm font-medium text-zinc-900">{weather.visibility} SM</p>
+                                  </div>
                                 </div>
-                              </div>
+                              )}
                               <div className="flex items-center gap-2 p-2 bg-zinc-50 rounded">
                                 <Cloud className="w-4 h-4 text-zinc-400" />
                                 <div>
                                   <p className="text-xs text-zinc-500">Ceiling</p>
                                   <p className="text-sm font-medium text-zinc-900">
-                                    {weather.ceiling ? `${weather.ceiling} ft` : 'CLR'}
+                                    {weather.ceiling ? `${weather.ceiling} ft` : (weather.skyConditions?.[0]?.coverage || 'CLR')}
                                   </p>
                                 </div>
                               </div>
-                              <div className="flex items-center gap-2 p-2 bg-zinc-50 rounded">
-                                <Wind className="w-4 h-4 text-zinc-400" />
-                                <div>
-                                  <p className="text-xs text-zinc-500">Wind</p>
-                                  <p className="text-sm font-medium text-zinc-900">
-                                    {weather.wind.direction}° @ {weather.wind.speed}kt
-                                    {weather.wind.gust && ` G${weather.wind.gust}`}
-                                  </p>
+                              {weather.wind && (
+                                <div className="flex items-center gap-2 p-2 bg-zinc-50 rounded">
+                                  <Wind className="w-4 h-4 text-zinc-400" />
+                                  <div>
+                                    <p className="text-xs text-zinc-500">Wind</p>
+                                    <p className="text-sm font-medium text-zinc-900">
+                                      {weather.wind.direction}° @ {weather.wind.speed}kt
+                                      {weather.wind.gust && ` G${weather.wind.gust}`}
+                                    </p>
+                                  </div>
                                 </div>
-                              </div>
+                              )}
                               {weather.temperature !== undefined && (
                                 <div className="flex items-center gap-2 p-2 bg-zinc-50 rounded">
                                   <Thermometer className="w-4 h-4 text-zinc-400" />
                                   <div>
                                     <p className="text-xs text-zinc-500">Temp/Dew</p>
                                     <p className="text-sm font-medium text-zinc-900">
-                                      {weather.temperature}°/{weather.dewpoint || '--'}°C
+                                      {Math.round(weather.temperature)}°/{weather.dewpoint ? Math.round(weather.dewpoint) : '--'}°C
                                     </p>
                                   </div>
                                 </div>
                               )}
                             </div>
+                            {/* Sky Conditions */}
+                            {weather.skyConditions && weather.skyConditions.length > 0 && (
+                              <div className="mt-2 flex items-center gap-1 text-xs text-zinc-500">
+                                <span className="font-medium">Sky:</span>
+                                {weather.skyConditions.map((layer: any, idx: number) => (
+                                  <span key={idx} className="px-1.5 py-0.5 bg-zinc-100 rounded border border-zinc-200">
+                                    {layer.coverage}
+                                    {layer.altitude && ` ${layer.altitude}ft`}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                             {weather.metar && (
                               <div className="mt-2 p-2 bg-zinc-100 rounded text-xs font-mono text-zinc-600 break-all">
                                 {weather.metar}
@@ -1009,19 +1097,27 @@ function PilotFlightHistorySection({ pilotId, pilotName }: { pilotId: string; pi
                           </div>
                         )}
 
-                        {/* Arrival Weather (if different airport) */}
-                        {arrivalWeather && flight.arrivalAirport && flight.arrivalAirport !== flight.departureAirport && (
+                        {/* Logbook Remarks */}
+                        {isLogbook && item.remarks && (
+                          <div className="mt-3 pt-3 border-t border-zinc-100">
+                            <p className="text-xs text-zinc-500 font-medium mb-1">Remarks</p>
+                            <p className="text-sm text-zinc-700">{item.remarks}</p>
+                          </div>
+                        )}
+
+                        {/* Arrival Weather (if different airport) - Only for planned flights */}
+                        {!isLogbook && item.arrivalWeather && item.arrivalAirport && item.arrivalAirport !== departureAirport && (
                           <div className="mt-3 pt-3 border-t border-zinc-100">
                             <div className="flex items-center gap-2 mb-2">
                               <Navigation className="w-4 h-4 text-green-500" />
                               <span className="text-sm font-medium text-zinc-700">
-                                Arrival Weather ({arrivalWeather.station})
+                                Arrival Weather ({item.arrivalWeather.station})
                               </span>
                               <span className={cn(
                                 "px-2 py-0.5 text-xs font-medium rounded border",
-                                getFlightCategoryColor(arrivalWeather.flightCategory)
+                                getFlightCategoryColor(item.arrivalWeather.flightCategory)
                               )}>
-                                {arrivalWeather.flightCategory}
+                                {item.arrivalWeather.flightCategory}
                               </span>
                             </div>
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -1029,7 +1125,7 @@ function PilotFlightHistorySection({ pilotId, pilotName }: { pilotId: string; pi
                                 <Eye className="w-4 h-4 text-zinc-400" />
                                 <div>
                                   <p className="text-xs text-zinc-500">Visibility</p>
-                                  <p className="text-sm font-medium text-zinc-900">{arrivalWeather.visibility} SM</p>
+                                  <p className="text-sm font-medium text-zinc-900">{item.arrivalWeather.visibility} SM</p>
                                 </div>
                               </div>
                               <div className="flex items-center gap-2 p-2 bg-zinc-50 rounded">
@@ -1037,27 +1133,29 @@ function PilotFlightHistorySection({ pilotId, pilotName }: { pilotId: string; pi
                                 <div>
                                   <p className="text-xs text-zinc-500">Ceiling</p>
                                   <p className="text-sm font-medium text-zinc-900">
-                                    {arrivalWeather.ceiling ? `${arrivalWeather.ceiling} ft` : 'CLR'}
+                                    {item.arrivalWeather.ceiling ? `${item.arrivalWeather.ceiling} ft` : 'CLR'}
                                   </p>
                                 </div>
                               </div>
-                              <div className="flex items-center gap-2 p-2 bg-zinc-50 rounded">
-                                <Wind className="w-4 h-4 text-zinc-400" />
-                                <div>
-                                  <p className="text-xs text-zinc-500">Wind</p>
-                                  <p className="text-sm font-medium text-zinc-900">
-                                    {arrivalWeather.wind.direction}° @ {arrivalWeather.wind.speed}kt
-                                    {arrivalWeather.wind.gust && ` G${arrivalWeather.wind.gust}`}
-                                  </p>
+                              {item.arrivalWeather.wind && (
+                                <div className="flex items-center gap-2 p-2 bg-zinc-50 rounded">
+                                  <Wind className="w-4 h-4 text-zinc-400" />
+                                  <div>
+                                    <p className="text-xs text-zinc-500">Wind</p>
+                                    <p className="text-sm font-medium text-zinc-900">
+                                      {item.arrivalWeather.wind.direction}° @ {item.arrivalWeather.wind.speed}kt
+                                      {item.arrivalWeather.wind.gust && ` G${item.arrivalWeather.wind.gust}`}
+                                    </p>
+                                  </div>
                                 </div>
-                              </div>
-                              {arrivalWeather.temperature !== undefined && (
+                              )}
+                              {item.arrivalWeather.temperature !== undefined && (
                                 <div className="flex items-center gap-2 p-2 bg-zinc-50 rounded">
                                   <Thermometer className="w-4 h-4 text-zinc-400" />
                                   <div>
                                     <p className="text-xs text-zinc-500">Temp/Dew</p>
                                     <p className="text-sm font-medium text-zinc-900">
-                                      {arrivalWeather.temperature}°/{arrivalWeather.dewpoint || '--'}°C
+                                      {Math.round(item.arrivalWeather.temperature)}°/{item.arrivalWeather.dewpoint ? Math.round(item.arrivalWeather.dewpoint) : '--'}°C
                                     </p>
                                   </div>
                                 </div>
@@ -1066,31 +1164,31 @@ function PilotFlightHistorySection({ pilotId, pilotName }: { pilotId: string; pi
                           </div>
                         )}
 
-                        {/* Safety Analysis Summary */}
-                        {flight.safetyAnalysisSnapshot && (
+                        {/* Safety Analysis Summary - Only for planned flights */}
+                        {!isLogbook && item.safetyAnalysisSnapshot && (
                           <div className="mt-3 pt-3 border-t border-zinc-100">
                             <div className="flex items-center justify-between">
                               <span className="text-xs text-zinc-500">Safety Score</span>
                               <Badge variant={
-                                flight.safetyAnalysisSnapshot.overallScore >= 70 ? 'success' :
-                                flight.safetyAnalysisSnapshot.overallScore >= 50 ? 'warning' : 'destructive'
+                                item.safetyAnalysisSnapshot.overallScore >= 70 ? 'success' :
+                                item.safetyAnalysisSnapshot.overallScore >= 50 ? 'warning' : 'destructive'
                               }>
-                                {flight.safetyAnalysisSnapshot.overallScore}/100
+                                {item.safetyAnalysisSnapshot.overallScore}/100
                               </Badge>
                             </div>
-                            {flight.safetyAnalysisSnapshot.goNoGoRecommendation && (
+                            {item.safetyAnalysisSnapshot.goNoGoRecommendation && (
                               <p className="text-xs text-zinc-600 mt-1">
-                                Recommendation: <span className="font-medium">{flight.safetyAnalysisSnapshot.goNoGoRecommendation.toUpperCase()}</span>
+                                Recommendation: <span className="font-medium">{item.safetyAnalysisSnapshot.goNoGoRecommendation.toUpperCase()}</span>
                               </p>
                             )}
                           </div>
                         )}
 
-                        {/* Flight Notes */}
-                        {flight.notes && (
+                        {/* Flight Notes - Only for planned flights */}
+                        {!isLogbook && item.notes && (
                           <div className="mt-3 pt-3 border-t border-zinc-100">
                             <p className="text-xs text-zinc-500">Notes</p>
-                            <p className="text-sm text-zinc-700 mt-1">{flight.notes}</p>
+                            <p className="text-sm text-zinc-700 mt-1">{item.notes}</p>
                           </div>
                         )}
                       </div>

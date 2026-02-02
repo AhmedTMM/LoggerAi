@@ -660,7 +660,7 @@ function SafetyStatusCard({
                         <div className="mt-2 space-y-1">
                             {dueItems.map(item => (
                                 <p key={item.key} className="text-xs text-amber-600">
-                                    • {item.label} ({getDaysUntil(item.date)}d)
+                                    • {item.label} ({item.date ? getDaysUntil(item.date) : 0}d)
                                 </p>
                             ))}
                         </div>

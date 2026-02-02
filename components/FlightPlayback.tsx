@@ -23,6 +23,7 @@ interface FlightPlaybackModalProps {
 
 export function FlightPlaybackModal({ isOpen, onClose, flight }: FlightPlaybackModalProps) {
   const [copied, setCopied] = React.useState(false);
+  const [showEmbedded, setShowEmbedded] = React.useState(true);
 
   if (!isOpen) return null;
 
@@ -73,7 +74,7 @@ export function FlightPlaybackModal({ isOpen, onClose, flight }: FlightPlaybackM
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-xl w-full max-w-6xl shadow-xl max-h-[90vh] overflow-y-auto flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-zinc-200 bg-gradient-to-r from-blue-50 to-indigo-50">
           <div className="flex items-center gap-3">
@@ -148,32 +149,61 @@ export function FlightPlaybackModal({ isOpen, onClose, flight }: FlightPlaybackM
             )}
           </div>
 
-          {/* ICAO Hex Info */}
-          {playbackInfo.icaoHex ? (
+          {/* Embedded ADS-B Exchange */}
+          {playbackInfo.playbackUrl && showEmbedded ? (
+            <div className="bg-zinc-50 rounded-lg border border-zinc-200 overflow-hidden">
+              <div className="flex items-center justify-between p-3 bg-zinc-100 border-b border-zinc-200">
+                <h3 className="font-semibold text-zinc-900 text-sm flex items-center gap-2">
+                  Flight History - {formatDate(flight.date)}
+                  <span className="text-xs font-normal text-zinc-500">(Aircraft: {aircraftIdent})</span>
+                </h3>
+                <div className="flex items-center gap-2">
+                  <Badge variant="default">Historical</Badge>
+                  <button
+                    onClick={() => setShowEmbedded(false)}
+                    className="text-xs text-zinc-600 hover:text-zinc-900"
+                  >
+                    Hide Map
+                  </button>
+                </div>
+              </div>
+              <iframe
+                src={playbackInfo.playbackUrl}
+                className="w-full h-[500px] border-0"
+                title="ADS-B Exchange Flight Tracker"
+                allow="geolocation"
+                sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+              />
+              <div className="p-3 bg-blue-50 border-t border-blue-200">
+                <div className="flex items-start gap-2">
+                  <Info className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                  <div className="text-xs text-blue-700 space-y-1">
+                    <p><strong>How to view historical playback:</strong></p>
+                    <ol className="list-decimal list-inside space-y-0.5 ml-2">
+                      <li>Wait for the map to load and find the aircraft</li>
+                      <li>Look for flights on {formatDate(flight.date)}</li>
+                      <li>Click on a flight track to see details</li>
+                      <li>Use the timeline slider at the bottom to replay</li>
+                    </ol>
+                    <p className="mt-2 text-blue-600">
+                      💡 <strong>Tip:</strong> Click "Open in New Tab" below for better controls and full-screen view
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : playbackInfo.playbackUrl && !showEmbedded ? (
             <div className="bg-emerald-50 rounded-lg p-4 border border-emerald-200">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="font-semibold text-emerald-900 text-sm">Aircraft ICAO Hex Code</h3>
+                <h3 className="font-semibold text-emerald-900 text-sm">Aircraft: {aircraftIdent}</h3>
                 <Badge variant="success">Ready</Badge>
               </div>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 bg-emerald-100 px-3 py-2 rounded font-mono text-lg text-emerald-800">
-                  {playbackInfo.icaoHex}
-                </code>
-                <button
-                  onClick={copyIcaoHex}
-                  className="p-2 hover:bg-emerald-100 rounded transition-colors"
-                  title="Copy ICAO hex"
-                >
-                  {copied ? (
-                    <Check className="w-5 h-5 text-emerald-600" />
-                  ) : (
-                    <Copy className="w-5 h-5 text-emerald-600" />
-                  )}
-                </button>
-              </div>
-              <p className="text-xs text-emerald-700 mt-2">
-                Converted from N-number: {playbackInfo.nNumber}
-              </p>
+              <button
+                onClick={() => setShowEmbedded(true)}
+                className="text-sm text-blue-600 hover:text-blue-700 underline"
+              >
+                Show embedded map
+              </button>
             </div>
           ) : (
             <div className="bg-amber-50 rounded-lg p-4 border border-amber-200">
@@ -193,28 +223,30 @@ export function FlightPlaybackModal({ isOpen, onClose, flight }: FlightPlaybackM
           )}
 
           {/* Instructions */}
-          <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-            <div className="flex items-start gap-2">
-              <Info className="w-5 h-5 text-blue-600 mt-0.5" />
-              <div>
-                <h3 className="font-semibold text-blue-900 text-sm mb-2">Finding Your Flight</h3>
-                <ol className="text-sm text-blue-800 space-y-2 list-decimal list-inside">
-                  <li>Click "Open Flight Playback" to view the aircraft's tracks for {formatDate(flight.date)}</li>
-                  <li>
-                    Look for a flight matching your route:
-                    <span className="font-medium"> {flight.departureAirport} → {flight.arrivalAirport || flight.departureAirport}</span>
-                  </li>
-                  {flight.totalTime && flight.totalTime > 0 && (
+          {!showEmbedded && (
+            <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+              <div className="flex items-start gap-2">
+                <Info className="w-5 h-5 text-blue-600 mt-0.5" />
+                <div>
+                  <h3 className="font-semibold text-blue-900 text-sm mb-2">Finding Your Flight</h3>
+                  <ol className="text-sm text-blue-800 space-y-2 list-decimal list-inside">
+                    <li>View the aircraft's tracks for {formatDate(flight.date)} in the map above or click "Open Flight Playback"</li>
                     <li>
-                      The flight duration should be approximately
-                      <span className="font-bold"> {flight.totalTime.toFixed(1)} hours</span> (Hobbs time)
+                      Look for a flight matching your route:
+                      <span className="font-medium"> {flight.departureAirport} → {flight.arrivalAirport || flight.departureAirport}</span>
                     </li>
-                  )}
-                  <li>Use the timeline slider at the bottom to replay the flight track</li>
-                </ol>
+                    {flight.totalTime && flight.totalTime > 0 && (
+                      <li>
+                        The flight duration should be approximately
+                        <span className="font-bold"> {flight.totalTime.toFixed(1)} hours</span> (Hobbs time)
+                      </li>
+                    )}
+                    <li>Use the timeline slider at the bottom to replay the flight track</li>
+                  </ol>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Remarks if available */}
           {flight.remarks && (
@@ -228,14 +260,27 @@ export function FlightPlaybackModal({ isOpen, onClose, flight }: FlightPlaybackM
         {/* Footer Actions */}
         <div className="p-4 border-t border-zinc-200 space-y-2">
           {playbackInfo.playbackUrl && (
-            <Button
-              onClick={openPlayback}
-              className="w-full bg-blue-600 hover:bg-blue-700"
-            >
-              <Play className="w-4 h-4 mr-2" />
-              Open Flight Playback
-              <ExternalLink className="w-4 h-4 ml-2" />
-            </Button>
+            <>
+              {showEmbedded && (
+                <Button
+                  onClick={openPlayback}
+                  variant="outline"
+                  className="w-full"
+                >
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  Open in New Tab
+                </Button>
+              )}
+              {!showEmbedded && (
+                <Button
+                  onClick={() => setShowEmbedded(true)}
+                  className="w-full bg-blue-600 hover:bg-blue-700"
+                >
+                  <Play className="w-4 h-4 mr-2" />
+                  Show Embedded Map
+                </Button>
+              )}
+            </>
           )}
 
           {playbackInfo.searchUrl && (
@@ -250,7 +295,7 @@ export function FlightPlaybackModal({ isOpen, onClose, flight }: FlightPlaybackM
             </Button>
           )}
 
-          {!playbackInfo.icaoHex && (
+          {!playbackInfo.playbackUrl && (
             <Button
               onClick={() => window.open('https://globe.adsbexchange.com/', '_blank', 'noopener,noreferrer')}
               variant="outline"

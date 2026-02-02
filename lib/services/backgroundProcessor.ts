@@ -95,6 +95,13 @@ async function processUploadJob(job: UploadJob) {
 
     const summary = calculateSummary(entries);
 
+    // Fetch historical weather for pilot logbook entries
+    if (['pilot_logbook', 'logbook'].includes(documentType) && entries.length > 0) {
+      await enrichEntriesWithHistoricalWeather(entries);
+      // Research and enrich aircraft information from logbook
+      await enrichEntriesWithAircraftDetails(entries, userId);
+    }
+
     // Update document with parsed data
     await ParsedDocument.findByIdAndUpdate(documentId, {
       status: 'completed',
@@ -176,6 +183,167 @@ function calculateSummary(entries: any[]) {
     totalHours: Math.round(totalHours * 10) / 10,
     dateRange: dates.length > 0 ? { from: dates[0], to: dates[dates.length - 1] } : undefined,
   };
+}
+
+/**
+ * Fetch historical weather for logbook entries and attach to each entry
+ */
+async function enrichEntriesWithHistoricalWeather(entries: any[]) {
+  const { fetchHistoricalMETAR } = await import('@/lib/services/historicalWeatherService');
+
+  console.log(`[BackgroundProcessor] Fetching historical weather for ${entries.length} entries...`);
+
+  const batchSize = 5;
+  let successCount = 0;
+
+  for (let i = 0; i < entries.length; i += batchSize) {
+    const batch = entries.slice(i, i + batchSize);
+
+    await Promise.all(
+      batch.map(async (entry) => {
+        // Skip if entry doesn't have required fields
+        if (!entry.date || !entry.from) return;
+
+        // Skip if weather already exists
+        if (entry.weather) return;
+
+        try {
+          const flightDate = new Date(entry.date);
+          const weather = await fetchHistoricalMETAR(entry.from, flightDate);
+
+          if (weather) {
+            // Attach weather data to entry
+            entry.weather = {
+              ...weather.conditions,
+              metar: weather.metar,
+              flightCategory: weather.conditions.flightCategory,
+              station: entry.from,
+            };
+            successCount++;
+          }
+        } catch (error) {
+          console.error(`[BackgroundProcessor] Failed to fetch weather for ${entry.from} on ${entry.date}:`, error);
+        }
+      })
+    );
+
+    // Small delay between batches to avoid rate limiting
+    if (i + batchSize < entries.length) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+
+  console.log(`[BackgroundProcessor] Successfully enriched ${successCount}/${entries.length} entries with historical weather`);
+}
+
+/**
+ * Research aircraft from logbook entries and enrich with make/model details
+ */
+async function enrichEntriesWithAircraftDetails(entries: any[], userId: string) {
+  const { fetchAircraftDetails } = await import('@/lib/services/firecrawlService');
+
+  // Extract unique aircraft identifiers from entries
+  const aircraftMap = new Map<string, any>();
+
+  for (const entry of entries) {
+    const tailNumber = entry.aircraftIdent || entry.tailNumber;
+    if (!tailNumber) continue;
+
+    // Normalize tail number (uppercase, remove spaces)
+    const normalizedTail = tailNumber.toUpperCase().trim().replace(/\s+/g, '');
+    if (normalizedTail && !aircraftMap.has(normalizedTail)) {
+      aircraftMap.set(normalizedTail, { tailNumber: normalizedTail, entries: [] });
+    }
+
+    if (normalizedTail) {
+      aircraftMap.get(normalizedTail)?.entries.push(entry);
+    }
+  }
+
+  if (aircraftMap.size === 0) {
+    console.log('[BackgroundProcessor] No aircraft found in logbook entries');
+    return;
+  }
+
+  console.log(`[BackgroundProcessor] Researching ${aircraftMap.size} unique aircraft...`);
+
+  // Find or create aircraft records
+  for (const [tailNumber, data] of aircraftMap.entries()) {
+    try {
+      // Check if aircraft already exists
+      let aircraft = await Aircraft.findOne({ userId, tailNumber });
+
+      if (!aircraft) {
+        console.log(`[BackgroundProcessor] Creating new aircraft: ${tailNumber}`);
+
+        // Fetch aircraft details from FAA registry
+        const details = await fetchAircraftDetails(tailNumber);
+
+        const aircraftData: any = {
+          userId,
+          tailNumber,
+          model: details.success && details.data?.model ? details.data.model : 'Unknown',
+          serial: details.success && details.data?.serial ? details.data.serial : 'Unknown',
+          manufacturer: details.success && details.data?.manufacturer ? details.data.manufacturer : 'Unknown',
+          year: details.success && details.data?.year ? details.data.year : new Date().getFullYear(),
+          maintenanceDates: {
+            annual: new Date(),
+            transponder: new Date(),
+            staticSystem: new Date(),
+          },
+          currentHours: {
+            hobbs: 0,
+            tach: 0,
+          },
+          logs: [],
+        };
+
+        if (details.success && details.data) {
+          if (details.data.imageUrl) aircraftData.imageUrl = details.data.imageUrl;
+          if (details.data.operatingLimits) aircraftData.operatingLimits = details.data.operatingLimits;
+        }
+
+        aircraft = await Aircraft.create(aircraftData);
+        invalidateAllCaches();
+
+        console.log(`[BackgroundProcessor] Created aircraft ${tailNumber}: ${aircraft.manufacturer} ${aircraft.model}`);
+      } else if (aircraft.model === 'Unknown' || !aircraft.manufacturer || aircraft.manufacturer === 'Unknown') {
+        // Aircraft exists but lacks details, try to enrich
+        console.log(`[BackgroundProcessor] Enriching existing aircraft: ${tailNumber}`);
+
+        const details = await fetchAircraftDetails(tailNumber);
+
+        if (details.success && details.data) {
+          aircraft.manufacturer = details.data.manufacturer || aircraft.manufacturer;
+          aircraft.model = details.data.model || aircraft.model;
+          aircraft.serial = details.data.serial || aircraft.serial;
+          aircraft.year = details.data.year || aircraft.year;
+          if (details.data.imageUrl) aircraft.imageUrl = details.data.imageUrl;
+          if (details.data.operatingLimits) aircraft.operatingLimits = details.data.operatingLimits;
+
+          await aircraft.save();
+          console.log(`[BackgroundProcessor] Enriched aircraft ${tailNumber}: ${aircraft.manufacturer} ${aircraft.model}`);
+        }
+      }
+
+      // Attach aircraft info to entries
+      for (const entry of data.entries) {
+        entry.aircraftInfo = {
+          tailNumber: aircraft.tailNumber,
+          manufacturer: aircraft.manufacturer,
+          model: aircraft.model,
+          year: aircraft.year,
+        };
+      }
+    } catch (error) {
+      console.error(`[BackgroundProcessor] Failed to process aircraft ${tailNumber}:`, error);
+    }
+
+    // Small delay between aircraft lookups to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+
+  console.log(`[BackgroundProcessor] Completed aircraft enrichment for ${aircraftMap.size} aircraft`);
 }
 
 async function updatePilotExperience(pilotId: string, entries: any[]) {

@@ -207,6 +207,32 @@ function getLetterIndex(char: string): number | null {
 }
 
 /**
+ * Generate ADS-B Exchange playback URL for a flight using registration (tail number)
+ * @param registration - Aircraft registration/tail number (e.g., "N12345")
+ * @param date - Flight date (YYYY-MM-DD format or Date object)
+ * @returns URL for ADS-B Exchange globe with trace enabled
+ */
+export function getAdsbExchangePlaybackUrlByRegistration(registration: string, date: string | Date): string {
+  const dateStr = typeof date === 'string' ? date : formatDateForAdsb(date);
+  // Remove 'N' prefix if present and re-add it to ensure consistency
+  const cleanReg = registration.toUpperCase().replace(/^N/, '');
+  // Use registration search with showTrace for historical data
+  // The map will load with historical traces for the specified date
+  // Adding startTime to force historical mode at beginning of day
+  return `https://globe.adsbexchange.com/?find=${cleanReg}&showTrace=${dateStr}&startTime=${dateStr}T00:00:00Z`;
+}
+
+/**
+ * Generate ADS-B Exchange search URL for finding flights by registration
+ * @param registration - Aircraft registration/tail number
+ * @returns URL for ADS-B Exchange search
+ */
+export function getAdsbExchangeSearchUrlByRegistration(registration: string): string {
+  const cleanReg = registration.toUpperCase().replace(/^N/, '');
+  return `https://globe.adsbexchange.com/?registration=N${cleanReg}`;
+}
+
+/**
  * Generate ADS-B Exchange playback URL for a flight
  * @param icaoHex - Aircraft ICAO hex code
  * @param date - Flight date (YYYY-MM-DD format or Date object)
@@ -249,25 +275,25 @@ export interface FlightPlaybackInfo {
 }
 
 export function getFlightPlaybackInfo(nNumber: string, date: string | Date): FlightPlaybackInfo {
-  const icaoHex = nNumberToIcaoHex(nNumber);
   const dateStr = typeof date === 'string' ? date : formatDateForAdsb(date);
 
-  if (!icaoHex) {
+  if (!nNumber) {
     return {
-      nNumber,
+      nNumber: '',
       icaoHex: null,
       playbackUrl: null,
       searchUrl: null,
       date: dateStr,
-      error: 'Could not convert N-number to ICAO hex code',
+      error: 'No aircraft identifier available',
     };
   }
 
+  // Use registration-based URLs (more reliable than hex conversion)
   return {
     nNumber,
-    icaoHex,
-    playbackUrl: getAdsbExchangePlaybackUrl(icaoHex, dateStr),
-    searchUrl: getAdsbExchangeSearchUrl(icaoHex),
+    icaoHex: null, // No longer using hex conversion
+    playbackUrl: getAdsbExchangePlaybackUrlByRegistration(nNumber, dateStr),
+    searchUrl: getAdsbExchangeSearchUrlByRegistration(nNumber),
     date: dateStr,
   };
 }

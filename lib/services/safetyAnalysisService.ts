@@ -371,6 +371,67 @@ export function generatePilotSafetyAnalysis(pilot: any, flightEntries?: any[]): 
       });
       score -= 2;
     }
+
+    // Analyze weather experience from logbook entries
+    const flightsWithWeather = flightEntries.filter(e => e.weather?.flightCategory);
+
+    if (flightsWithWeather.length >= 5) {
+      const weatherCounts = {
+        VFR: flightsWithWeather.filter(e => e.weather?.flightCategory === 'VFR').length,
+        MVFR: flightsWithWeather.filter(e => e.weather?.flightCategory === 'MVFR').length,
+        IFR: flightsWithWeather.filter(e => e.weather?.flightCategory === 'IFR').length,
+        LIFR: flightsWithWeather.filter(e => e.weather?.flightCategory === 'LIFR').length,
+      };
+
+      const total = flightsWithWeather.length;
+      const vfrPercent = Math.round((weatherCounts.VFR / total) * 100);
+      const mvfrPercent = Math.round((weatherCounts.MVFR / total) * 100);
+      const ifrPercent = Math.round(((weatherCounts.IFR + weatherCounts.LIFR) / total) * 100);
+
+      // Strong VFR-only experience (>90% VFR)
+      if (vfrPercent > 90 && !pilot.certificates?.instrumentRated) {
+        findings.push({
+          category: 'Weather Experience',
+          riskLevel: 'medium',
+          message: `Limited weather experience (${vfrPercent}% VFR). Avoid marginal conditions`,
+        });
+        score -= 0.5;
+      }
+      // Good mixed weather experience
+      else if (ifrPercent >= 15 && pilot.certificates?.instrumentRated) {
+        findings.push({
+          category: 'Weather Experience',
+          riskLevel: 'low',
+          message: `Strong weather experience (${ifrPercent}% IFR, ${mvfrPercent}% MVFR)`,
+        });
+      }
+      // Some MVFR experience
+      else if (mvfrPercent >= 20) {
+        findings.push({
+          category: 'Weather Experience',
+          riskLevel: 'low',
+          message: `Comfortable with marginal conditions (${mvfrPercent}% MVFR flights)`,
+        });
+      }
+      // Mostly VFR but some marginal
+      else if (vfrPercent >= 70 && mvfrPercent >= 10) {
+        findings.push({
+          category: 'Weather Experience',
+          riskLevel: 'low',
+          message: `Primarily VFR experience (${vfrPercent}% VFR, ${mvfrPercent}% MVFR)`,
+        });
+      }
+
+      // Check for IFR flights without instrument rating
+      if (!pilot.certificates?.instrumentRated && (weatherCounts.IFR + weatherCounts.LIFR) > 0) {
+        findings.push({
+          category: 'Weather Experience',
+          riskLevel: 'high',
+          message: `Logged ${weatherCounts.IFR + weatherCounts.LIFR} IFR flights without instrument rating`,
+        });
+        score -= 2;
+      }
+    }
   }
 
   // Cap score between 0 and 10
@@ -386,5 +447,237 @@ export function generatePilotSafetyAnalysis(pilot: any, flightEntries?: any[]): 
     lastAnalyzed: new Date(),
     score,
     findings: findings.slice(0, 10),
+  };
+}
+
+/**
+ * Flight Safety Analysis
+ * Assesses safety of a specific flight based on pilot experience and weather conditions
+ */
+interface FlightSafetyAnalysis {
+  overallScore: number; // 0-100
+  goNoGoRecommendation: 'GO' | 'CAUTION' | 'NO-GO';
+  weatherRiskLevel: 'low' | 'medium' | 'high';
+  weatherMessage: string;
+  factors: Array<{
+    category: string;
+    impact: 'positive' | 'neutral' | 'negative';
+    message: string;
+  }>;
+}
+
+/**
+ * Generate flight safety analysis based on pilot experience and weather
+ */
+export function generateFlightSafetyAnalysis(
+  pilot: any,
+  weather: { flightCategory: string; visibility?: number; ceiling?: number; wind?: any },
+  flightEntries?: any[]
+): FlightSafetyAnalysis {
+  let score = 100;
+  const factors: FlightSafetyAnalysis['factors'] = [];
+  let weatherRiskLevel: 'low' | 'medium' | 'high' = 'low';
+  let weatherMessage = '';
+
+  const flightCategory = weather.flightCategory;
+  const isInstrumentRated = pilot.certificates?.instrumentRated || false;
+
+  // Analyze pilot's historical weather experience
+  let pilotWeatherExperience = {
+    vfrPercent: 100,
+    mvfrPercent: 0,
+    ifrPercent: 0,
+    totalFlights: 0,
+  };
+
+  if (flightEntries && flightEntries.length > 0) {
+    const flightsWithWeather = flightEntries.filter(e => e.weather?.flightCategory);
+    if (flightsWithWeather.length >= 3) {
+      const vfrCount = flightsWithWeather.filter(e => e.weather?.flightCategory === 'VFR').length;
+      const mvfrCount = flightsWithWeather.filter(e => e.weather?.flightCategory === 'MVFR').length;
+      const ifrCount = flightsWithWeather.filter(e => e.weather?.flightCategory === 'IFR' || e.weather?.flightCategory === 'LIFR').length;
+
+      pilotWeatherExperience = {
+        vfrPercent: Math.round((vfrCount / flightsWithWeather.length) * 100),
+        mvfrPercent: Math.round((mvfrCount / flightsWithWeather.length) * 100),
+        ifrPercent: Math.round((ifrCount / flightsWithWeather.length) * 100),
+        totalFlights: flightsWithWeather.length,
+      };
+    }
+  }
+
+  // Assess weather risk based on conditions and pilot experience
+  if (flightCategory === 'VFR') {
+    weatherRiskLevel = 'low';
+    weatherMessage = 'VFR conditions - good visibility and ceiling';
+    factors.push({
+      category: 'Weather Conditions',
+      impact: 'positive',
+      message: 'Clear VFR conditions',
+    });
+  } else if (flightCategory === 'MVFR') {
+    // MVFR is medium risk, higher if pilot has little MVFR experience
+    if (pilotWeatherExperience.totalFlights >= 5 && pilotWeatherExperience.mvfrPercent < 10 && pilotWeatherExperience.vfrPercent > 80) {
+      weatherRiskLevel = 'high';
+      weatherMessage = 'MVFR conditions - pilot has limited marginal weather experience';
+      score -= 25;
+      factors.push({
+        category: 'Weather Experience Mismatch',
+        impact: 'negative',
+        message: `MVFR conditions but pilot has ${pilotWeatherExperience.vfrPercent}% VFR experience`,
+      });
+    } else {
+      weatherRiskLevel = 'medium';
+      weatherMessage = 'MVFR conditions - marginal VFR, exercise caution';
+      score -= 15;
+      factors.push({
+        category: 'Weather Conditions',
+        impact: 'neutral',
+        message: 'MVFR - marginal VFR conditions',
+      });
+    }
+  } else if (flightCategory === 'IFR' || flightCategory === 'LIFR') {
+    if (!isInstrumentRated) {
+      weatherRiskLevel = 'high';
+      weatherMessage = 'IFR conditions - ILLEGAL for non-instrument rated pilot';
+      score -= 60;
+      factors.push({
+        category: 'Legal Compliance',
+        impact: 'negative',
+        message: 'IFR conditions require instrument rating',
+      });
+    } else {
+      // Has instrument rating, check experience
+      const ifrHours = pilot.experience?.ifrHours || 0;
+      if (ifrHours < 20) {
+        weatherRiskLevel = 'high';
+        weatherMessage = 'IFR conditions - low instrument time, consider IPC';
+        score -= 30;
+        factors.push({
+          category: 'IFR Currency',
+          impact: 'negative',
+          message: `Low instrument time (${ifrHours.toFixed(1)} hours)`,
+        });
+      } else if (pilotWeatherExperience.ifrPercent >= 15) {
+        weatherRiskLevel = 'low';
+        weatherMessage = 'IFR conditions - pilot has strong IFR experience';
+        score -= 5;
+        factors.push({
+          category: 'IFR Experience',
+          impact: 'positive',
+          message: `Pilot has ${pilotWeatherExperience.ifrPercent}% IFR experience`,
+        });
+      } else {
+        weatherRiskLevel = 'medium';
+        weatherMessage = 'IFR conditions - ensure recent IFR proficiency';
+        score -= 20;
+        factors.push({
+          category: 'IFR Conditions',
+          impact: 'neutral',
+          message: 'IFR conditions - verify currency',
+        });
+      }
+    }
+  }
+
+  // Check wind conditions
+  if (weather.wind) {
+    const windSpeed = weather.wind.speed || 0;
+    const windGust = weather.wind.gust || 0;
+
+    if (windGust > 25 || windSpeed > 20) {
+      weatherRiskLevel = weatherRiskLevel === 'low' ? 'medium' : 'high';
+      score -= 15;
+      factors.push({
+        category: 'Wind Conditions',
+        impact: 'negative',
+        message: `Strong winds: ${windSpeed}kt${windGust ? ` gusting ${windGust}kt` : ''}`,
+      });
+    } else if (windGust > 15 || windSpeed > 12) {
+      score -= 5;
+      factors.push({
+        category: 'Wind Conditions',
+        impact: 'neutral',
+        message: `Moderate winds: ${windSpeed}kt${windGust ? ` gusting ${windGust}kt` : ''}`,
+      });
+    }
+  }
+
+  // Check visibility
+  if (weather.visibility !== undefined && weather.visibility < 5) {
+    if (weather.visibility < 3 && !isInstrumentRated) {
+      weatherRiskLevel = 'high';
+      score -= 20;
+      factors.push({
+        category: 'Visibility',
+        impact: 'negative',
+        message: `Low visibility (${weather.visibility} SM) - approaching IFR minimums`,
+      });
+    } else if (weather.visibility < 5) {
+      score -= 10;
+      factors.push({
+        category: 'Visibility',
+        impact: 'neutral',
+        message: `Reduced visibility (${weather.visibility} SM)`,
+      });
+    }
+  }
+
+  // Check ceiling
+  if (weather.ceiling !== undefined && weather.ceiling < 3000) {
+    if (weather.ceiling < 1000 && !isInstrumentRated) {
+      weatherRiskLevel = 'high';
+      score -= 20;
+      factors.push({
+        category: 'Ceiling',
+        impact: 'negative',
+        message: `Low ceiling (${weather.ceiling} ft) - IFR conditions`,
+      });
+    } else if (weather.ceiling < 3000) {
+      score -= 10;
+      factors.push({
+        category: 'Ceiling',
+        impact: 'neutral',
+        message: `Low ceiling (${weather.ceiling} ft)`,
+      });
+    }
+  }
+
+  // Pilot recent activity
+  const last30Days = pilot.experience?.last30DaysHours || 0;
+  if (last30Days < 1) {
+    score -= 15;
+    factors.push({
+      category: 'Recent Activity',
+      impact: 'negative',
+      message: 'No recent flight time in last 30 days',
+    });
+  } else if (last30Days >= 5) {
+    factors.push({
+      category: 'Recent Activity',
+      impact: 'positive',
+      message: `Active pilot (${last30Days.toFixed(1)} hours last 30 days)`,
+    });
+  }
+
+  // Ensure score stays in 0-100 range
+  score = Math.max(0, Math.min(100, score));
+
+  // Determine recommendation
+  let recommendation: 'GO' | 'CAUTION' | 'NO-GO';
+  if (score >= 70) {
+    recommendation = 'GO';
+  } else if (score >= 50) {
+    recommendation = 'CAUTION';
+  } else {
+    recommendation = 'NO-GO';
+  }
+
+  return {
+    overallScore: Math.round(score),
+    goNoGoRecommendation: recommendation,
+    weatherRiskLevel,
+    weatherMessage,
+    factors,
   };
 }

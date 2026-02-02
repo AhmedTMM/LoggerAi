@@ -167,7 +167,10 @@ export interface IFlight {
   _id: mongoose.Types.ObjectId;
   userId: string;
   pilot: Types.ObjectId;
+  pilotName?: string; // Denormalized for easy access without population
   aircraft: Types.ObjectId;
+  aircraftTailNumber?: string; // Denormalized for easy access without population
+  aircraftModel?: string; // Denormalized for easy access without population
   // Safety Audit Reference (Skyris Integration)
   safetyAuditId?: Types.ObjectId;
   // Scheduling
@@ -379,11 +382,24 @@ const FlightSchema = new Schema<IFlight>(
       required: true,
       index: true,
     },
+    pilotName: {
+      type: String,
+      trim: true,
+    },
     aircraft: {
       type: Schema.Types.ObjectId,
       ref: 'Aircraft',
       required: true,
       index: true,
+    },
+    aircraftTailNumber: {
+      type: String,
+      uppercase: true,
+      trim: true,
+    },
+    aircraftModel: {
+      type: String,
+      trim: true,
     },
     safetyAuditId: {
       type: Schema.Types.ObjectId,
@@ -458,8 +474,8 @@ const FlightSchema = new Schema<IFlight>(
   }
 );
 
-// Pre-save middleware to compute scheduledDateTime from date + time
-FlightSchema.pre('save', function(next) {
+// Pre-save middleware to compute scheduledDateTime from date + time and populate denormalized fields
+FlightSchema.pre('save', async function(next) {
   if (this.scheduledDate && this.scheduledTime) {
     const [hours, minutes] = this.scheduledTime.split(':').map(Number);
     const dateTime = new Date(this.scheduledDate);
@@ -468,6 +484,40 @@ FlightSchema.pre('save', function(next) {
   } else if (this.scheduledDate && !this.scheduledDateTime) {
     this.scheduledDateTime = this.scheduledDate;
   }
+
+  // Populate denormalized aircraft fields if not set
+  if (this.aircraft && (!this.aircraftTailNumber || !this.aircraftModel)) {
+    try {
+      const Aircraft = mongoose.model('Aircraft');
+      const aircraft = await Aircraft.findById(this.aircraft).select('tailNumber model');
+      if (aircraft) {
+        if (!this.aircraftTailNumber && aircraft.tailNumber) {
+          this.aircraftTailNumber = aircraft.tailNumber;
+        }
+        if (!this.aircraftModel && aircraft.model) {
+          this.aircraftModel = aircraft.model;
+        }
+      }
+    } catch (error) {
+      // Continue without setting fields if aircraft fetch fails
+      console.warn('Failed to populate aircraft fields:', error);
+    }
+  }
+
+  // Populate denormalized pilot name if not set
+  if (this.pilot && !this.pilotName) {
+    try {
+      const Pilot = mongoose.model('Pilot');
+      const pilot = await Pilot.findById(this.pilot).select('name');
+      if (pilot && pilot.name) {
+        this.pilotName = pilot.name;
+      }
+    } catch (error) {
+      // Continue without setting pilot name if pilot fetch fails
+      console.warn('Failed to populate pilotName:', error);
+    }
+  }
+
   next();
 });
 

@@ -988,7 +988,7 @@ function PilotFlightHistorySection({ pilotId, pilotName }: { pilotId: string; pi
                             onClick={() => {
                               const tailNumber = isLogbook
                                 ? item.aircraftIdent
-                                : (aircraft?.tailNumber || null);
+                                : (item.aircraftTailNumber || aircraft?.tailNumber || null);
                               setPlaybackFlight({
                                 date: flightDate,
                                 departureAirport: departureAirport,
@@ -999,7 +999,7 @@ function PilotFlightHistorySection({ pilotId, pilotName }: { pilotId: string; pi
                                 remarks: isLogbook ? item.remarks : item.notes,
                               });
                             }}
-                            disabled={!(isLogbook ? item.aircraftIdent : aircraft?.tailNumber)}
+                            disabled={!(isLogbook ? item.aircraftIdent : (item.aircraftTailNumber || aircraft?.tailNumber))}
                           />
                           {isExpanded ? (
                             <ChevronUp className="w-4 h-4 text-zinc-400" />
@@ -1009,9 +1009,10 @@ function PilotFlightHistorySection({ pilotId, pilotName }: { pilotId: string; pi
                         </div>
                       </div>
                       <div className="flex items-center gap-3 mt-1 text-xs text-zinc-500">
-                        {aircraft && (
+                        {!isLogbook && (item.aircraftTailNumber || aircraft) && (
                           <span className="font-medium text-blue-600">
-                            {aircraft.tailNumber} ({aircraft.model})
+                            {item.aircraftTailNumber || aircraft?.tailNumber}
+                            {(item.aircraftModel || aircraft?.model) && ` (${item.aircraftModel || aircraft?.model})`}
                           </span>
                         )}
                         {aircraftIdent && (

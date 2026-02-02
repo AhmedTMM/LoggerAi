@@ -202,7 +202,10 @@ export interface WeatherData {
 export interface Flight {
   _id: string;
   pilot: Pilot | string;
+  pilotName?: string;
   aircraft: Aircraft | string;
+  aircraftTailNumber?: string;
+  aircraftModel?: string;
   scheduledDate: Date | string;
   departureAirport: string;
   arrivalAirport?: string;

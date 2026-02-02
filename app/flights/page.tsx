@@ -153,7 +153,7 @@ export default function FlightsPage() {
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         <div className={cn("w-2 h-2 rounded-full", getStatusColor(flight.overallStatus))} />
-                        <span className="font-bold text-zinc-900">{aircraftData?.tailNumber}</span>
+                        <span className="font-bold text-zinc-900">{(flight as any).aircraftTailNumber || aircraftData?.tailNumber}</span>
                       </div>
                       {getStatusBadge(flight.overallStatus)}
                     </div>
@@ -200,10 +200,10 @@ export default function FlightsPage() {
                         {getStatusBadge(selectedFlight.overallStatus)}
                       </div>
                       <h2 className="text-lg sm:text-xl font-bold text-zinc-900">
-                        {(selectedFlight.aircraft as any)?.tailNumber} Flight
+                        {(selectedFlight as any).aircraftTailNumber || (selectedFlight.aircraft as any)?.tailNumber} Flight
                       </h2>
                       <div className="flex flex-wrap items-center gap-2 sm:gap-4 mt-2 text-xs sm:text-sm text-zinc-500">
-                        <span>{(selectedFlight.pilot as any)?.name}</span>
+                        <span>{(selectedFlight as any).pilotName || (selectedFlight.pilot as any)?.name}</span>
                         <span>{formatDateTime(selectedFlight.scheduledDate, (selectedFlight as any).scheduledTime)}</span>
                         <span className="font-mono">{selectedFlight.departureAirport} → {selectedFlight.arrivalAirport || 'Local'}</span>
                       </div>

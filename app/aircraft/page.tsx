@@ -78,7 +78,7 @@ export default function AircraftPage() {
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-zinc-900">Aircraft</h1>
                     <p className="text-zinc-500">Manage your fleet</p>
@@ -118,14 +118,14 @@ export default function AircraftPage() {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
                 {/* Aircraft List */}
                 <div className="lg:col-span-1">
                     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
                         <div className="p-3 border-b border-zinc-200 bg-zinc-50">
                             <h3 className="font-semibold text-zinc-900">Fleet</h3>
                         </div>
-                        <div className="max-h-[500px] overflow-y-auto">
+                        <div className="max-h-[250px] sm:max-h-[350px] lg:max-h-[500px] overflow-y-auto">
                             {fleet?.map((ac) => {
                                 const isSelected = selectedAircraft?._id === ac._id;
                                 const annualStatus = getMaintenanceStatus(ac.maintenanceDates?.annual);
@@ -178,14 +178,14 @@ export default function AircraftPage() {
 
                 {/* Aircraft Details */}
                 <div className="lg:col-span-2">
-                    <div className="bg-white rounded-xl border border-zinc-200 min-h-[500px]">
+                    <div className="bg-white rounded-xl border border-zinc-200 min-h-[350px] lg:min-h-[500px]">
                         {selectedAircraft ? (
                             <div className="h-full flex flex-col">
                                 {/* Header */}
-                                <div className="p-6 border-b border-zinc-200">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-20 h-20 bg-gradient-to-br from-blue-50 to-blue-100 rounded-2xl flex items-center justify-center overflow-hidden border-2 border-blue-200 shadow-sm">
+                                <div className="p-4 sm:p-6 border-b border-zinc-200">
+                                    <div className="flex items-start sm:items-center justify-between gap-4">
+                                        <div className="flex items-center gap-3 sm:gap-4">
+                                            <div className="w-14 h-14 sm:w-20 sm:h-20 bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl sm:rounded-2xl flex items-center justify-center overflow-hidden border-2 border-blue-200 shadow-sm flex-shrink-0">
                                                 {selectedAircraft.imageUrl ? (
                                                     <img
                                                         src={selectedAircraft.imageUrl}
@@ -193,12 +193,12 @@ export default function AircraftPage() {
                                                         className="w-full h-full object-cover"
                                                     />
                                                 ) : (
-                                                    <Plane className="w-10 h-10 text-blue-600" />
+                                                    <Plane className="w-6 h-6 sm:w-10 sm:h-10 text-blue-600" />
                                                 )}
                                             </div>
-                                            <div>
-                                                <h2 className="text-xl font-bold text-zinc-900">{selectedAircraft.tailNumber}</h2>
-                                                <p className="text-zinc-500">{selectedAircraft.year !== new Date().getFullYear() ? selectedAircraft.year : ''} {selectedAircraft.manufacturer !== 'Unknown' ? selectedAircraft.manufacturer : ''} {selectedAircraft.model !== 'Unknown' ? selectedAircraft.model : 'Aircraft'}</p>
+                                            <div className="min-w-0">
+                                                <h2 className="text-lg sm:text-xl font-bold text-zinc-900 truncate">{selectedAircraft.tailNumber}</h2>
+                                                <p className="text-sm sm:text-base text-zinc-500 truncate">{selectedAircraft.year !== new Date().getFullYear() ? selectedAircraft.year : ''} {selectedAircraft.manufacturer !== 'Unknown' ? selectedAircraft.manufacturer : ''} {selectedAircraft.model !== 'Unknown' ? selectedAircraft.model : 'Aircraft'}</p>
                                             </div>
                                         </div>
                                         <Button
@@ -213,7 +213,7 @@ export default function AircraftPage() {
                                 </div>
 
                                 {/* Content */}
-                                <div className="p-6 flex-1 overflow-y-auto space-y-6">
+                                <div className="p-4 sm:p-6 flex-1 overflow-y-auto space-y-4 sm:space-y-6">
                                     {/* Safety Status At A Glance */}
                                     <SafetyStatusCard
                                         aircraft={selectedAircraft}

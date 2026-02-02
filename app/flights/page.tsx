@@ -108,31 +108,32 @@ export default function FlightsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-zinc-900">Flights</h1>
           <p className="text-zinc-500">Manage and analyze your flights</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleWipeFlights} className="text-red-600 hover:text-red-700 hover:bg-red-50">
-            <Trash2 className="w-4 h-4 mr-2" />
-            Wipe All
+          <Button variant="outline" onClick={handleWipeFlights} className="text-red-600 hover:text-red-700 hover:bg-red-50 text-sm sm:text-base">
+            <Trash2 className="w-4 h-4 sm:mr-2" />
+            <span className="hidden sm:inline">Wipe All</span>
           </Button>
-          <Button onClick={() => setShowNewFlightModal(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            New Flight
+          <Button onClick={() => setShowNewFlightModal(true)} className="text-sm sm:text-base">
+            <Plus className="w-4 h-4 sm:mr-2" />
+            <span className="hidden sm:inline">New Flight</span>
+            <span className="sm:hidden">New</span>
           </Button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
         {/* Flight List */}
         <div className="lg:col-span-1">
           <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
             <div className="p-3 border-b border-zinc-200 bg-zinc-50">
               <h3 className="font-semibold text-zinc-900">All Flights</h3>
             </div>
-            <div className="max-h-[600px] overflow-y-auto">
+            <div className="max-h-[300px] sm:max-h-[400px] lg:max-h-[600px] overflow-y-auto">
               {flights?.map((flight) => {
                 const pilot = flight.pilot as any;
                 const aircraftData = flight.aircraft as any;
@@ -188,20 +189,20 @@ export default function FlightsPage() {
 
         {/* Flight Details */}
         <div className="lg:col-span-2">
-          <div className="bg-white rounded-xl border border-zinc-200 min-h-[600px]">
+          <div className="bg-white rounded-xl border border-zinc-200 min-h-[400px] lg:min-h-[600px]">
             {selectedFlight ? (
               <div className="h-full flex flex-col">
                 {/* Detail Header */}
-                <div className="p-6 border-b border-zinc-200">
-                  <div className="flex items-center justify-between">
+                <div className="p-4 sm:p-6 border-b border-zinc-200">
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                     <div>
                       <div className="flex items-center gap-3 mb-2">
                         {getStatusBadge(selectedFlight.overallStatus)}
                       </div>
-                      <h2 className="text-xl font-bold text-zinc-900">
+                      <h2 className="text-lg sm:text-xl font-bold text-zinc-900">
                         {(selectedFlight.aircraft as any)?.tailNumber} Flight
                       </h2>
-                      <div className="flex items-center gap-4 mt-2 text-sm text-zinc-500">
+                      <div className="flex flex-wrap items-center gap-2 sm:gap-4 mt-2 text-xs sm:text-sm text-zinc-500">
                         <span>{(selectedFlight.pilot as any)?.name}</span>
                         <span>{formatDateTime(selectedFlight.scheduledDate, (selectedFlight as any).scheduledTime)}</span>
                         <span className="font-mono">{selectedFlight.departureAirport} → {selectedFlight.arrivalAirport || 'Local'}</span>
@@ -210,12 +211,12 @@ export default function FlightsPage() {
                     <Button
                       onClick={() => handleRunAudit(selectedFlight._id)}
                       disabled={runAudit.isPending || !!auditProgress}
-                      className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+                      className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 w-full sm:w-auto"
                     >
                       {runAudit.isPending || auditProgress ? (
                         <>
                           <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                          {auditProgress || 'Running...'}
+                          <span className="truncate">{auditProgress || 'Running...'}</span>
                         </>
                       ) : (
                         <>
@@ -228,7 +229,7 @@ export default function FlightsPage() {
                 </div>
 
                 {/* Detail Content */}
-                <div className="p-6 flex-1 overflow-y-auto space-y-6">
+                <div className="p-4 sm:p-6 flex-1 overflow-y-auto space-y-4 sm:space-y-6">
                   {/* Audit Progress */}
                   {auditProgress && (
                     <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-6">
@@ -393,7 +394,7 @@ export default function FlightsPage() {
                   {(selectedFlight.safetyAnalysisSnapshot as any)?.familiarityAnalysis && (
                     <div>
                       <h4 className="font-semibold text-zinc-900 mb-3">Pilot Familiarity</h4>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                         <div className="bg-zinc-50 rounded-lg p-4">
                           <p className="text-xs text-zinc-500 mb-1">Aircraft Familiarity</p>
                           <Badge variant={

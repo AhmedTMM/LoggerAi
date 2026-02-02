@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { User, Plus, Clock, AlertTriangle, CheckCircle, Trash2, RefreshCw, Shield, Award, Mail, Save, FileText, ChevronDown, ChevronUp, Pencil, X, Check, Plane, Cloud, Wind, Eye, Thermometer, Navigation, MapPin } from 'lucide-react';
+import { User, Plus, Clock, AlertTriangle, CheckCircle, Trash2, RefreshCw, Shield, Award, Mail, Save, FileText, ChevronDown, ChevronUp, Pencil, X, Check, Plane, Cloud, Wind, Eye, Thermometer, Navigation, MapPin, Play } from 'lucide-react';
+import { FlightPlaybackModal, FlightPlaybackButton } from '@/components/FlightPlayback';
 import { usePilots, useCreatePilot, useDeletePilot, useParsedDocuments, useGeneratePilotSafetyAnalysis, useFlightsByPilot } from '@/lib/hooks';
 import type { Pilot, Flight, WeatherData } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
@@ -663,6 +664,15 @@ function PilotFlightHistorySection({ pilotId, pilotName }: { pilotId: string; pi
   const [activeTab, setActiveTab] = useState<'all' | 'planned' | 'logbook'>('all');
   const [historicalWeather, setHistoricalWeather] = useState<Map<string, any>>(new Map());
   const [loadingWeather, setLoadingWeather] = useState(false);
+  const [playbackFlight, setPlaybackFlight] = useState<{
+    date: string | Date;
+    departureAirport: string;
+    arrivalAirport?: string;
+    route?: string;
+    aircraftIdent?: string;
+    totalTime?: number;
+    remarks?: string;
+  } | null>(null);
 
   // Extract all logbook entries from linked documents
   const logbookEntries = React.useMemo(() => {
@@ -973,6 +983,24 @@ function PilotFlightHistorySection({ pilotId, pilotName }: { pilotId: string; pi
                               {item.status}
                             </Badge>
                           )}
+                          {/* Flight Playback Button */}
+                          <FlightPlaybackButton
+                            onClick={() => {
+                              const tailNumber = isLogbook
+                                ? item.aircraftIdent
+                                : (aircraft?.tailNumber || null);
+                              setPlaybackFlight({
+                                date: flightDate,
+                                departureAirport: departureAirport,
+                                arrivalAirport: arrivalAirport,
+                                route: isLogbook ? item.route : item.route,
+                                aircraftIdent: tailNumber,
+                                totalTime: isLogbook ? item.totalTime : item.estimatedDuration,
+                                remarks: isLogbook ? item.remarks : item.notes,
+                              });
+                            }}
+                            disabled={!(isLogbook ? item.aircraftIdent : aircraft?.tailNumber)}
+                          />
                           {isExpanded ? (
                             <ChevronUp className="w-4 h-4 text-zinc-400" />
                           ) : (
@@ -1209,6 +1237,15 @@ function PilotFlightHistorySection({ pilotId, pilotName }: { pilotId: string; pi
             Create flights from the Flights page to track weather conditions
           </p>
         </div>
+      )}
+
+      {/* Flight Playback Modal */}
+      {playbackFlight && (
+        <FlightPlaybackModal
+          isOpen={!!playbackFlight}
+          onClose={() => setPlaybackFlight(null)}
+          flight={playbackFlight}
+        />
       )}
     </div>
   );

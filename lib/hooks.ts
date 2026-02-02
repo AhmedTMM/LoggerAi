@@ -132,12 +132,22 @@ export function useApplyLogbook() {
 }
 
 // Flight Hooks
-export function useFlights(params?: { status?: string; upcoming?: boolean }) {
+export function useFlights(params?: { status?: string; upcoming?: boolean; pilotId?: string }) {
   return useQuery({
     queryKey: ['flights', params],
     queryFn: () => flightApi.getAll(params),
     staleTime: 2 * 60 * 1000, // 2 minutes (flights change more often)
     gcTime: 15 * 60 * 1000, // 15 minutes
+  });
+}
+
+export function useFlightsByPilot(pilotId: string | undefined) {
+  return useQuery({
+    queryKey: ['flights', 'byPilot', pilotId],
+    queryFn: () => flightApi.getAll({ pilotId }),
+    enabled: !!pilotId,
+    staleTime: 2 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
   });
 }
 

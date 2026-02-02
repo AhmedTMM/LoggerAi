@@ -96,10 +96,11 @@ export const pilotApi = {
 
 // Flight API
 export const flightApi = {
-  getAll: async (params?: { status?: string; upcoming?: boolean }): Promise<Flight[]> => {
+  getAll: async (params?: { status?: string; upcoming?: boolean; pilotId?: string }): Promise<Flight[]> => {
     const searchParams = new URLSearchParams();
     if (params?.status) searchParams.set('status', params.status);
     if (params?.upcoming) searchParams.set('upcoming', 'true');
+    if (params?.pilotId) searchParams.set('pilotId', params.pilotId);
     const query = searchParams.toString();
     const data = await fetchAPI<ApiResponse<Flight[]>>(`/flights${query ? `?${query}` : ''}`);
     return data.data || [];

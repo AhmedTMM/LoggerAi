@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { User, Plus, Clock, AlertTriangle, CheckCircle, Trash2, RefreshCw, Shield, Award, Mail, Save, FileText, ChevronDown, ChevronUp, Pencil, X, Check } from 'lucide-react';
-import { usePilots, useCreatePilot, useDeletePilot, useParsedDocuments, useGeneratePilotSafetyAnalysis } from '@/lib/hooks';
-import type { Pilot } from '@/lib/types';
+import { User, Plus, Clock, AlertTriangle, CheckCircle, Trash2, RefreshCw, Shield, Award, Mail, Save, FileText, ChevronDown, ChevronUp, Pencil, X, Check, Plane, Cloud, Wind, Eye, Thermometer, Navigation, MapPin } from 'lucide-react';
+import { usePilots, useCreatePilot, useDeletePilot, useParsedDocuments, useGeneratePilotSafetyAnalysis, useFlightsByPilot } from '@/lib/hooks';
+import type { Pilot, Flight, WeatherData } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { LoadingSpinner } from '@/components/ui/LoadingSkeleton';
@@ -518,6 +518,9 @@ export default function PilotsPage() {
 
                   {/* Linked Documents */}
                   <PilotLinkedDocumentsSection pilotId={selectedPilot._id} />
+
+                  {/* Flight History with Weather */}
+                  <PilotFlightHistorySection pilotId={selectedPilot._id} pilotName={selectedPilot.name} />
                 </div>
               </div>
             ) : (
@@ -713,6 +716,399 @@ function PilotLinkedDocumentsSection({ pilotId }: { pilotId: string }) {
           </p>
           <p className="text-xs text-zinc-400 mt-1">
             Upload pilot logbooks from the Files page and link them to this pilot
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PilotFlightHistorySection({ pilotId, pilotName }: { pilotId: string; pilotName: string }) {
+  const { data: flights, isLoading } = useFlightsByPilot(pilotId);
+  const [expandedFlight, setExpandedFlight] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'all' | 'vfr' | 'mvfr' | 'ifr'>('all');
+
+  if (isLoading) {
+    return (
+      <div className="p-4 bg-zinc-50 rounded-lg text-center">
+        <RefreshCw className="w-6 h-6 text-zinc-400 mx-auto animate-spin" />
+        <p className="text-sm text-zinc-500 mt-2">Loading flight history...</p>
+      </div>
+    );
+  }
+
+  // Filter flights based on active tab
+  const filteredFlights = flights?.filter((flight: Flight) => {
+    if (activeTab === 'all') return true;
+    const category = flight.weather?.flightCategory?.toUpperCase();
+    if (activeTab === 'vfr') return category === 'VFR';
+    if (activeTab === 'mvfr') return category === 'MVFR';
+    if (activeTab === 'ifr') return category === 'IFR' || category === 'LIFR';
+    return true;
+  }) || [];
+
+  // Calculate weather stats for analysis
+  const weatherStats = {
+    total: flights?.length || 0,
+    vfr: flights?.filter((f: Flight) => f.weather?.flightCategory === 'VFR').length || 0,
+    mvfr: flights?.filter((f: Flight) => f.weather?.flightCategory === 'MVFR').length || 0,
+    ifr: flights?.filter((f: Flight) => f.weather?.flightCategory === 'IFR' || f.weather?.flightCategory === 'LIFR').length || 0,
+  };
+
+  const getFlightCategoryColor = (category?: string) => {
+    switch (category?.toUpperCase()) {
+      case 'VFR': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+      case 'MVFR': return 'bg-blue-100 text-blue-700 border-blue-200';
+      case 'IFR': return 'bg-red-100 text-red-700 border-red-200';
+      case 'LIFR': return 'bg-purple-100 text-purple-700 border-purple-200';
+      default: return 'bg-zinc-100 text-zinc-700 border-zinc-200';
+    }
+  };
+
+  const getStatusBadgeColor = (status: string) => {
+    switch (status) {
+      case 'completed': return 'success';
+      case 'go': return 'success';
+      case 'caution': return 'warning';
+      case 'no-go': return 'destructive';
+      default: return 'secondary';
+    }
+  };
+
+  const formatDate = (date: Date | string) => {
+    return new Date(date).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  };
+
+  const formatTime = (time?: string) => {
+    if (!time) return '';
+    return time;
+  };
+
+  return (
+    <div>
+      <h4 className="font-semibold text-zinc-900 mb-3 flex items-center gap-2">
+        <Plane className="w-4 h-4" /> Flight History & Weather Analysis
+        {flights && flights.length > 0 && (
+          <Badge variant="secondary" className="text-xs">{flights.length} flights</Badge>
+        )}
+      </h4>
+
+      {flights && flights.length > 0 ? (
+        <>
+          {/* Weather Summary Stats */}
+          <div className="grid grid-cols-4 gap-2 mb-4">
+            <button
+              onClick={() => setActiveTab('all')}
+              className={cn(
+                "p-2 rounded-lg text-center transition-all border",
+                activeTab === 'all'
+                  ? "bg-zinc-900 text-white border-zinc-900"
+                  : "bg-zinc-50 text-zinc-600 border-zinc-200 hover:bg-zinc-100"
+              )}
+            >
+              <p className="text-lg font-bold">{weatherStats.total}</p>
+              <p className="text-xs">All</p>
+            </button>
+            <button
+              onClick={() => setActiveTab('vfr')}
+              className={cn(
+                "p-2 rounded-lg text-center transition-all border",
+                activeTab === 'vfr'
+                  ? "bg-emerald-600 text-white border-emerald-600"
+                  : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+              )}
+            >
+              <p className="text-lg font-bold">{weatherStats.vfr}</p>
+              <p className="text-xs">VFR</p>
+            </button>
+            <button
+              onClick={() => setActiveTab('mvfr')}
+              className={cn(
+                "p-2 rounded-lg text-center transition-all border",
+                activeTab === 'mvfr'
+                  ? "bg-blue-600 text-white border-blue-600"
+                  : "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100"
+              )}
+            >
+              <p className="text-lg font-bold">{weatherStats.mvfr}</p>
+              <p className="text-xs">MVFR</p>
+            </button>
+            <button
+              onClick={() => setActiveTab('ifr')}
+              className={cn(
+                "p-2 rounded-lg text-center transition-all border",
+                activeTab === 'ifr'
+                  ? "bg-red-600 text-white border-red-600"
+                  : "bg-red-50 text-red-700 border-red-200 hover:bg-red-100"
+              )}
+            >
+              <p className="text-lg font-bold">{weatherStats.ifr}</p>
+              <p className="text-xs">IFR/LIFR</p>
+            </button>
+          </div>
+
+          {/* Ideal Weather Analysis */}
+          {weatherStats.total >= 3 && (
+            <div className="mb-4 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+              <div className="flex items-center gap-2 mb-2">
+                <Cloud className="w-4 h-4 text-blue-600" />
+                <span className="text-sm font-medium text-blue-900">Weather Pattern Analysis</span>
+              </div>
+              <p className="text-xs text-blue-700">
+                {pilotName} has flown {Math.round((weatherStats.vfr / weatherStats.total) * 100)}% VFR, {Math.round((weatherStats.mvfr / weatherStats.total) * 100)}% MVFR, and {Math.round((weatherStats.ifr / weatherStats.total) * 100)}% IFR/LIFR conditions.
+                {weatherStats.vfr > weatherStats.ifr && (
+                  <span className="block mt-1">Most experienced in clear weather conditions.</span>
+                )}
+                {weatherStats.ifr >= weatherStats.vfr && (
+                  <span className="block mt-1">Experienced in instrument conditions - strong IFR capability.</span>
+                )}
+              </p>
+            </div>
+          )}
+
+          {/* Flight List */}
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {filteredFlights.length === 0 ? (
+              <div className="p-4 text-center text-zinc-500 text-sm">
+                No flights found for this weather category
+              </div>
+            ) : (
+              filteredFlights.map((flight: Flight) => {
+                const isExpanded = expandedFlight === flight._id;
+                const weather = flight.weather;
+                const arrivalWeather = flight.arrivalWeather;
+                const aircraft = typeof flight.aircraft === 'object' ? flight.aircraft : null;
+
+                return (
+                  <div
+                    key={flight._id}
+                    className="bg-zinc-50 rounded-lg border border-zinc-200 overflow-hidden"
+                  >
+                    {/* Flight Header */}
+                    <div
+                      className="p-3 cursor-pointer hover:bg-zinc-100 transition-colors"
+                      onClick={() => setExpandedFlight(isExpanded ? null : flight._id)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-1">
+                            <MapPin className="w-3 h-3 text-zinc-400" />
+                            <span className="font-medium text-zinc-900">
+                              {flight.departureAirport}
+                            </span>
+                            <Navigation className="w-3 h-3 text-zinc-400 mx-1" />
+                            <span className="font-medium text-zinc-900">
+                              {flight.arrivalAirport || flight.departureAirport}
+                            </span>
+                          </div>
+                          {weather && (
+                            <span className={cn(
+                              "px-2 py-0.5 text-xs font-medium rounded border",
+                              getFlightCategoryColor(weather.flightCategory)
+                            )}>
+                              {weather.flightCategory}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-zinc-500">
+                            {formatDate(flight.scheduledDate)}
+                          </span>
+                          <Badge variant={getStatusBadgeColor(flight.status) as any} className="text-xs">
+                            {flight.status}
+                          </Badge>
+                          {isExpanded ? (
+                            <ChevronUp className="w-4 h-4 text-zinc-400" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4 text-zinc-400" />
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 mt-1 text-xs text-zinc-500">
+                        {aircraft && (
+                          <span className="font-medium text-blue-600">
+                            {aircraft.tailNumber} ({aircraft.model})
+                          </span>
+                        )}
+                        {flight.scheduledTime && (
+                          <span>@ {formatTime(flight.scheduledTime)}</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Expanded Weather Details */}
+                    {isExpanded && (
+                      <div className="border-t border-zinc-200 p-3 bg-white">
+                        {/* Departure Weather */}
+                        {weather ? (
+                          <div className="mb-3">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Cloud className="w-4 h-4 text-blue-500" />
+                              <span className="text-sm font-medium text-zinc-700">
+                                Departure Weather ({weather.station})
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                              <div className="flex items-center gap-2 p-2 bg-zinc-50 rounded">
+                                <Eye className="w-4 h-4 text-zinc-400" />
+                                <div>
+                                  <p className="text-xs text-zinc-500">Visibility</p>
+                                  <p className="text-sm font-medium text-zinc-900">{weather.visibility} SM</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 p-2 bg-zinc-50 rounded">
+                                <Cloud className="w-4 h-4 text-zinc-400" />
+                                <div>
+                                  <p className="text-xs text-zinc-500">Ceiling</p>
+                                  <p className="text-sm font-medium text-zinc-900">
+                                    {weather.ceiling ? `${weather.ceiling} ft` : 'CLR'}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 p-2 bg-zinc-50 rounded">
+                                <Wind className="w-4 h-4 text-zinc-400" />
+                                <div>
+                                  <p className="text-xs text-zinc-500">Wind</p>
+                                  <p className="text-sm font-medium text-zinc-900">
+                                    {weather.wind.direction}° @ {weather.wind.speed}kt
+                                    {weather.wind.gust && ` G${weather.wind.gust}`}
+                                  </p>
+                                </div>
+                              </div>
+                              {weather.temperature !== undefined && (
+                                <div className="flex items-center gap-2 p-2 bg-zinc-50 rounded">
+                                  <Thermometer className="w-4 h-4 text-zinc-400" />
+                                  <div>
+                                    <p className="text-xs text-zinc-500">Temp/Dew</p>
+                                    <p className="text-sm font-medium text-zinc-900">
+                                      {weather.temperature}°/{weather.dewpoint || '--'}°C
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            {weather.metar && (
+                              <div className="mt-2 p-2 bg-zinc-100 rounded text-xs font-mono text-zinc-600 break-all">
+                                {weather.metar}
+                              </div>
+                            )}
+                            {weather.densityAltitude !== undefined && (
+                              <p className="text-xs text-zinc-500 mt-1">
+                                Density Altitude: {weather.densityAltitude} ft
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="mb-3 p-3 bg-zinc-50 rounded text-center">
+                            <Cloud className="w-6 h-6 text-zinc-300 mx-auto mb-1" />
+                            <p className="text-xs text-zinc-500">No weather data recorded</p>
+                          </div>
+                        )}
+
+                        {/* Arrival Weather (if different airport) */}
+                        {arrivalWeather && flight.arrivalAirport && flight.arrivalAirport !== flight.departureAirport && (
+                          <div className="mt-3 pt-3 border-t border-zinc-100">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Navigation className="w-4 h-4 text-green-500" />
+                              <span className="text-sm font-medium text-zinc-700">
+                                Arrival Weather ({arrivalWeather.station})
+                              </span>
+                              <span className={cn(
+                                "px-2 py-0.5 text-xs font-medium rounded border",
+                                getFlightCategoryColor(arrivalWeather.flightCategory)
+                              )}>
+                                {arrivalWeather.flightCategory}
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                              <div className="flex items-center gap-2 p-2 bg-zinc-50 rounded">
+                                <Eye className="w-4 h-4 text-zinc-400" />
+                                <div>
+                                  <p className="text-xs text-zinc-500">Visibility</p>
+                                  <p className="text-sm font-medium text-zinc-900">{arrivalWeather.visibility} SM</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 p-2 bg-zinc-50 rounded">
+                                <Cloud className="w-4 h-4 text-zinc-400" />
+                                <div>
+                                  <p className="text-xs text-zinc-500">Ceiling</p>
+                                  <p className="text-sm font-medium text-zinc-900">
+                                    {arrivalWeather.ceiling ? `${arrivalWeather.ceiling} ft` : 'CLR'}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 p-2 bg-zinc-50 rounded">
+                                <Wind className="w-4 h-4 text-zinc-400" />
+                                <div>
+                                  <p className="text-xs text-zinc-500">Wind</p>
+                                  <p className="text-sm font-medium text-zinc-900">
+                                    {arrivalWeather.wind.direction}° @ {arrivalWeather.wind.speed}kt
+                                    {arrivalWeather.wind.gust && ` G${arrivalWeather.wind.gust}`}
+                                  </p>
+                                </div>
+                              </div>
+                              {arrivalWeather.temperature !== undefined && (
+                                <div className="flex items-center gap-2 p-2 bg-zinc-50 rounded">
+                                  <Thermometer className="w-4 h-4 text-zinc-400" />
+                                  <div>
+                                    <p className="text-xs text-zinc-500">Temp/Dew</p>
+                                    <p className="text-sm font-medium text-zinc-900">
+                                      {arrivalWeather.temperature}°/{arrivalWeather.dewpoint || '--'}°C
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Safety Analysis Summary */}
+                        {flight.safetyAnalysisSnapshot && (
+                          <div className="mt-3 pt-3 border-t border-zinc-100">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs text-zinc-500">Safety Score</span>
+                              <Badge variant={
+                                flight.safetyAnalysisSnapshot.overallScore >= 70 ? 'success' :
+                                flight.safetyAnalysisSnapshot.overallScore >= 50 ? 'warning' : 'destructive'
+                              }>
+                                {flight.safetyAnalysisSnapshot.overallScore}/100
+                              </Badge>
+                            </div>
+                            {flight.safetyAnalysisSnapshot.goNoGoRecommendation && (
+                              <p className="text-xs text-zinc-600 mt-1">
+                                Recommendation: <span className="font-medium">{flight.safetyAnalysisSnapshot.goNoGoRecommendation.toUpperCase()}</span>
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Flight Notes */}
+                        {flight.notes && (
+                          <div className="mt-3 pt-3 border-t border-zinc-100">
+                            <p className="text-xs text-zinc-500">Notes</p>
+                            <p className="text-sm text-zinc-700 mt-1">{flight.notes}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="p-4 bg-zinc-50 rounded-lg text-center">
+          <Plane className="w-8 h-8 text-zinc-300 mx-auto mb-2" />
+          <p className="text-sm text-zinc-500">
+            No flight history available
+          </p>
+          <p className="text-xs text-zinc-400 mt-1">
+            Create flights from the Flights page to track weather conditions
           </p>
         </div>
       )}

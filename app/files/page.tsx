@@ -6,6 +6,7 @@ import { useParsedDocuments, useDeleteParsedDocument, useAircraft, usePilots } f
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { cn } from '@/lib/utils';
+import { UpgradePrompt, useSubscriptionStatus } from '@/components/UpgradePrompt';
 
 interface UploadingFile {
   id: string;
@@ -24,11 +25,18 @@ export default function FilesPage() {
   const { data: aircraft = [] } = useAircraft();
   const { data: pilots = [] } = usePilots();
   const deleteDocument = useDeleteParsedDocument();
+  const subscription = useSubscriptionStatus();
 
   const [isDragging, setIsDragging] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isRestoringUploads, setIsRestoringUploads] = useState(true);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+
+  // Fetch subscription status on mount
+  useEffect(() => {
+    subscription.refetch();
+  }, []);
 
   // Store active polling intervals
   const pollingIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
@@ -340,6 +348,31 @@ export default function FilesPage() {
             <p className="text-slate-500 text-xs sm:text-sm">Drop files to auto-process, link, and audit</p>
           </div>
         </div>
+
+        {/* Usage Banner */}
+        {!subscription.loading && subscription.tier === 'free' && (
+          <UpgradePrompt
+            feature="AI Parses"
+            description="Upgrade to Pro for 100 AI parses per month and unlock full document intelligence."
+            currentUsage={subscription.aiParsesUsed}
+            limit={subscription.limits.aiParsesPerMonth}
+            tier={subscription.tier}
+            variant="banner"
+          />
+        )}
+
+        {/* Upgrade Modal */}
+        {showUpgradeModal && (
+          <UpgradePrompt
+            feature="AI parses"
+            description="Your documents will be processed with our advanced AI to extract flight entries, maintenance records, and more."
+            currentUsage={subscription.aiParsesUsed}
+            limit={subscription.limits.aiParsesPerMonth}
+            tier={subscription.tier}
+            variant="modal"
+            onClose={() => setShowUpgradeModal(false)}
+          />
+        )}
 
         {/* Simple Upload Zone */}
         <div

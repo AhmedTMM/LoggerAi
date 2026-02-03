@@ -6,25 +6,24 @@ export default auth((req) => {
   const isLoggedIn = !!req.auth;
 
   // Public routes that don't require authentication
-  const publicRoutes = ['/login', '/api/auth'];
+  const publicRoutes = ['/login', '/api/auth', '/landing', '/pricing', '/api/stripe/webhook'];
   const isPublicRoute = publicRoutes.some(route =>
     nextUrl.pathname.startsWith(route)
   );
 
   // Allow public routes
   if (isPublicRoute) {
-    // Redirect to home if already logged in and trying to access login
-    if (isLoggedIn && nextUrl.pathname === '/login') {
+    // Redirect to dashboard if already logged in and trying to access login or landing
+    if (isLoggedIn && (nextUrl.pathname === '/login' || nextUrl.pathname === '/landing')) {
       return NextResponse.redirect(new URL('/', nextUrl));
     }
     return NextResponse.next();
   }
 
-  // Redirect to login if not authenticated
+  // Redirect to landing page if not authenticated
   if (!isLoggedIn) {
-    const loginUrl = new URL('/login', nextUrl);
-    loginUrl.searchParams.set('callbackUrl', nextUrl.pathname);
-    return NextResponse.redirect(loginUrl);
+    const landingUrl = new URL('/landing', nextUrl);
+    return NextResponse.redirect(landingUrl);
   }
 
   return NextResponse.next();

@@ -5,6 +5,8 @@ import Aircraft from '@/lib/models/Aircraft';
 import Pilot from '@/lib/models/Pilot';
 import ParsedDocument from '@/lib/models/ParsedDocument';
 import { readFileAsBase64, fileExists } from '@/lib/services/fileStorage';
+import { requireAuth } from '@/lib/auth-helpers';
+import { checkFeatureAccess, incrementUsage } from '@/lib/subscription';
 
 // Increase timeout to 5 minutes for large document processing
 export const maxDuration = 300;
@@ -24,6 +26,24 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const { id: docId } = await context.params;
 
   try {
+    // Check authentication
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
+    // Check subscription access
+    const access = await checkFeatureAccess(userId!, 'aiParsing');
+    if (!access.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: access.reason,
+          upgradeRequired: true,
+          subscription: access.subscription,
+        },
+        { status: 403 }
+      );
+    }
+
     await dbConnect();
 
     const doc = await ParsedDocument.findById(docId);
@@ -139,6 +159,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
       if (doc.pilot && doc.documentType === 'logbook') {
         await updatePilotFromParsedData(doc.pilot.toString(), entries);
       }
+
+      // Increment usage after successful parse
+      await incrementUsage(userId!, 'aiParse');
 
       return NextResponse.json({
         success: true,

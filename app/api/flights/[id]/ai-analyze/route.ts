@@ -4,6 +4,8 @@ import Flight from '@/lib/models/Flight';
 import { generateAISafetyAnalysis, sendAISafetyEmail, IAISafetyAnalysis } from '@/lib/services/aiSafetyService';
 import { IPilot } from '@/lib/models/Pilot';
 import { IAircraft } from '@/lib/models/Aircraft';
+import { requireAuth } from '@/lib/auth-helpers';
+import { checkFeatureAccess, incrementUsage } from '@/lib/subscription';
 
 export const maxDuration = 60; // Allow up to 60 seconds for AI analysis
 
@@ -12,6 +14,24 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
+    // Check authentication
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
+    // Check subscription access for AI analysis
+    const access = await checkFeatureAccess(userId!, 'aiAnalysis');
+    if (!access.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: access.reason,
+          upgradeRequired: true,
+          subscription: access.subscription,
+        },
+        { status: 403 }
+      );
+    }
+
     await dbConnect();
 
     const body = await request.json().catch(() => ({}));
@@ -85,6 +105,9 @@ export async function POST(
     }
 
     await flight.save();
+
+    // Increment usage after successful analysis
+    await incrementUsage(userId!, 'aiAnalysis');
 
     // Send email with AI analysis - always to hardcoded address
     let emailResult = { success: false, message: 'Email not sent' };

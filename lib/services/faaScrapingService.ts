@@ -1,7 +1,12 @@
 // FAA Scraping Service - Magic Add Aircraft
 // Scrapes FAA registration data and uses AI to extract airworthiness information
 
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import {
+  isOpenRouterConfigured,
+  generateCompletion,
+  parseJsonResponse,
+  OPENROUTER_MODELS,
+} from './openRouterClient';
 import { fetchAircraftImage as fetchAircraftImageFromFirecrawl } from './firecrawlService';
 
 export interface ScrapedAircraftData {
@@ -442,19 +447,15 @@ async function fetchAIEnhancements(
   mel?: { item: string; required: boolean; remarks?: string }[];
   operatingLimits?: ScrapedAircraftData['operatingLimits'];
 }> {
-  if (!process.env.GEMINI_API_KEY) {
+  if (!isOpenRouterConfigured()) {
     return getDefaultEnhancements(manufacturer, model);
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const geminiModel = genAI.getGenerativeModel({
-      model: 'gemini-3-pro-preview',
-      systemInstruction: `You are an aviation data specialist. Provide accurate aircraft specifications.
-Output ONLY valid JSON, no markdown formatting.`,
-    });
+    const systemPrompt = `You are an aviation data specialist. Provide accurate aircraft specifications.
+Output ONLY valid JSON, no markdown formatting.`;
 
-    const prompt = `For a ${manufacturer} ${model} aircraft, provide:
+    const userPrompt = `For a ${manufacturer} ${model} aircraft, provide:
 1. Standard MEL (Minimum Equipment List) items for VFR day flight
 2. V-speeds (in KIAS)
 3. Weight limits (in lbs)
@@ -466,10 +467,13 @@ Output as JSON:
   "weights": {"maxGross": number, "empty": number, "usefulLoad": number, "fuelCapacity": number}
 }`;
 
-    const result = await geminiModel.generateContent(prompt);
-    const text = result.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
+    const response = await generateCompletion({
+      model: OPENROUTER_MODELS.PRO,
+      systemPrompt,
+      userPrompt,
+    });
 
-    const parsed = JSON.parse(text);
+    const parsed = parseJsonResponse(response);
 
     return {
       mel: parsed.mel || [],
@@ -683,20 +687,16 @@ async function findAircraftImage(
 }
 
 async function aiAircraftLookup(tailNumber: string): Promise<ScrapedAircraftData | null> {
-  if (!process.env.GEMINI_API_KEY) {
+  if (!isOpenRouterConfigured()) {
     return null;
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-3-pro-preview',
-      systemInstruction: `You are an aviation data specialist with access to FAA registration data.
+    const systemPrompt = `You are an aviation data specialist with access to FAA registration data.
 Given a tail number, provide the most likely aircraft information based on common patterns.
-Output ONLY valid JSON, no markdown formatting.`,
-    });
+Output ONLY valid JSON, no markdown formatting.`;
 
-    const prompt = `For US aircraft registration ${tailNumber}, provide likely aircraft details:
+    const userPrompt = `For US aircraft registration ${tailNumber}, provide likely aircraft details:
 {
   "manufacturer": "string",
   "model": "string",
@@ -707,14 +707,18 @@ Output ONLY valid JSON, no markdown formatting.`,
 
 If this appears to be an invalid N-number, return null.`;
 
-    const result = await model.generateContent(prompt);
-    const text = result.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
+    const response = await generateCompletion({
+      model: OPENROUTER_MODELS.PRO,
+      systemPrompt,
+      userPrompt,
+    });
 
-    if (text.toLowerCase() === 'null') {
+    const trimmed = response.trim();
+    if (trimmed.toLowerCase() === 'null') {
       return null;
     }
 
-    const parsed = JSON.parse(text);
+    const parsed = parseJsonResponse(response);
 
     // Get enhancements for the identified type
     const enhancements = await fetchAIEnhancements(parsed.manufacturer, parsed.model);

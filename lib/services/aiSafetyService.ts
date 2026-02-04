@@ -1,14 +1,15 @@
 // AI-Powered Flight Safety Analysis Service
-// Uses Google Gemini for intelligent safety reasoning and recommendations
+// Uses OpenRouter for intelligent safety reasoning and recommendations
 
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import {
+  isOpenRouterConfigured,
+  generateCompletion,
+  parseJsonResponse,
+  OPENROUTER_MODELS,
+} from './openRouterClient';
 import { IFlight, IComprehensiveSafetyAnalysis } from '../models/Flight';
 import { IAircraft } from '../models/Aircraft';
 import { IPilot } from '../models/Pilot';
-
-const genAI = process.env.GEMINI_API_KEY
-  ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
-  : null;
 
 export interface IAISafetyAnalysis {
   summary: string;
@@ -34,14 +35,12 @@ export async function generateAISafetyAnalysis(
   aircraft: IAircraft,
   existingAnalysis: IComprehensiveSafetyAnalysis
 ): Promise<IAISafetyAnalysis | null> {
-  if (!genAI) {
-    console.warn('Gemini API key not configured - AI analysis unavailable');
+  if (!isOpenRouterConfigured()) {
+    console.warn('OpenRouter API key not configured - AI analysis unavailable');
     return null;
   }
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' });
-
     // Build context for AI
     const flightContext = buildFlightContext(flight, pilot, aircraft, existingAnalysis);
 
@@ -82,8 +81,10 @@ Focus on:
 
 Be direct and specific. Prioritize safety but don't be overly conservative without reason.`;
 
-    const result = await model.generateContent(prompt);
-    const response = result.response.text();
+    const response = await generateCompletion({
+      model: OPENROUTER_MODELS.FAST,
+      userPrompt: prompt,
+    });
 
     // Parse JSON response
     const jsonMatch = response.match(/\{[\s\S]*\}/);

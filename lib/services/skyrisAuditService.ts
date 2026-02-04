@@ -1,7 +1,7 @@
 /**
  * Skyris Flight Audit Service
  *
- * Uses Gemini 3 Pro to synthesize:
+ * Uses AI to synthesize:
  * - Pilot Safety Analysis
  * - Aircraft Maintenance Audit (AV1ONICS)
  * - Weather Conditions (if provided)
@@ -9,16 +9,18 @@
  * Outputs a combined flight audit with actionable recommendations
  */
 
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import {
+  isOpenRouterConfigured,
+  generateCompletion,
+  parseJsonResponse,
+  OPENROUTER_MODELS,
+} from './openRouterClient';
 import { IPilot } from '@/lib/models/Pilot';
 import { IAircraft } from '@/lib/models/Aircraft';
 import SafetyAudit, { ISafetyAudit, IPilotSafetyAudit, IAircraftMaintenanceAudit } from '@/lib/models/SafetyAudit';
 import { runAV1ONICSAudit, IAV1ONICSAudit, getAV1ONICSSummary } from './av1onicsService';
 import { analyzePilotSafety, analyzeAircraftSafety } from './aiService';
 import connectDB from '@/lib/db';
-
-// Gemini 3 Pro for complex analysis
-const GEMINI_MODEL = 'gemini-3-pro-preview';
 
 // Combined Flight Audit Result (as specified in requirements)
 export interface ICombinedFlightAudit {
@@ -117,7 +119,7 @@ async function buildPilotAudit(pilot: IPilot): Promise<IPilotSafetyAudit> {
     }
 
     aiAnalysis = {
-      model: GEMINI_MODEL,
+      model: OPENROUTER_MODELS.PRO,
       prompt: 'Pilot safety analysis',
       confidence: 0.85,
     };
@@ -206,7 +208,7 @@ async function buildAircraftAudit(aircraft: IAircraft, av1onicsAudit: IAV1ONICSA
     }
 
     aiAnalysis = {
-      model: GEMINI_MODEL,
+      model: OPENROUTER_MODELS.PRO,
       prompt: 'Aircraft safety analysis',
       confidence: 0.85,
     };
@@ -259,7 +261,7 @@ async function buildAircraftAudit(aircraft: IAircraft, av1onicsAudit: IAV1ONICSA
 }
 
 /**
- * Use Gemini 3 Pro to synthesize pilot and aircraft audits into combined flight audit
+ * Use AI to synthesize pilot and aircraft audits into combined flight audit
  */
 async function synthesizeWithGemini(
   pilotAudit: IPilotSafetyAudit,
@@ -268,15 +270,12 @@ async function synthesizeWithGemini(
   pilot: IPilot,
   aircraft: IAircraft
 ): Promise<ICombinedFlightAudit> {
-  if (!process.env.GEMINI_API_KEY) {
+  if (!isOpenRouterConfigured()) {
     // Return default analysis if no API key
     return buildDefaultCombinedAudit(pilotAudit, aircraftAudit, av1onicsAudit);
   }
 
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({
-    model: GEMINI_MODEL,
-    systemInstruction: `You are an expert aviation safety analyst synthesizing pilot and aircraft data into a comprehensive flight safety audit.
+  const systemPrompt = `You are an expert aviation safety analyst synthesizing pilot and aircraft data into a comprehensive flight safety audit.
 Your role is to identify combined risk factors that may not be apparent when looking at pilot or aircraft data independently.
 
 Consider interactions such as:
@@ -285,10 +284,9 @@ Consider interactions such as:
 - Maintenance issues + operational demands
 - Experience gaps + aircraft complexity
 
-Output ONLY valid JSON with no markdown formatting.`,
-  });
+Output ONLY valid JSON with no markdown formatting.`;
 
-  const prompt = `Analyze this flight pairing and provide a combined safety assessment.
+  const userPrompt = `Analyze this flight pairing and provide a combined safety assessment.
 
 PILOT PROFILE:
 - Name: ${pilot.name}
@@ -337,13 +335,13 @@ Provide your analysis as JSON:
 }`;
 
   try {
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
+    const response = await generateCompletion({
+      model: OPENROUTER_MODELS.PRO,
+      systemPrompt,
+      userPrompt,
+    });
 
-    // Clean up potential markdown
-    const jsonString = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    const parsed = JSON.parse(jsonString);
+    const parsed = parseJsonResponse(response);
 
     return {
       airworthiness: parsed.airworthiness ?? (aircraftAudit.airworthinessStatus !== 'grounded'),
@@ -357,7 +355,7 @@ Provide your analysis as JSON:
       risk_scenarios: parsed.risk_scenarios || [],
     };
   } catch (error) {
-    console.error('Gemini synthesis failed:', error);
+    console.error('AI synthesis failed:', error);
     return buildDefaultCombinedAudit(pilotAudit, aircraftAudit, av1onicsAudit);
   }
 }
@@ -479,7 +477,7 @@ export async function runSkyrisAudit(
     aircraftAudit,
     av1onicsAudit,
     combinedAudit,
-    aiModel: GEMINI_MODEL,
+    aiModel: OPENROUTER_MODELS.PRO,
     aiConfidence: 0.85,
   };
 
@@ -510,7 +508,7 @@ export async function runSkyrisAudit(
         },
         status: 'completed',
         generatedBy: 'ai',
-        aiModel: GEMINI_MODEL,
+        aiModel: OPENROUTER_MODELS.PRO,
       });
 
       await safetyAudit.save();

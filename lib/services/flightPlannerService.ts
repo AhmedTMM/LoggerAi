@@ -1,12 +1,15 @@
 // Flight Planner Parsing Service
-// Parses flight planner photos (PaperlessFBO, ForeFlight screenshots, etc.) using Reducto + Gemini
+// Parses flight planner photos (PaperlessFBO, ForeFlight screenshots, etc.) using Reducto + AI
 
 import { Reducto, toFile } from 'reductoai';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import {
+  isOpenRouterConfigured,
+  generateCompletion,
+  generateVisionCompletion,
+  parseJsonResponse,
+  OPENROUTER_MODELS,
+} from './openRouterClient';
 import { IFlightPlannerData } from '../models/Flight';
-
-// Gemini model for structured extraction
-const GEMINI_MODEL = 'gemini-3-flash-preview';
 
 interface ParsedFlightPlan {
   source: 'paperlessfbo' | 'foreflight' | 'garmin' | 'manual' | 'photo_upload';
@@ -90,7 +93,7 @@ Example output:
   "remarks": "VFR flight plan filed"
 }`;
 
-// Parse flight planner image using Reducto for OCR and Gemini for structured extraction
+// Parse flight planner image using Reducto for OCR and AI for structured extraction
 export async function parseFlightPlannerImage(
   imageBase64: string,
   imageType: 'png' | 'jpg' | 'jpeg' | 'pdf' = 'png'
@@ -99,14 +102,14 @@ export async function parseFlightPlannerImage(
   let parsedData: ParsedFlightPlan['parsedData'] = {};
   let confidence = 0;
 
-  // First, try direct Gemini vision analysis (faster for simple images)
+  // First, try direct AI vision analysis (faster for simple images)
   try {
-    const geminiResult = await parseWithGeminiVision(imageBase64, imageType);
-    if (geminiResult && geminiResult.confidence > 0.5) {
-      return geminiResult;
+    const visionResult = await parseWithAIVision(imageBase64, imageType);
+    if (visionResult && visionResult.confidence > 0.5) {
+      return visionResult;
     }
   } catch (err) {
-    console.log('Gemini vision failed, falling back to Reducto:', err);
+    console.log('AI vision failed, falling back to Reducto:', err);
   }
 
   // Fallback to Reducto for complex documents
@@ -114,9 +117,9 @@ export async function parseFlightPlannerImage(
     const reductoResult = await parseWithReducto(imageBase64, imageType);
     rawText = reductoResult.rawText;
 
-    // Use Gemini to structure the OCR text
+    // Use AI to structure the OCR text
     if (rawText) {
-      const structuredResult = await structureTextWithGemini(rawText);
+      const structuredResult = await structureTextWithAI(rawText);
       parsedData = structuredResult.parsedData;
       confidence = structuredResult.confidence;
     }
@@ -135,38 +138,26 @@ export async function parseFlightPlannerImage(
   };
 }
 
-// Parse directly with Gemini Vision (for images)
-async function parseWithGeminiVision(
+// Parse directly with AI Vision (for images)
+async function parseWithAIVision(
   imageBase64: string,
   imageType: string
 ): Promise<ParsedFlightPlan | null> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error('GEMINI_API_KEY not configured');
+  if (!isOpenRouterConfigured()) {
+    throw new Error('OPENROUTER_API_KEY not configured');
   }
-
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
   const mimeType = imageType === 'pdf' ? 'application/pdf' : `image/${imageType}`;
 
-  const result = await model.generateContent([
-    FLIGHT_PLANNER_EXTRACTION_PROMPT,
-    {
-      inlineData: {
-        mimeType,
-        data: imageBase64,
-      },
-    },
-  ]);
-
-  const response = await result.response;
-  const text = response.text();
+  const response = await generateVisionCompletion({
+    model: OPENROUTER_MODELS.FAST,
+    userPrompt: FLIGHT_PLANNER_EXTRACTION_PROMPT,
+    imageBase64,
+    mimeType: mimeType as any,
+  });
 
   try {
-    // Clean up response
-    const jsonString = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    const parsedData = JSON.parse(jsonString);
+    const parsedData = parseJsonResponse(response);
 
     // Calculate confidence based on how many fields were extracted
     const fieldCount = Object.keys(parsedData).length;
@@ -177,11 +168,11 @@ async function parseWithGeminiVision(
     return {
       source,
       parsedData,
-      rawText: text,
+      rawText: response,
       confidence,
     };
   } catch (err) {
-    console.error('Failed to parse Gemini response:', text);
+    console.error('Failed to parse AI response:', response);
     return null;
   }
 }
@@ -228,31 +219,22 @@ async function parseWithReducto(
   };
 }
 
-// Structure raw OCR text into flight plan fields using Gemini
-async function structureTextWithGemini(
+// Structure raw OCR text into flight plan fields using AI
+async function structureTextWithAI(
   rawText: string
 ): Promise<{ parsedData: ParsedFlightPlan['parsedData']; confidence: number }> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
+  if (!isOpenRouterConfigured()) {
     return { parsedData: {}, confidence: 0 };
   }
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: GEMINI_MODEL,
-    systemInstruction: FLIGHT_PLANNER_EXTRACTION_PROMPT,
+  const response = await generateCompletion({
+    model: OPENROUTER_MODELS.FAST,
+    systemPrompt: FLIGHT_PLANNER_EXTRACTION_PROMPT,
+    userPrompt: `Parse this OCR text from a flight planning document and extract structured data:\n\n${rawText}`,
   });
 
-  const result = await model.generateContent(
-    `Parse this OCR text from a flight planning document and extract structured data:\n\n${rawText}`
-  );
-
-  const response = await result.response;
-  const text = response.text();
-
   try {
-    const jsonString = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    const parsedData = JSON.parse(jsonString);
+    const parsedData = parseJsonResponse(response);
 
     const fieldCount = Object.keys(parsedData).length;
     const confidence = Math.min(fieldCount / 8, 1);

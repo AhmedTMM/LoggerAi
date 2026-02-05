@@ -77,11 +77,14 @@ export type StepCallback = (log: StepLog) => void | Promise<void>;
 
 import { Reducto, toFile } from 'reductoai';
 import { ExtractRunResponse } from 'reductoai/resources/extract';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import {
+  isOpenRouterConfigured,
+  generateCompletion,
+  generateVisionCompletion,
+  parseJsonResponse,
+  OPENROUTER_MODELS,
+} from './openRouterClient';
 import { repairAndParseJSON } from '@/lib/utils/jsonRepair';
-
-// Gemini Flash for fast structured extraction
-const GEMINI_FLASH_MODEL = 'gemini-3-flash-preview';
 
 // Base timeout constants for API calls (scaled up for large files)
 const REDUCTO_UPLOAD_TIMEOUT_BASE = 60000;   // 60 seconds base for upload
@@ -144,7 +147,6 @@ export async function parseDocumentUltraFast(
   documentType: string,  // Accepts any document type - internally maps to logbook or maintenance prompts
   onStep?: StepCallback
 ): Promise<ReductoResponse> {
-  const geminiKey = process.env.GEMINI_API_KEY;
   const startTime = Date.now();
 
   const log = async (step: ProcessingStep, message: string, progress: number, details?: Record<string, any>) => {
@@ -160,32 +162,23 @@ export async function parseDocumentUltraFast(
     }
   };
 
-  if (!geminiKey) {
-    console.warn('[UltraFast] Gemini API key not configured, falling back to OCR pipeline');
+  if (!isOpenRouterConfigured()) {
+    console.warn('[UltraFast] OpenRouter API key not configured, falling back to OCR pipeline');
     return parseDocumentFast(fileBase64, fileType, documentType, onStep);
   }
 
   try {
-    await log('initializing', 'Starting ultra-fast Gemini extraction...', 5, {
+    await log('initializing', 'Starting ultra-fast AI extraction...', 5, {
       documentType,
       fileType,
       mode: 'direct-vision'
     });
 
-    const genAI = new GoogleGenerativeAI(geminiKey);
-    const model = genAI.getGenerativeModel({
-      model: GEMINI_FLASH_MODEL,
-      generationConfig: {
-        maxOutputTokens: 65536, // Maximum for Gemini 2.0 Flash to prevent truncation
-        temperature: 0.1, // Lower temperature for more consistent JSON output
-      },
-    });
-
-    // Check file size - Gemini 2.0 can handle larger files inline
+    // Check file size - Vision models can handle larger files inline
     const fileSizeBytes = Math.ceil((fileBase64.length * 3) / 4);
-    const MAX_GEMINI_SIZE = 20 * 1024 * 1024; // 20MB - Gemini 2.0 handles this well
+    const MAX_VISION_SIZE = 20 * 1024 * 1024; // 20MB
 
-    if (fileSizeBytes > MAX_GEMINI_SIZE) {
+    if (fileSizeBytes > MAX_VISION_SIZE) {
       await log('initializing', 'File too large for direct extraction, using OCR pipeline...', 10);
       return parseDocumentFast(fileBase64, fileType, documentType, onStep);
     }
@@ -204,29 +197,25 @@ export async function parseDocumentUltraFast(
 
     const mimeType = fileType === 'pdf' ? 'application/pdf' : 'image/png';
 
-    await log('extracting', 'Sending to Gemini Vision for direct extraction...', 20, {
-      model: GEMINI_FLASH_MODEL,
+    await log('extracting', 'Sending to AI Vision for direct extraction...', 20, {
+      model: OPENROUTER_MODELS.FAST,
       mode: 'vision-direct'
     });
 
     const extractionStart = Date.now();
-    const result = await model.generateContent([
-      prompt,
-      {
-        inlineData: {
-          mimeType,
-          data: fileBase64
-        }
-      }
-    ]);
+    const aiText = await generateVisionCompletion({
+      model: OPENROUTER_MODELS.FAST,
+      userPrompt: prompt,
+      imageBase64: fileBase64,
+      mimeType,
+      maxTokens: 65536,
+      temperature: 0.1,
+    });
 
     const extractionTime = Date.now() - extractionStart;
     await log('parsing', `AI extraction complete in ${(extractionTime / 1000).toFixed(1)}s`, 70, {
       extractionTimeMs: extractionTime
     });
-
-    const response = await result.response;
-    const aiText = response.text();
 
     console.log(`[UltraFast] ========== AI RAW RESPONSE ==========`);
     console.log(`[UltraFast] Response length: ${aiText.length} characters`);
@@ -317,11 +306,11 @@ export async function parseDocumentUltraFast(
     const errorMessage = (error as Error).message;
     console.error('[UltraFast] Error:', error);
 
-    // Check if it's a quota error
-    if (errorMessage.includes('quota') || errorMessage.includes('429')) {
-      console.log('[UltraFast] Gemini quota exceeded, skipping AI extraction entirely');
+    // Check if it's a quota/rate limit error
+    if (errorMessage.includes('quota') || errorMessage.includes('429') || errorMessage.includes('rate')) {
+      console.log('[UltraFast] AI quota exceeded, skipping AI extraction entirely');
       await log('error', 'AI quota exceeded, using OCR-only mode', 0);
-      // Skip to parseDocument (no Gemini) instead of parseDocumentFast (uses Gemini)
+      // Skip to parseDocument (no AI) instead of parseDocumentFast (uses AI)
       return parseDocument(fileBase64, fileType, documentType, onStep);
     }
 
@@ -419,7 +408,6 @@ export async function parseDocumentFast(
   onStep?: StepCallback
 ): Promise<ReductoResponse> {
   const apiKey = process.env.REDUCTO_API_KEY;
-  const geminiKey = process.env.GEMINI_API_KEY;
   const startTime = Date.now();
 
   const log = async (step: ProcessingStep, message: string, progress: number, details?: Record<string, any>) => {
@@ -441,8 +429,8 @@ export async function parseDocumentFast(
     return { success: false, error: 'Reducto API key not configured' };
   }
 
-  if (!geminiKey) {
-    console.warn('Gemini API key not configured, falling back to slow extraction');
+  if (!isOpenRouterConfigured()) {
+    console.warn('OpenRouter API key not configured, falling back to slow extraction');
     // Fall back to original slow method
     return parseDocument(fileBase64, fileType, documentType, onStep);
   }
@@ -451,14 +439,6 @@ export async function parseDocumentFast(
     await log('initializing', 'Initializing fast OCR pipeline...', 5, { documentType, fileType, mode: 'hybrid' });
 
     const client = new Reducto({ apiKey });
-    const genAI = new GoogleGenerativeAI(geminiKey);
-    const model = genAI.getGenerativeModel({
-      model: GEMINI_FLASH_MODEL,
-      generationConfig: {
-        maxOutputTokens: 65536, // Maximum for Gemini 2.0 Flash to prevent truncation
-        temperature: 0.1, // Lower temperature for more consistent JSON output
-      },
-    });
 
     await log('preparing', 'Preparing document for OCR...', 10, {
       sizeKB: Math.round(fileBase64.length * 0.75 / 1024),
@@ -572,35 +552,34 @@ export async function parseDocumentFast(
       return parseDocument(fileBase64, fileType, documentType, onStep);
     }
 
-    await log('structuring', 'Extracting structured data with Gemini Flash...', 60, {
+    await log('structuring', 'Extracting structured data with AI...', 60, {
       textLength: extractedText.length,
-      model: GEMINI_FLASH_MODEL
+      model: OPENROUTER_MODELS.FAST
     });
 
-    // 4. Use Gemini Flash to extract structured data from OCR text
+    // 4. Use AI to extract structured data from OCR text
     // Handle all logbook types (pilot_logbook, aircraft_logbook, logbook)
     const isLogbookType = documentType === 'logbook' || documentType.includes('logbook');
     const prompt = isLogbookType
       ? LOGBOOK_GEMINI_EXTRACTION_PROMPT
       : MAINTENANCE_GEMINI_EXTRACTION_PROMPT;
 
-    let result, response, aiText;
+    let aiText: string;
     try {
-      result = await model.generateContent([
-        prompt,
-        `\n\nDOCUMENT TEXT (from OCR):\n${extractedText}`
-      ]);
-
-      response = await result.response;
-      aiText = response.text();
-    } catch (geminiError: any) {
-      // Check if it's a quota error
-      if (geminiError.message?.includes('quota') || geminiError.message?.includes('429')) {
-        console.error('[FastParse] Gemini quota exceeded, falling back to standard extraction');
+      aiText = await generateCompletion({
+        model: OPENROUTER_MODELS.FAST,
+        userPrompt: `${prompt}\n\nDOCUMENT TEXT (from OCR):\n${extractedText}`,
+        maxTokens: 65536,
+        temperature: 0.1,
+      });
+    } catch (aiError: any) {
+      // Check if it's a quota/rate limit error
+      if (aiError.message?.includes('quota') || aiError.message?.includes('429') || aiError.message?.includes('rate')) {
+        console.error('[FastParse] AI quota exceeded, falling back to standard extraction');
         await log('error', 'AI quota exceeded, using standard extraction', 60);
         return parseDocument(fileBase64, fileType, documentType, onStep);
       }
-      throw geminiError;
+      throw aiError;
     }
 
     console.log(`[FastParse] ========== AI RAW RESPONSE ==========`);

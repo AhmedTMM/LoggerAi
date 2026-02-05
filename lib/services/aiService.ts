@@ -1,11 +1,11 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import { DetectedDocumentType, DocumentType } from '@/lib/models/ParsedDocument';
-
-// Gemini Pro 3 Preview - For complex safety analysis
-const GEMINI_MODEL = 'gemini-3-pro-preview';
-
-// Gemini Flash - For fast classification (much faster, under 5 seconds)
-const GEMINI_FLASH_MODEL = 'gemini-3-flash-preview';
+import {
+  isOpenRouterConfigured,
+  generateVisionCompletion,
+  generateCompletion,
+  parseJsonResponse,
+  OPENROUTER_MODELS,
+} from './openRouterClient';
+import { DetectedDocumentType } from '@/lib/models/ParsedDocument';
 
 // Document classification result type with expanded types
 export interface FastDocumentClassification {
@@ -27,7 +27,7 @@ export interface FastDocumentClassification {
 }
 
 /**
- * Fast document classification using Gemini 2.0 Flash
+ * Fast document classification using AI vision
  * Analyzes document images/PDFs to determine type without heavy extraction
  * Target: Under 10 seconds for classification
  */
@@ -38,15 +38,11 @@ export async function classifyDocumentFast(
   const startTime = Date.now();
 
   try {
-    if (!process.env.GEMINI_API_KEY) {
-      throw new Error("Missing GEMINI_API_KEY");
+    if (!isOpenRouterConfigured()) {
+      throw new Error("Missing OPENROUTER_API_KEY");
     }
 
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: GEMINI_FLASH_MODEL });
-
     // For large files, skip classification - truncating PDFs creates invalid documents
-    // Gemini 2.0 Flash can handle up to 20MB inline, so increase limit
     const MAX_CLASSIFIABLE_SIZE = 25 * 1024 * 1024; // 25MB max for classification (~19MB actual file)
 
     if (fileBase64.length > MAX_CLASSIFIABLE_SIZE) {
@@ -68,8 +64,6 @@ export async function classifyDocumentFast(
         }
       };
     }
-
-    const sampleBase64 = fileBase64;
 
     const prompt = `You are an expert aviation document classifier. Analyze this document quickly and identify its type.
 
@@ -131,31 +125,22 @@ Output ONLY valid JSON (no markdown):
 
     const mimeType = fileType === 'pdf' ? 'application/pdf' : 'image/png';
 
-    const result = await model.generateContent([
-      prompt,
-      {
-        inlineData: {
-          mimeType,
-          data: sampleBase64
-        }
-      }
-    ]);
-
-    const response = await result.response;
-    const text = response.text();
-
-    // Clean up potential markdown formatting
-    const jsonString = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    const response = await generateVisionCompletion({
+      model: OPENROUTER_MODELS.FAST,
+      userPrompt: prompt,
+      imageBase64: fileBase64,
+      mimeType,
+    });
 
     let classification: FastDocumentClassification;
     try {
-      classification = JSON.parse(jsonString);
+      classification = parseJsonResponse(response);
       // Normalize legacy types to new types
       if (classification.detectedType === 'logbook' && classification.pilotName) {
         classification.detectedType = 'pilot_logbook';
       }
     } catch (parseError) {
-      console.error('[FastClassify] Failed to parse AI response:', text);
+      console.error('[FastClassify] Failed to parse AI response:', response);
       // Return a fallback classification
       classification = {
         detectedType: 'unknown',
@@ -287,7 +272,7 @@ export async function analyzePilotSafety(pilot: PilotData) {
         ...recentFlights.map((f: any) => f.arrival)
     ])).filter(Boolean).join(', ');
 
-    const systemInstruction = `You are a Chief Flight Instructor conducting a comprehensive safety review. 
+    const systemInstruction = `You are a Chief Flight Instructor conducting a comprehensive safety review.
 Analyze the pilot's logbook data to identify ANY potential risk factors. Do not limit yourself to specific categories if others are more relevant.
 
 Common risk areas to consider (but do not feel limited to):
@@ -325,30 +310,22 @@ Operating Airports: ${uniqueAirports}
 `;
 
     try {
-        if (!process.env.GEMINI_API_KEY) {
-            // Development/Build safe fallback checks
-            throw new Error("Missing GEMINI_API_KEY");
+        if (!isOpenRouterConfigured()) {
+            throw new Error("Missing OPENROUTER_API_KEY");
         }
 
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({
-            model: "gemini-3-pro-preview",
-            systemInstruction: systemInstruction
+        const response = await generateCompletion({
+            model: OPENROUTER_MODELS.PRO,
+            systemPrompt: systemInstruction,
+            userPrompt: userPrompt,
         });
 
-        const result = await model.generateContent(userPrompt);
-        const response = await result.response;
-        const text = response.text();
-
-        // Cleanup potential markdown formatting if model ignores instruction
-        const jsonString = text.replace(/```json/g, '').replace(/```/g, '').trim();
-
         try {
-            return JSON.parse(jsonString);
+            return parseJsonResponse(response);
         } catch (e) {
-            console.error("AI returned invalid JSON:", text);
+            console.error("AI returned invalid JSON:", response);
             return {
-                risk_factors: [{ category: "System", risk_level: "low", description: "Raw analysis: " + text }],
+                risk_factors: [{ category: "System", risk_level: "low", description: "Raw analysis: " + response }],
                 overall_assessment: { score: 0, summary: "Could not parse structured analysis." }
             };
         }
@@ -361,7 +338,7 @@ Operating Airports: ${uniqueAirports}
 
 /**
  * Analyze aircraft maintenance logs and generate safety findings
- * Uses Gemini Pro 3 Preview for structured JSON output
+ * Uses AI for structured JSON output
  */
 export async function analyzeAircraftSafety(aircraft: AircraftData) {
     const systemInstruction = `You are an A&P Mechanic and Aviation Safety Inspector conducting a comprehensive maintenance review.
@@ -418,35 +395,29 @@ ${JSON.stringify(recentLogs, null, 2)}
 Analyze this maintenance history and identify any safety concerns.`;
 
     try {
-        if (!process.env.GEMINI_API_KEY) {
-            throw new Error("Missing GEMINI_API_KEY");
+        if (!isOpenRouterConfigured()) {
+            throw new Error("Missing OPENROUTER_API_KEY");
         }
 
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({
-            model: GEMINI_MODEL,
-            systemInstruction: systemInstruction
+        const response = await generateCompletion({
+            model: OPENROUTER_MODELS.PRO,
+            systemPrompt: systemInstruction,
+            userPrompt: userPrompt,
         });
 
-        const result = await model.generateContent(userPrompt);
-        const response = await result.response;
-        const text = response.text();
-
-        const jsonString = text.replace(/```json/g, '').replace(/```/g, '').trim();
-
         try {
-            const parsed = JSON.parse(jsonString);
+            const parsed = parseJsonResponse(response);
             return {
                 findings: parsed.findings || [],
                 score: parsed.overall_score || 5,
                 summary: parsed.summary || 'Analysis complete.'
             };
         } catch (e) {
-            console.error("AI returned invalid JSON:", text);
+            console.error("AI returned invalid JSON:", response);
             return {
                 findings: [{ component: "System", status: "warning", message: "Could not parse AI analysis" }],
                 score: 5,
-                summary: "Raw analysis: " + text.substring(0, 200)
+                summary: "Raw analysis: " + response.substring(0, 200)
             };
         }
 
@@ -457,7 +428,7 @@ Analyze this maintenance history and identify any safety concerns.`;
 }
 
 /**
- * Generate a complete pilot profile from logbook data using Gemini 3 Pro Preview
+ * Generate a complete pilot profile from logbook data using AI
  * Analyzes flight entries to infer missing profile information like certifications,
  * ratings, endorsements, and provides experience analysis
  */
@@ -627,28 +598,21 @@ ${partialData?.email ? `**Known Email:** ${partialData.email}` : ''}
 Based on this logbook data, generate the pilot's complete profile with inferred certifications, ratings, endorsements, and analysis.`;
 
     try {
-        if (!process.env.GEMINI_API_KEY) {
-            throw new Error("Missing GEMINI_API_KEY");
+        if (!isOpenRouterConfigured()) {
+            throw new Error("Missing OPENROUTER_API_KEY");
         }
 
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({
-            model: GEMINI_MODEL,
-            systemInstruction: systemInstruction
+        const response = await generateCompletion({
+            model: OPENROUTER_MODELS.PRO,
+            systemPrompt: systemInstruction,
+            userPrompt: userPrompt,
         });
-
-        const result = await model.generateContent(userPrompt);
-        const response = await result.response;
-        const text = response.text();
-
-        // Clean up potential markdown
-        const jsonString = text.replace(/```json/g, '').replace(/```/g, '').trim();
 
         let aiInference: any;
         try {
-            aiInference = JSON.parse(jsonString);
+            aiInference = parseJsonResponse(response);
         } catch (e) {
-            console.error("AI returned invalid JSON:", text);
+            console.error("AI returned invalid JSON:", response);
             // Provide sensible defaults if AI fails
             aiInference = {
                 inferredName: null,

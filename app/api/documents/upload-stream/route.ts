@@ -1,8 +1,10 @@
 import { NextRequest } from 'next/server';
+import mongoose from 'mongoose';
 import dbConnect from '@/lib/db';
 import ParsedDocument from '@/lib/models/ParsedDocument';
 import Aircraft from '@/lib/models/Aircraft';
 import Pilot from '@/lib/models/Pilot';
+import { requireAuth } from '@/lib/auth-helpers';
 import { parseDocumentUltraFast, StepLog } from '@/lib/services/reductoService';
 import { classifyDocumentFast } from '@/lib/services/aiService';
 import { saveFile } from '@/lib/services/fileStorage';
@@ -38,6 +40,14 @@ export async function POST(request: NextRequest) {
       };
 
       try {
+        // Authenticate user
+        const { error: authError, userId } = await requireAuth();
+        if (authError) {
+          sendEvent('error', { message: 'Authentication required' });
+          controller.close();
+          return;
+        }
+
         sendLog({
           step: 'initializing',
           message: 'Receiving upload request...',
@@ -60,6 +70,18 @@ export async function POST(request: NextRequest) {
 
         if (!fileBase64 || !fileType) {
           sendEvent('error', { message: 'Missing required fields: fileBase64, fileType' });
+          controller.close();
+          return;
+        }
+
+        // Validate optional IDs
+        if (aircraftId && !mongoose.Types.ObjectId.isValid(aircraftId)) {
+          sendEvent('error', { message: 'Invalid aircraft ID' });
+          controller.close();
+          return;
+        }
+        if (pilotId && !mongoose.Types.ObjectId.isValid(pilotId)) {
+          sendEvent('error', { message: 'Invalid pilot ID' });
           controller.close();
           return;
         }
@@ -185,6 +207,7 @@ export async function POST(request: NextRequest) {
 
         // Create document record
         const doc = await ParsedDocument.create({
+          userId,
           filename: suggestedName,
           originalFilename,
           documentType,
@@ -289,12 +312,12 @@ export async function POST(request: NextRequest) {
             status: 'failed',
             error: (parseError as Error).message,
           });
-          sendEvent('error', { message: (parseError as Error).message, documentId: doc._id.toString() });
+          sendEvent('error', { message: 'An error occurred while processing the document', documentId: doc._id.toString() });
         }
 
       } catch (error) {
         console.error('Upload stream error:', error);
-        sendEvent('error', { message: (error as Error).message });
+        sendEvent('error', { message: 'An internal error occurred during upload' });
       } finally {
         controller.close();
       }

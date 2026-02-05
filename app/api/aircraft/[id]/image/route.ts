@@ -2,15 +2,27 @@ import { NextRequest, NextResponse } from 'next/server';
 import { fetchAircraftImage } from '@/lib/services/firecrawlService';
 import dbConnect from '@/lib/db';
 import Aircraft from '@/lib/models/Aircraft';
+import { requireAuth } from '@/lib/auth-helpers';
+import mongoose from 'mongoose';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await dbConnect();
 
-    const aircraft = await Aircraft.findById(params.id);
+    if (!mongoose.Types.ObjectId.isValid(params.id)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid aircraft ID' },
+        { status: 400 }
+      );
+    }
+
+    const aircraft = await Aircraft.findOne({ _id: params.id, userId });
 
     if (!aircraft) {
       return NextResponse.json(
@@ -42,7 +54,7 @@ export async function POST(
   } catch (error) {
     console.error('Aircraft image fetch error:', error);
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to fetch aircraft image' },
       { status: 500 }
     );
   }

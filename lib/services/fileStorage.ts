@@ -106,9 +106,19 @@ export async function saveFile(
   };
 }
 
+// Validate that a resolved path is within the uploads directory (prevents path traversal)
+function assertSafePath(resolvedPath: string): void {
+  const normalizedUploads = path.resolve(UPLOADS_DIR);
+  const normalizedTarget = path.resolve(resolvedPath);
+  if (!normalizedTarget.startsWith(normalizedUploads + path.sep) && normalizedTarget !== normalizedUploads) {
+    throw new Error('Invalid file path');
+  }
+}
+
 // Read a file from the uploads directory
 export async function readFile(relativePath: string): Promise<Buffer> {
   const filePath = path.join(UPLOADS_DIR, relativePath);
+  assertSafePath(filePath);
   return fs.readFile(filePath);
 }
 
@@ -121,6 +131,7 @@ export async function readFileAsBase64(relativePath: string): Promise<string> {
 // Delete a file from the uploads directory
 export async function deleteFile(relativePath: string): Promise<void> {
   const filePath = path.join(UPLOADS_DIR, relativePath);
+  assertSafePath(filePath);
   try {
     await fs.unlink(filePath);
   } catch (error: any) {
@@ -134,6 +145,7 @@ export async function deleteFile(relativePath: string): Promise<void> {
 // Check if a file exists
 export async function fileExists(relativePath: string): Promise<boolean> {
   const filePath = path.join(UPLOADS_DIR, relativePath);
+  assertSafePath(filePath);
   try {
     await fs.access(filePath);
     return true;
@@ -145,6 +157,7 @@ export async function fileExists(relativePath: string): Promise<boolean> {
 // Get file stats
 export async function getFileStats(relativePath: string): Promise<{ size: number; created: Date; modified: Date } | null> {
   const filePath = path.join(UPLOADS_DIR, relativePath);
+  assertSafePath(filePath);
   try {
     const stats = await fs.stat(filePath);
     return {

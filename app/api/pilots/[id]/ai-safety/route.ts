@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/db';
+import { requireAuth } from '@/lib/auth-helpers';
+import mongoose from 'mongoose';
 import Pilot from '@/lib/models/Pilot';
 import { analyzePilotSafety } from '@/lib/services/aiService';
 
@@ -8,8 +10,19 @@ export async function POST(
     { params }: { params: { id: string } }
 ) {
     try {
+        const { error, userId } = await requireAuth();
+        if (error) return error;
+
         await dbConnect();
-        const pilot = await Pilot.findById(params.id);
+
+        if (!mongoose.Types.ObjectId.isValid(params.id)) {
+            return NextResponse.json(
+                { success: false, error: 'Invalid pilot ID' },
+                { status: 400 }
+            );
+        }
+
+        const pilot = await Pilot.findOne({ _id: params.id, userId });
 
         if (!pilot) {
             return NextResponse.json({ success: false, error: 'Pilot not found' }, { status: 404 });
@@ -29,7 +42,7 @@ export async function POST(
         return NextResponse.json({ success: true, data: { analysis, pilot } });
     } catch (error) {
         return NextResponse.json(
-            { success: false, error: (error as Error).message || 'Failed to analyze pilot safety' },
+            { success: false, error: 'Failed to analyze pilot safety' },
             { status: 500 }
         );
     }

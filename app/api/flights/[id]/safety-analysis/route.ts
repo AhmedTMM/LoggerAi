@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import dbConnect from '@/lib/db';
 import Flight from '@/lib/models/Flight';
 import Pilot from '@/lib/models/Pilot';
 import ParsedDocument from '@/lib/models/ParsedDocument';
+import { requireAuth } from '@/lib/auth-helpers';
 import { generateFlightSafetyAnalysis } from '@/lib/services/safetyAnalysisService';
 
 export async function POST(
@@ -10,10 +12,20 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await dbConnect();
     const { id } = params;
 
-    const flight = await Flight.findById(id).populate('pilot');
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid ID' },
+        { status: 400 }
+      );
+    }
+
+    const flight = await Flight.findOne({ _id: id, userId }).populate('pilot');
     if (!flight) {
       return NextResponse.json(
         { success: false, error: 'Flight not found' },
@@ -69,7 +81,7 @@ export async function POST(
   } catch (error) {
     console.error('Flight safety analysis error:', error);
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to run safety analysis' },
       { status: 500 }
     );
   }

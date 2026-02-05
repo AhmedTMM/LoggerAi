@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import dbConnect from '@/lib/db';
 import Flight from '@/lib/models/Flight';
+import { requireAuth } from '@/lib/auth-helpers';
 import { sendAuditEmail } from '@/lib/services/emailService';
 
 export async function POST(
@@ -8,9 +10,19 @@ export async function POST(
   { params }: { params: { flightId: string } }
 ) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await dbConnect();
 
-    const flight = await Flight.findById(params.flightId)
+    if (!mongoose.Types.ObjectId.isValid(params.flightId)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid ID' },
+        { status: 400 }
+      );
+    }
+
+    const flight = await Flight.findOne({ _id: params.flightId, userId })
       .populate('pilot')
       .populate('aircraft');
 
@@ -31,7 +43,7 @@ export async function POST(
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to send audit email' },
       { status: 500 }
     );
   }

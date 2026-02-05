@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import dbConnect from '@/lib/db';
 import Flight from '@/lib/models/Flight';
 import { sendMechanicInspectionRequest } from '@/lib/services/emailService';
+import { rateLimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,9 +13,13 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const token = searchParams.get('token');
 
-    if (!token) {
+    if (!token || !mongoose.Types.ObjectId.isValid(token)) {
       return new NextResponse('Invalid Action Link', { status: 400 });
     }
+
+    // Rate limit email actions to prevent abuse
+    const rateLimited = rateLimit(`email-mechanic:${token}`, { maxRequests: 3, windowSeconds: 300 });
+    if (rateLimited) return rateLimited;
 
     const flight = await Flight.findById(token)
       .populate('pilot')

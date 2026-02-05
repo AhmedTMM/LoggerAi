@@ -5,9 +5,13 @@ import { createFlightActionTokens } from '@/lib/models/EmailAction';
 import { sendPreFlightAgenticAlert } from '@/lib/services/emailService';
 
 export async function GET(request: Request) {
-  // 1. Validate Cron Secret
+  // 1. Validate Cron Secret (block if not configured)
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
+    return NextResponse.json({ success: false, error: 'Cron not configured' }, { status: 503 });
+  }
   const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!authHeader || authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
 

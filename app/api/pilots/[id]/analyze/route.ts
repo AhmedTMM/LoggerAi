@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/db';
+import { requireAuth } from '@/lib/auth-helpers';
+import mongoose from 'mongoose';
 import Pilot from '@/lib/models/Pilot';
 import ParsedDocument from '@/lib/models/ParsedDocument';
 import { generatePilotSafetyAnalysis, generatePilotSafetyAnalysisWithWeather } from '@/lib/services/safetyAnalysisService';
@@ -9,8 +11,18 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await dbConnect();
     const { id } = params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid pilot ID' },
+        { status: 400 }
+      );
+    }
 
     // Get weather experience from request body if provided
     let weatherExperience = null;
@@ -21,7 +33,7 @@ export async function POST(
       // No body provided, that's fine
     }
 
-    const pilot = await Pilot.findById(id);
+    const pilot = await Pilot.findOne({ _id: id, userId });
     if (!pilot) {
       return NextResponse.json(
         { success: false, error: 'Pilot not found' },
@@ -64,7 +76,7 @@ export async function POST(
   } catch (error) {
     console.error('Pilot analysis error:', error);
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to analyze pilot' },
       { status: 500 }
     );
   }

@@ -4,6 +4,7 @@ import Aircraft from '@/lib/models/Aircraft';
 import { fetchAircraftDetails } from '@/lib/services/firecrawlService';
 import { parsePOHFromUrl } from '@/lib/services/reductoService';
 import { requireAuth } from '@/lib/auth-helpers';
+import { rateLimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +18,7 @@ export async function GET() {
     return NextResponse.json({ success: true, data: aircraft });
   } catch (error) {
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to process request' },
       { status: 500 }
     );
   }
@@ -27,6 +28,10 @@ export async function POST(request: NextRequest) {
   try {
     const { error, userId } = await requireAuth();
     if (error) return error;
+
+    // Rate limit aircraft creation: 10 per minute per user
+    const rateLimited = rateLimit(`aircraft-create:${userId}`, { maxRequests: 10, windowSeconds: 60 });
+    if (rateLimited) return rateLimited;
 
     await dbConnect();
     const body = await request.json();
@@ -87,7 +92,7 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to create aircraft' },
       { status: 400 }
     );
   }
@@ -114,7 +119,7 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to process request' },
       { status: 500 }
     );
   }

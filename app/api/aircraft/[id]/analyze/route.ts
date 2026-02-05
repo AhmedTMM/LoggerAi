@@ -3,16 +3,28 @@ import dbConnect from '@/lib/db';
 import Aircraft from '@/lib/models/Aircraft';
 import ParsedDocument from '@/lib/models/ParsedDocument';
 import { analyzeAircraftSafety } from '@/lib/services/aiService';
+import { requireAuth } from '@/lib/auth-helpers';
+import mongoose from 'mongoose';
 
 export async function POST(
     request: NextRequest,
     { params }: { params: { id: string } }
 ) {
     try {
+        const { error, userId } = await requireAuth();
+        if (error) return error;
+
         await dbConnect();
         const { id } = params;
 
-        const aircraft = await Aircraft.findById(id);
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return NextResponse.json(
+                { success: false, error: 'Invalid aircraft ID' },
+                { status: 400 }
+            );
+        }
+
+        const aircraft = await Aircraft.findOne({ _id: id, userId });
         if (!aircraft) {
             return NextResponse.json(
                 { success: false, error: 'Aircraft not found' },
@@ -182,7 +194,7 @@ export async function POST(
     } catch (error) {
         console.error('Analysis error:', error);
         return NextResponse.json(
-            { success: false, error: (error as Error).message },
+            { success: false, error: 'Failed to analyze aircraft' },
             { status: 500 }
         );
     }

@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { searchAirworthinessDirectives, searchNTSBReports } from '@/lib/services/firecrawlService';
+import { requireAuth } from '@/lib/auth-helpers';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
     try {
+        const { error } = await requireAuth();
+        if (error) return error;
         const { searchParams } = new URL(request.url);
         const manufacturer = searchParams.get('manufacturer');
         const model = searchParams.get('model');
@@ -35,7 +38,7 @@ export async function GET(request: NextRequest) {
     } catch (error) {
         console.error('Safety data fetch error:', error);
         return NextResponse.json(
-            { success: false, error: (error as Error).message },
+            { success: false, error: 'Failed to fetch safety data' },
             { status: 500 }
         );
     }

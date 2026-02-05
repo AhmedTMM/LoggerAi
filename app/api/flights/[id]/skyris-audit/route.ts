@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import connectDB from '@/lib/db';
 import Flight from '@/lib/models/Flight';
 import Pilot from '@/lib/models/Pilot';
 import Aircraft from '@/lib/models/Aircraft';
+import { requireAuth } from '@/lib/auth-helpers';
 import { runSkyrisAudit, getLatestSkyrisAudit } from '@/lib/services/skyrisAuditService';
 
 /**
@@ -14,11 +16,21 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await connectDB();
     const { id } = await params;
 
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid ID' },
+        { status: 400 }
+      );
+    }
+
     // Get flight with populated pilot and aircraft
-    const flight = await Flight.findById(id)
+    const flight = await Flight.findOne({ _id: id, userId })
       .populate('pilot')
       .populate('aircraft');
 
@@ -133,11 +145,21 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await connectDB();
     const { id } = await params;
 
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid ID' },
+        { status: 400 }
+      );
+    }
+
     // Get flight
-    const flight = await Flight.findById(id);
+    const flight = await Flight.findOne({ _id: id, userId });
 
     if (!flight) {
       return NextResponse.json(

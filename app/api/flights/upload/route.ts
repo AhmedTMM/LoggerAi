@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import dbConnect from '@/lib/db';
 import Flight from '@/lib/models/Flight';
 import Pilot from '@/lib/models/Pilot';
 import Aircraft from '@/lib/models/Aircraft';
+import { requireAuth } from '@/lib/auth-helpers';
 import {
   parseFlightPlannerImage,
   matchPilotByName,
@@ -18,6 +20,9 @@ export const maxDuration = 60; // Allow up to 60 seconds for AI parsing
 // POST /api/flights/upload - Upload flight planner photo and create flight
 export async function POST(request: NextRequest) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await dbConnect();
 
     const formData = await request.formData();
@@ -87,8 +92,8 @@ export async function POST(request: NextRequest) {
     if (!autoCreate || !pilotId || !aircraftId) {
       // Get available pilots and aircraft for selection
       const [pilots, aircraftList] = await Promise.all([
-        Pilot.find({}, 'name email').lean(),
-        Aircraft.find({}, 'tailNumber model').lean(),
+        Pilot.find({ userId }, 'name email').lean(),
+        Aircraft.find({ userId }, 'tailNumber model').lean(),
       ]);
 
       return NextResponse.json({
@@ -122,6 +127,7 @@ export async function POST(request: NextRequest) {
 
     const flight = new Flight({
       ...flightData,
+      userId,
       status: 'planned',
       overallStatus: 'no-go', // Will be updated by analysis
     });
@@ -139,7 +145,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Fetch the populated flight
-    const populatedFlight = await Flight.findById(flight._id)
+    const populatedFlight = await Flight.findOne({ _id: flight._id, userId })
       .populate('pilot', 'name email certificates experience')
       .populate('aircraft', 'tailNumber model maintenanceDates currentHours operatingLimits');
 
@@ -159,7 +165,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Flight planner upload error:', error);
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to upload flight plan' },
       { status: 500 }
     );
   }

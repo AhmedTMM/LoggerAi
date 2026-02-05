@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import Aircraft from '@/lib/models/Aircraft';
 import { aircraftRequiresMEL } from '@/lib/services/av1onicsService';
+import { requireAuth } from '@/lib/auth-helpers';
 
 /**
  * Scrape FAA Registry for aircraft information by tail number
@@ -163,6 +164,9 @@ function lookupAircraftSpecs(manufacturer: string, model: string): any {
  */
 export async function POST(request: NextRequest) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await connectDB();
 
     const body = await request.json();
@@ -179,7 +183,7 @@ export async function POST(request: NextRequest) {
     const normalizedTail = tailNumber.toUpperCase().trim();
 
     // Check if aircraft already exists
-    const existing = await Aircraft.findOne({ tailNumber: normalizedTail });
+    const existing = await Aircraft.findOne({ tailNumber: normalizedTail, userId });
     if (existing) {
       return NextResponse.json(
         { success: false, error: 'Aircraft already exists', aircraft: existing },
@@ -211,6 +215,7 @@ export async function POST(request: NextRequest) {
 
     // Create aircraft
     const aircraft = new Aircraft({
+      userId,
       tailNumber: normalizedTail,
       manufacturer,
       model,

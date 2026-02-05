@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import dbConnect from '@/lib/db';
 import ParsedDocument from '@/lib/models/ParsedDocument';
 import Aircraft from '@/lib/models/Aircraft';
-import { auth } from '@/lib/auth';
+import { requireAuth } from '@/lib/auth-helpers';
 
 /**
  * Attach aircraft details to logbook entries
@@ -13,18 +14,19 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await dbConnect();
 
-    const session = await auth();
-    const userId = session?.user?.id;
-    if (!userId) {
+    const { id } = params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
       return NextResponse.json(
-        { success: false, error: 'Authentication required' },
-        { status: 401 }
+        { success: false, error: 'Invalid document ID' },
+        { status: 400 }
       );
     }
-
-    const { id } = params;
 
     // Get document
     const document = await ParsedDocument.findOne({ _id: id, userId });
@@ -108,7 +110,7 @@ export async function POST(
   } catch (error) {
     console.error('Enrich aircraft error:', error);
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'An internal error occurred while enriching aircraft data' },
       { status: 500 }
     );
   }

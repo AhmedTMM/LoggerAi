@@ -78,27 +78,3 @@ export async function reconcileDocumentLinks(docId: string) {
 
     return { success: true, ...results };
 }
-
-/**
- * Runs reconciliation for all pending documents
- */
-export async function reconcileAllPendingDocuments() {
-    await dbConnect();
-
-    const pendingDocs = await ParsedDocument.find({
-        status: 'completed',
-        $or: [
-            { pilot: { $exists: false } },
-            { aircraft: { $exists: false } }
-        ],
-        analysis: { $exists: true }
-    });
-
-    const results = [];
-    for (const doc of pendingDocs) {
-        const res = await reconcileDocumentLinks(doc._id.toString());
-        results.push({ id: doc._id, ...res });
-    }
-
-    return results;
-}

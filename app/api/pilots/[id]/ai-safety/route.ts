@@ -12,7 +12,7 @@ export async function POST(
         const pilot = await Pilot.findById(params.id);
 
         if (!pilot) {
-            return NextResponse.json({ error: 'Pilot not found' }, { status: 404 });
+            return NextResponse.json({ success: false, error: 'Pilot not found' }, { status: 404 });
         }
 
         // Call AI Service
@@ -26,11 +26,10 @@ export async function POST(
         };
         await pilot.save();
 
-        return NextResponse.json({ analysis, pilot });
-    } catch (error: any) {
-        console.error('Error in AI safety analysis:', error);
+        return NextResponse.json({ success: true, data: { analysis, pilot } });
+    } catch (error) {
         return NextResponse.json(
-            { error: error.message || 'Failed to analyze pilot safety' },
+            { success: false, error: (error as Error).message || 'Failed to analyze pilot safety' },
             { status: 500 }
         );
     }

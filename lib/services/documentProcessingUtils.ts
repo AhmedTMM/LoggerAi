@@ -10,14 +10,8 @@ import { invalidateAllCaches } from '@/lib/services/autoAttachService';
 
 // Time constants to avoid magic numbers
 export const MS_PER_DAY = 86400000;
-export const MS_PER_MINUTE = 60000;
-export const MS_PER_HOUR = 3600000;
 export const DAYS_30_MS = 30 * MS_PER_DAY;
 export const DAYS_90_MS = 90 * MS_PER_DAY;
-export const DAYS_365_MS = 365 * MS_PER_DAY;
-export const DAYS_730_MS = 730 * MS_PER_DAY;
-export const MONTHS_12_MS = 365 * MS_PER_DAY; // For annual checks
-export const MONTHS_24_MS = 730 * MS_PER_DAY; // For biennial checks (transponder, altimeter)
 
 // Flight status configuration - centralizes all status display logic
 export type FlightStatusType = 'go' | 'caution' | 'no-go';

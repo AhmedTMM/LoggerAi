@@ -2,7 +2,7 @@ import dbConnect from '@/lib/db';
 import ParsedDocument from '@/lib/models/ParsedDocument';
 import Aircraft, { LogbookCategory } from '@/lib/models/Aircraft';
 import Pilot from '@/lib/models/Pilot';
-import { runLegalityAudit } from '@/lib/services/auditEngine';
+import { runBasicLegalityAudit } from '@/lib/services/auditEngine';
 import { invalidateAllCaches } from '@/lib/services/autoAttachService';
 import {
   calculateSummary,
@@ -131,7 +131,7 @@ async function processUploadJob(job: UploadJob) {
         const pilot = await Pilot.findById(pilotId);
         const aircraft = await Aircraft.findById(aircraftId);
         if (pilot && aircraft) {
-          const auditResult = await runLegalityAudit(aircraft, pilot, new Date(), 'KJFK');
+          const auditResult = await runBasicLegalityAudit(aircraft, pilot, new Date(), 'KJFK');
           auditStatus = auditResult.overallStatus;
 
           // Store audit results on pilot

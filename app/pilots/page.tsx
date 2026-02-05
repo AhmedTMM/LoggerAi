@@ -3,23 +3,15 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { User, Plus, Clock, AlertTriangle, CheckCircle, Trash2, RefreshCw, Shield, Award, Mail, Save, FileText, ChevronDown, ChevronUp, Pencil, X, Check, Plane, Cloud, Wind, Eye, Thermometer, Navigation, MapPin, BarChart3, TrendingUp, Calendar, Activity } from 'lucide-react';
 import { FlightPlaybackModal, FlightPlaybackButton } from '@/components/FlightPlayback';
-import { usePilots, useCreatePilot, useDeletePilot, useParsedDocuments, useGeneratePilotSafetyAnalysis, useFlightsByPilot } from '@/lib/hooks';
+import { usePilots, useCreatePilot, useDeletePilot, useParsedDocuments, useGeneratePilotSafetyAnalysis, useFlightsByPilot, type WeatherExperienceData } from '@/lib/hooks';
 import type { Pilot, Flight, WeatherData } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { LoadingSpinner } from '@/components/ui/LoadingSkeleton';
 import { cn, getDaysUntil } from '@/lib/utils';
 
-// Weather experience data stored client-side
-interface WeatherExperience {
-  totalFlights: number;
-  flightsWithWeather: number;
-  vfr: number;
-  mvfr: number;
-  ifr: number;
-  lifr: number;
-  lastUpdated: Date;
-}
+// Re-use the canonical type from hooks, without pilotId for local usage
+type WeatherExperience = Omit<WeatherExperienceData, 'pilotId'>;
 
 type TabType = 'overview' | 'flights' | 'safety' | 'documents';
 

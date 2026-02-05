@@ -54,9 +54,7 @@ async function processQueue() {
 
 // Process a single upload job
 async function processUploadJob(job: UploadJob) {
-  const { documentId, fileBase64, fileType, filename, userId, documentType, pilotId, aircraftId, categoryFromFilename } = job;
-
-  console.log(`[BackgroundProcessor] Starting job for document ${documentId}`);
+  const { documentId, fileBase64, fileType, userId, documentType, pilotId, aircraftId, categoryFromFilename } = job;
 
   try {
     await dbConnect();
@@ -160,9 +158,6 @@ async function processUploadJob(job: UploadJob) {
       progress: 100,
       progressStep: 'complete',
     });
-
-    console.log(`[BackgroundProcessor] Completed job for document ${documentId} (${entries.length} entries)`);
-
   } catch (error) {
     console.error(`[BackgroundProcessor] Error processing document ${documentId}:`, error);
     await ParsedDocument.findByIdAndUpdate(documentId, {
@@ -179,11 +174,7 @@ async function processUploadJob(job: UploadJob) {
  */
 async function enrichEntriesWithHistoricalWeather(entries: any[]) {
   const { fetchHistoricalMETAR } = await import('@/lib/services/historicalWeatherService');
-
-  console.log(`[BackgroundProcessor] Fetching historical weather for ${entries.length} entries...`);
-
   const batchSize = 5;
-  let successCount = 0;
 
   for (let i = 0; i < entries.length; i += batchSize) {
     const batch = entries.slice(i, i + batchSize);
@@ -201,14 +192,12 @@ async function enrichEntriesWithHistoricalWeather(entries: any[]) {
           const weather = await fetchHistoricalMETAR(entry.from, flightDate);
 
           if (weather) {
-            // Attach weather data to entry
             entry.weather = {
               ...weather.conditions,
               metar: weather.metar,
               flightCategory: weather.conditions.flightCategory,
               station: entry.from,
             };
-            successCount++;
           }
         } catch (error) {
           console.error(`[BackgroundProcessor] Failed to fetch weather for ${entry.from} on ${entry.date}:`, error);
@@ -221,8 +210,6 @@ async function enrichEntriesWithHistoricalWeather(entries: any[]) {
       await new Promise(resolve => setTimeout(resolve, 500));
     }
   }
-
-  console.log(`[BackgroundProcessor] Successfully enriched ${successCount}/${entries.length} entries with historical weather`);
 }
 
 /**
@@ -249,12 +236,7 @@ async function enrichEntriesWithAircraftDetails(entries: any[], userId: string) 
     }
   }
 
-  if (aircraftMap.size === 0) {
-    console.log('[BackgroundProcessor] No aircraft found in logbook entries');
-    return;
-  }
-
-  console.log(`[BackgroundProcessor] Researching ${aircraftMap.size} unique aircraft...`);
+  if (aircraftMap.size === 0) return;
 
   // Find or create aircraft records
   for (const [tailNumber, data] of Array.from(aircraftMap.entries())) {
@@ -263,8 +245,6 @@ async function enrichEntriesWithAircraftDetails(entries: any[], userId: string) 
       let aircraft = await Aircraft.findOne({ userId, tailNumber });
 
       if (!aircraft) {
-        console.log(`[BackgroundProcessor] Creating new aircraft: ${tailNumber}`);
-
         // Fetch aircraft details from FAA registry
         const details = await fetchAircraftDetails(tailNumber);
 
@@ -294,11 +274,8 @@ async function enrichEntriesWithAircraftDetails(entries: any[], userId: string) 
 
         aircraft = await Aircraft.create(aircraftData);
         invalidateAllCaches();
-
-        console.log(`[BackgroundProcessor] Created aircraft ${tailNumber}: ${aircraft.manufacturer} ${aircraft.model}`);
       } else if (aircraft.model === 'Unknown' || !aircraft.manufacturer || aircraft.manufacturer === 'Unknown') {
         // Aircraft exists but lacks details, try to enrich
-        console.log(`[BackgroundProcessor] Enriching existing aircraft: ${tailNumber}`);
 
         const details = await fetchAircraftDetails(tailNumber);
 
@@ -312,7 +289,6 @@ async function enrichEntriesWithAircraftDetails(entries: any[], userId: string) 
           if (details.data.operatingLimits) updateFields.operatingLimits = details.data.operatingLimits;
 
           await Aircraft.updateOne({ _id: aircraft._id }, { $set: updateFields });
-          console.log(`[BackgroundProcessor] Enriched aircraft ${tailNumber}`);
         }
       }
 
@@ -332,6 +308,4 @@ async function enrichEntriesWithAircraftDetails(entries: any[], userId: string) 
     // Small delay between aircraft lookups to avoid rate limiting
     await new Promise(resolve => setTimeout(resolve, 1000));
   }
-
-  console.log(`[BackgroundProcessor] Completed aircraft enrichment for ${aircraftMap.size} aircraft`);
 }

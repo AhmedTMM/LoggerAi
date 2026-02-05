@@ -8,6 +8,11 @@ import { invalidateAllCaches } from '@/lib/services/autoAttachService';
  * Consolidates duplicate logic from multiple API routes
  */
 
+// Time constants to avoid magic numbers
+export const MS_PER_DAY = 86400000;
+export const DAYS_90_MS = 90 * MS_PER_DAY;
+export const DAYS_30_MS = 30 * MS_PER_DAY;
+
 /**
  * Round a number to one decimal place
  */
@@ -86,8 +91,8 @@ export async function updatePilotExperience(pilotId: string, entries: any[]) {
   pilot.flightEntries = flightEntries;
 
   const now = new Date();
-  const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const ninetyDaysAgo = new Date(now.getTime() - DAYS_90_MS);
+  const thirtyDaysAgo = new Date(now.getTime() - DAYS_30_MS);
 
   let totalHours = 0, picHours = 0, nightHours = 0, ifrHours = 0, crossCountryHours = 0;
   let last90DaysHours = 0, last30DaysHours = 0;

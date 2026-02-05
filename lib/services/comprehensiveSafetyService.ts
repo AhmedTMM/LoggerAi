@@ -1063,18 +1063,3 @@ function calculateSurvivalScore(
     survivalProbability,
   };
 }
-
-// Export for use in audit API
-export async function runQuickAudit(flightId: string): Promise<{
-  overallStatus: 'go' | 'caution' | 'no-go';
-  checks: ILegalityCheck[];
-  summary: string;
-}> {
-  const analysis = await runComprehensiveSafetyAnalysis(flightId);
-
-  return {
-    overallStatus: analysis.goNoGoRecommendation,
-    checks: (await Flight.findById(flightId))?.legalityChecks || [],
-    summary: analysis.reasoning,
-  };
-}

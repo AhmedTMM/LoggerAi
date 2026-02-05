@@ -655,35 +655,3 @@ function calculateRiskScenarios(aircraft: IAircraft, pilot: IPilot, weather: IWe
         return severityOrder[a.severity] - severityOrder[b.severity];
     });
 }
-
-// Standalone audit for screenshot-parsed data (no flightId yet)
-export function runOfflineAudit(
-    aircraft: IAircraft,
-    pilot: IPilot,
-    scheduledDate: Date,
-    weather?: { flightCategory: 'VFR' | 'MVFR' | 'IFR' | 'LIFR'; wind: { speed: number; gust?: number } }
-): AuditResult {
-    const checks: ILegalityCheck[] = [];
-
-    // Maintenance checks
-    checks.push(checkAnnualInspection(aircraft, scheduledDate));
-    checks.push(checkTransponder(aircraft, scheduledDate));
-    checks.push(checkStaticSystem(aircraft, scheduledDate, pilot.certificates?.instrumentRated || false));
-    checks.push(checkHundredHour(aircraft, scheduledDate, false));
-
-    // Pilot currency checks
-    checks.push(checkMedical(pilot, scheduledDate));
-    checks.push(checkFlightReview(pilot, scheduledDate));
-
-    // Weather/safety checks
-    if (weather) {
-        const weatherChecks = checkWeatherVsPilot(weather.flightCategory, weather.wind, pilot);
-        checks.push(...weatherChecks);
-    }
-
-    const overallStatus = calculateOverallStatus(checks);
-    const summary = generateSummary(checks, overallStatus);
-    const riskScenarios = calculateRiskScenarios(aircraft, pilot, weather ? { ...weather, station: '', metar: '', visibility: 10, fetchedAt: new Date() } as any : undefined, scheduledDate);
-
-    return { overallStatus, checks, summary, riskScenarios };
-}

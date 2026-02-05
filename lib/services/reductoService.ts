@@ -217,17 +217,9 @@ export async function parseDocumentUltraFast(
       extractionTimeMs: extractionTime
     });
 
-    console.log(`[UltraFast] ========== AI RAW RESPONSE ==========`);
-    console.log(`[UltraFast] Response length: ${aiText.length} characters`);
-    console.log(`[UltraFast] First 1000 chars:`, aiText.substring(0, 1000));
-    console.log(`[UltraFast] Last 500 chars:`, aiText.substring(Math.max(0, aiText.length - 500)));
-    console.log(`[UltraFast] =====================================`);
-
     await log('structuring', 'Parsing extracted data...', 80);
 
     // Parse the AI response using the robust JSON repair utility
-    console.log(`[UltraFast] Attempting to parse AI response (${aiText.length} chars)...`);
-
     const repairResult = repairAndParseJSON(aiText);
 
     let items: any[] = [];
@@ -239,17 +231,9 @@ export async function parseDocumentUltraFast(
       rawData = rest;
 
       if (repairResult.wasRepaired) {
-        console.log(`[UltraFast] ✓ JSON repaired using: ${repairResult.repairMethod}`);
-        console.log(`[UltraFast] ✓ Recovered ${repairResult.entriesRecovered} entries`);
         await log('structuring', `Recovered ${items.length} entries (${repairResult.repairMethod})`, 85);
-      } else {
-        console.log(`[UltraFast] ✓ JSON parsed directly, ${items.length} entries`);
       }
     } else {
-      console.error('[UltraFast] ❌ All JSON repair attempts failed');
-      console.error('[UltraFast] First 2000 chars:', aiText.substring(0, 2000));
-      console.error('[UltraFast] Last 1000 chars:', aiText.substring(Math.max(0, aiText.length - 1000)));
-      console.log('[UltraFast] Falling back to OCR pipeline...');
       await log('error', 'Could not parse AI response, falling back to OCR pipeline', 80);
       return parseDocumentFast(fileBase64, fileType, documentType, onStep);
     }
@@ -257,21 +241,6 @@ export async function parseDocumentUltraFast(
     await log('validating_output', 'Validating extracted entries...', 90, {
       entryCount: items.length
     });
-
-    console.log(`[UltraFast] ========== FINAL EXTRACTION RESULT ==========`);
-    console.log(`[UltraFast] Document type: ${documentType}`);
-    console.log(`[UltraFast] Total entries extracted: ${items.length}`);
-    if (items.length > 0) {
-      console.log(`[UltraFast] First entry:`, JSON.stringify(items[0], null, 2).substring(0, 300));
-      console.log(`[UltraFast] Last entry:`, JSON.stringify(items[items.length - 1], null, 2).substring(0, 300));
-    } else {
-      console.error(`[UltraFast] ❌ NO ENTRIES EXTRACTED - THIS IS A PROBLEM!`);
-    }
-    if (Object.keys(rawData).length > 0) {
-      console.log(`[UltraFast] Additional fields:`, Object.keys(rawData));
-      console.log(`[UltraFast] Additional data:`, JSON.stringify(rawData, null, 2).substring(0, 500));
-    }
-    console.log(`[UltraFast] ============================================`);
 
     // Calculate stats
     let totalHours = 0;
@@ -290,8 +259,6 @@ export async function parseDocumentUltraFast(
       mode: 'ultra-fast-vision'
     });
 
-    console.log(`[UltraFast] Completed in ${(totalDuration / 1000).toFixed(1)}s - ${items.length} entries extracted`);
-
     return {
       success: true,
       data: {
@@ -304,20 +271,14 @@ export async function parseDocumentUltraFast(
 
   } catch (error) {
     const errorMessage = (error as Error).message;
-    console.error('[UltraFast] Error:', error);
 
     // Check if it's a quota/rate limit error
     if (errorMessage.includes('quota') || errorMessage.includes('429') || errorMessage.includes('rate')) {
-      console.log('[UltraFast] AI quota exceeded, skipping AI extraction entirely');
       await log('error', 'AI quota exceeded, using OCR-only mode', 0);
-      // Skip to parseDocument (no AI) instead of parseDocumentFast (uses AI)
       return parseDocument(fileBase64, fileType, documentType, onStep);
     }
 
     await log('error', `Direct extraction failed: ${errorMessage}`, 0);
-
-    // Fall back to the OCR-based method
-    console.log('[UltraFast] Falling back to OCR pipeline...');
     return parseDocumentFast(fileBase64, fileType, documentType, onStep);
   }
 }
@@ -541,8 +502,8 @@ export async function parseDocumentFast(
             .filter(Boolean)
             .join('\n\n');
         }
-      } catch (fetchError) {
-        console.error('Failed to fetch URL result:', fetchError);
+      } catch {
+        // URL fetch failed, will fall back to extract method below
       }
     }
 
@@ -575,23 +536,15 @@ export async function parseDocumentFast(
     } catch (aiError: any) {
       // Check if it's a quota/rate limit error
       if (aiError.message?.includes('quota') || aiError.message?.includes('429') || aiError.message?.includes('rate')) {
-        console.error('[FastParse] AI quota exceeded, falling back to standard extraction');
         await log('error', 'AI quota exceeded, using standard extraction', 60);
         return parseDocument(fileBase64, fileType, documentType, onStep);
       }
       throw aiError;
     }
 
-    console.log(`[FastParse] ========== AI RAW RESPONSE ==========`);
-    console.log(`[FastParse] Response length: ${aiText.length} characters`);
-    console.log(`[FastParse] First 1000 chars:`, aiText.substring(0, 1000));
-    console.log(`[FastParse] Last 500 chars:`, aiText.substring(Math.max(0, aiText.length - 500)));
-    console.log(`[FastParse] =========================================`);
-
     await log('structuring', 'AI extraction complete', 80);
 
     // 5. Parse the AI response using the robust JSON repair utility
-    console.log(`[FastParse] Attempting to parse AI response (${aiText.length} chars)...`);
 
     const repairResult = repairAndParseJSON(aiText);
 
@@ -604,16 +557,9 @@ export async function parseDocumentFast(
       rawData = rest;
 
       if (repairResult.wasRepaired) {
-        console.log(`[FastParse] ✓ JSON repaired using: ${repairResult.repairMethod}`);
-        console.log(`[FastParse] ✓ Recovered ${repairResult.entriesRecovered} entries`);
         await log('structuring', `Recovered ${items.length} entries (${repairResult.repairMethod})`, 85);
-      } else {
-        console.log(`[FastParse] ✓ JSON parsed directly, ${items.length} entries`);
       }
     } else {
-      console.error('[FastParse] ❌ All JSON repair attempts failed');
-      console.error('[FastParse] First 2000 chars:', aiText.substring(0, 2000));
-      console.error('[FastParse] Last 1000 chars:', aiText.substring(Math.max(0, aiText.length - 1000)));
       await log('error', 'Failed to parse AI extraction response', 80);
     }
 
@@ -638,22 +584,6 @@ export async function parseDocumentFast(
       mode: 'hybrid-fast'
     });
 
-    console.log(`[FastParse] ========== FINAL EXTRACTION RESULT ==========`);
-    console.log(`[FastParse] Document type: ${documentType}`);
-    console.log(`[FastParse] Total entries extracted: ${items.length}`);
-    console.log(`[FastParse] Processing time: ${(totalDuration / 1000).toFixed(1)}s (OCR: ${(ocrDuration / 1000).toFixed(1)}s)`);
-    if (items.length > 0) {
-      console.log(`[FastParse] First entry:`, JSON.stringify(items[0], null, 2).substring(0, 300));
-      console.log(`[FastParse] Last entry:`, JSON.stringify(items[items.length - 1], null, 2).substring(0, 300));
-    } else {
-      console.error(`[FastParse] ❌ NO ENTRIES EXTRACTED - THIS IS A PROBLEM!`);
-    }
-    if (Object.keys(rawData).length > 0) {
-      console.log(`[FastParse] Additional fields:`, Object.keys(rawData));
-      console.log(`[FastParse] Additional data:`, JSON.stringify(rawData, null, 2).substring(0, 500));
-    }
-    console.log(`[FastParse] ===============================================`);
-
     return {
       success: true,
       data: {
@@ -665,11 +595,8 @@ export async function parseDocumentFast(
     };
 
   } catch (error) {
-    console.error('Fast parse error:', error);
     await log('error', `Fast processing failed: ${(error as Error).message}`, 0);
-
     // Fall back to the slower but more reliable extract method
-    console.log('[FastParse] Falling back to standard extraction method...');
     return parseDocument(fileBase64, fileType, documentType, onStep);
   }
 }
@@ -887,7 +814,6 @@ export async function parseDocument(
       },
     };
   } catch (error) {
-    console.error('Reducto service error:', error);
     await log('error', `Processing failed: ${(error as Error).message}`, 0, {
       errorType: (error as Error).name,
       errorMessage: (error as Error).message

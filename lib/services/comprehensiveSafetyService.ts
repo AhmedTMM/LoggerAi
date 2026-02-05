@@ -12,6 +12,7 @@ import {
   IEnhancedWeatherData,
 } from './weatherService';
 import { sendPreFlightAgenticAlert } from './emailService';
+import { MS_PER_DAY } from './documentProcessingUtils';
 import mongoose from 'mongoose';
 
 // Risk scenario interface
@@ -312,8 +313,8 @@ function analyzePilot(
   // Check currency
   const medicalExp = new Date(pilot.medicalExpiration);
   const bfrExp = new Date(pilot.flightReviewExpiration);
-  const daysToMedical = Math.floor((medicalExp.getTime() - scheduledDate.getTime()) / 86400000);
-  const daysToBFR = Math.floor((bfrExp.getTime() - scheduledDate.getTime()) / 86400000);
+  const daysToMedical = Math.floor((medicalExp.getTime() - scheduledDate.getTime()) / MS_PER_DAY);
+  const daysToBFR = Math.floor((bfrExp.getTime() - scheduledDate.getTime()) / MS_PER_DAY);
 
   let currencyStatus: 'current' | 'expiring' | 'expired' = 'current';
   if (daysToMedical < 0 || daysToBFR < 0) {
@@ -379,12 +380,12 @@ function analyzeAircraft(
   const annualDate = new Date(aircraft.maintenanceDates.annual);
   const oneYearLater = new Date(annualDate);
   oneYearLater.setFullYear(oneYearLater.getFullYear() + 1);
-  const daysToAnnual = Math.floor((oneYearLater.getTime() - scheduledDate.getTime()) / 86400000);
+  const daysToAnnual = Math.floor((oneYearLater.getTime() - scheduledDate.getTime()) / MS_PER_DAY);
 
   const transponderDate = new Date(aircraft.maintenanceDates.transponder);
   const twoYearsLater = new Date(transponderDate);
   twoYearsLater.setMonth(twoYearsLater.getMonth() + 24);
-  const daysToTransponder = Math.floor((twoYearsLater.getTime() - scheduledDate.getTime()) / 86400000);
+  const daysToTransponder = Math.floor((twoYearsLater.getTime() - scheduledDate.getTime()) / MS_PER_DAY);
 
   let maintenanceStatus: 'current' | 'due_soon' | 'overdue' = 'current';
   if (daysToAnnual < 0 || daysToTransponder < 0) {
@@ -444,7 +445,7 @@ function generateLegalityChecks(
 
   // Pilot medical
   const medicalExp = new Date(pilot.medicalExpiration);
-  const daysToMedical = Math.floor((medicalExp.getTime() - scheduledDate.getTime()) / 86400000);
+  const daysToMedical = Math.floor((medicalExp.getTime() - scheduledDate.getTime()) / MS_PER_DAY);
   checks.push({
     category: 'pilot',
     item: 'Medical Certificate',
@@ -456,7 +457,7 @@ function generateLegalityChecks(
 
   // Flight review
   const bfrExp = new Date(pilot.flightReviewExpiration);
-  const daysToBFR = Math.floor((bfrExp.getTime() - scheduledDate.getTime()) / 86400000);
+  const daysToBFR = Math.floor((bfrExp.getTime() - scheduledDate.getTime()) / MS_PER_DAY);
   checks.push({
     category: 'pilot',
     item: 'Flight Review (BFR)',
@@ -470,7 +471,7 @@ function generateLegalityChecks(
   const annualDate = new Date(aircraft.maintenanceDates.annual);
   const oneYearLater = new Date(annualDate);
   oneYearLater.setFullYear(oneYearLater.getFullYear() + 1);
-  const daysToAnnual = Math.floor((oneYearLater.getTime() - scheduledDate.getTime()) / 86400000);
+  const daysToAnnual = Math.floor((oneYearLater.getTime() - scheduledDate.getTime()) / MS_PER_DAY);
   checks.push({
     category: 'maintenance',
     item: 'Annual Inspection',
@@ -484,7 +485,7 @@ function generateLegalityChecks(
   const transponderDate = new Date(aircraft.maintenanceDates.transponder);
   const twoYearsLater = new Date(transponderDate);
   twoYearsLater.setMonth(twoYearsLater.getMonth() + 24);
-  const daysToTransponder = Math.floor((twoYearsLater.getTime() - scheduledDate.getTime()) / 86400000);
+  const daysToTransponder = Math.floor((twoYearsLater.getTime() - scheduledDate.getTime()) / MS_PER_DAY);
   checks.push({
     category: 'maintenance',
     item: 'Transponder Check',
@@ -918,7 +919,7 @@ function analyzeFamiliarity(
 
   // Check recency - unfamiliar with aircraft if not flown in 90 days
   if (lastFlownDate) {
-    const daysSinceFlown = Math.floor((Date.now() - lastFlownDate.getTime()) / (1000 * 60 * 60 * 24));
+    const daysSinceFlown = Math.floor((Date.now() - lastFlownDate.getTime()) / MS_PER_DAY);
     if (daysSinceFlown > 90) {
       riskFactors.push(`Last flew this aircraft ${daysSinceFlown} days ago - skills may have degraded`);
       overallFamiliarityScore = Math.max(0, overallFamiliarityScore - 20);

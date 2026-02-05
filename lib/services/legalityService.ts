@@ -7,6 +7,7 @@ import { IAircraft } from '@/lib/models/Aircraft';
 import { IPilot } from '@/lib/models/Pilot';
 import { fetchWeatherData, fetchEnhancedWeatherData, fetchRouteWeather } from './weatherService';
 import { runComprehensiveSafetyAnalysis } from './comprehensiveSafetyService';
+import { MS_PER_DAY } from './documentProcessingUtils';
 
 export interface IRiskScenario {
     title: string;
@@ -32,7 +33,7 @@ function checkAnnualInspection(aircraft: IAircraft, asOf: Date): ILegalityCheck 
     oneYearLater.setFullYear(oneYearLater.getFullYear() + 1);
 
     const isOverdue = asOf > oneYearLater;
-    const daysUntilDue = Math.floor((oneYearLater.getTime() - asOf.getTime()) / 86400000);
+    const daysUntilDue = Math.floor((oneYearLater.getTime() - asOf.getTime()) / MS_PER_DAY);
 
     if (isOverdue) {
         return {
@@ -68,7 +69,7 @@ function checkTransponder(aircraft: IAircraft, asOf: Date): ILegalityCheck {
     twoYearsLater.setMonth(twoYearsLater.getMonth() + 24);
 
     const isOverdue = asOf > twoYearsLater;
-    const daysUntilDue = Math.floor((twoYearsLater.getTime() - asOf.getTime()) / 86400000);
+    const daysUntilDue = Math.floor((twoYearsLater.getTime() - asOf.getTime()) / MS_PER_DAY);
 
     if (isOverdue) {
         return {
@@ -112,7 +113,7 @@ function checkStaticSystem(aircraft: IAircraft, asOf: Date, isIFR: boolean): ILe
     twoYearsLater.setMonth(twoYearsLater.getMonth() + 24);
 
     const isOverdue = asOf > twoYearsLater;
-    const daysUntilDue = Math.floor((twoYearsLater.getTime() - asOf.getTime()) / 86400000);
+    const daysUntilDue = Math.floor((twoYearsLater.getTime() - asOf.getTime()) / MS_PER_DAY);
 
     if (isOverdue) {
         return {
@@ -183,7 +184,7 @@ function checkHundredHour(aircraft: IAircraft, asOf: Date, isForHire: boolean): 
 function checkMedical(pilot: IPilot, asOf: Date): ILegalityCheck {
     const medicalExp = new Date(pilot.medicalExpiration);
     const isExpired = asOf > medicalExp;
-    const daysUntilExp = Math.floor((medicalExp.getTime() - asOf.getTime()) / 86400000);
+    const daysUntilExp = Math.floor((medicalExp.getTime() - asOf.getTime()) / MS_PER_DAY);
 
     if (isExpired) {
         return {
@@ -214,7 +215,7 @@ function checkMedical(pilot: IPilot, asOf: Date): ILegalityCheck {
 function checkFlightReview(pilot: IPilot, asOf: Date): ILegalityCheck {
     const bfrExp = new Date(pilot.flightReviewExpiration);
     const isExpired = asOf > bfrExp;
-    const daysUntilExp = Math.floor((bfrExp.getTime() - asOf.getTime()) / 86400000);
+    const daysUntilExp = Math.floor((bfrExp.getTime() - asOf.getTime()) / MS_PER_DAY);
 
     if (isExpired) {
         return {

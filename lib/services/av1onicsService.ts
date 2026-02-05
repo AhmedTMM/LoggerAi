@@ -15,6 +15,7 @@
  */
 
 import { IAircraft, IAirworthinessStatus, IMELItem } from '@/lib/models/Aircraft';
+import { MS_PER_DAY } from './documentProcessingUtils';
 
 // Inspection status types
 export type InspectionStatus = 'current' | 'due_soon' | 'overdue' | 'na';
@@ -97,7 +98,7 @@ const DEFAULT_CONFIG: IAuditConfig = {
  */
 function daysBetween(date1: Date, date2: Date): number {
   const diffTime = date2.getTime() - date1.getTime();
-  return Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  return Math.floor(diffTime / MS_PER_DAY);
 }
 
 /**

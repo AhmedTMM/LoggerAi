@@ -17,6 +17,7 @@ import {
 } from './openRouterClient';
 import { IPilot } from '@/lib/models/Pilot';
 import { IAircraft } from '@/lib/models/Aircraft';
+import { MS_PER_DAY } from './documentProcessingUtils';
 import SafetyAudit, { ISafetyAudit, IPilotSafetyAudit, IAircraftMaintenanceAudit } from '@/lib/models/SafetyAudit';
 import { runAV1ONICSAudit, IAV1ONICSAudit, getAV1ONICSSummary } from './av1onicsService';
 import { analyzePilotSafety, analyzeAircraftSafety } from './aiService';
@@ -69,8 +70,8 @@ async function buildPilotAudit(pilot: IPilot): Promise<IPilotSafetyAudit> {
 
   // Calculate currency status
   let currencyStatus: 'current' | 'expiring' | 'expired' = 'current';
-  const medicalDaysRemaining = Math.floor((new Date(pilot.medicalExpiration).getTime() - now.getTime()) / 86400000);
-  const bfrDaysRemaining = Math.floor((new Date(pilot.flightReviewExpiration).getTime() - now.getTime()) / 86400000);
+  const medicalDaysRemaining = Math.floor((new Date(pilot.medicalExpiration).getTime() - now.getTime()) / MS_PER_DAY);
+  const bfrDaysRemaining = Math.floor((new Date(pilot.flightReviewExpiration).getTime() - now.getTime()) / MS_PER_DAY);
 
   if (medicalDaysRemaining < 0 || bfrDaysRemaining < 0) {
     currencyStatus = 'expired';

@@ -3,6 +3,8 @@
  * Generates safety analysis from maintenance entries and aircraft data
  */
 
+import { MS_PER_DAY, DAYS_30_MS } from './documentProcessingUtils';
+
 interface SafetyFinding {
   component: string;
   status: 'ok' | 'warning' | 'critical';
@@ -143,7 +145,7 @@ export function generateSafetyAnalysis(entries: any[], aircraft: any): SafetyAna
   const transponderDate = aircraft.maintenanceDates?.transponder ? new Date(aircraft.maintenanceDates.transponder) : null;
 
   if (annualDate) {
-    const monthsSinceAnnual = (now.getTime() - annualDate.getTime()) / (1000 * 60 * 60 * 24 * 30);
+    const monthsSinceAnnual = (now.getTime() - annualDate.getTime()) / DAYS_30_MS;
     if (monthsSinceAnnual > 12) {
       findings.push({
         component: 'Annual Inspection',
@@ -171,7 +173,7 @@ export function generateSafetyAnalysis(entries: any[], aircraft: any): SafetyAna
   }
 
   if (transponderDate) {
-    const monthsSinceTransponder = (now.getTime() - transponderDate.getTime()) / (1000 * 60 * 60 * 24 * 30);
+    const monthsSinceTransponder = (now.getTime() - transponderDate.getTime()) / DAYS_30_MS;
     if (monthsSinceTransponder > 24) {
       findings.push({
         component: 'Transponder Check',
@@ -234,7 +236,7 @@ export function generatePilotSafetyAnalysis(pilot: any, flightEntries?: any[]): 
   // Check medical expiration
   if (pilot.medicalExpiration) {
     const medicalDate = new Date(pilot.medicalExpiration);
-    const daysUntilMedical = Math.floor((medicalDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    const daysUntilMedical = Math.floor((medicalDate.getTime() - now.getTime()) / MS_PER_DAY);
 
     if (daysUntilMedical < 0) {
       findings.push({
@@ -262,7 +264,7 @@ export function generatePilotSafetyAnalysis(pilot: any, flightEntries?: any[]): 
   // Check flight review expiration
   if (pilot.flightReviewExpiration) {
     const bfrDate = new Date(pilot.flightReviewExpiration);
-    const daysUntilBfr = Math.floor((bfrDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    const daysUntilBfr = Math.floor((bfrDate.getTime() - now.getTime()) / MS_PER_DAY);
 
     if (daysUntilBfr < 0) {
       findings.push({
@@ -480,7 +482,7 @@ export function generatePilotSafetyAnalysisWithWeather(
   // Check medical expiration
   if (pilot.medicalExpiration) {
     const medicalDate = new Date(pilot.medicalExpiration);
-    const daysUntilMedical = Math.floor((medicalDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    const daysUntilMedical = Math.floor((medicalDate.getTime() - now.getTime()) / MS_PER_DAY);
 
     if (daysUntilMedical < 0) {
       findings.push({
@@ -508,7 +510,7 @@ export function generatePilotSafetyAnalysisWithWeather(
   // Check flight review expiration
   if (pilot.flightReviewExpiration) {
     const bfrDate = new Date(pilot.flightReviewExpiration);
-    const daysUntilBfr = Math.floor((bfrDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    const daysUntilBfr = Math.floor((bfrDate.getTime() - now.getTime()) / MS_PER_DAY);
 
     if (daysUntilBfr < 0) {
       findings.push({

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { Providers } from './providers';
 import { TabNav } from '@/components/ui/TabNav';
+import { AnonymousBanner } from '@/components/AnonymousBanner';
 
 export const metadata: Metadata = {
   title: 'LogHacker - Aviation Intelligence',
@@ -26,6 +27,7 @@ export default function RootLayout({
       <body className="min-h-screen bg-zinc-50 font-sans antialiased">
         <Providers>
           <div className="min-h-screen flex flex-col">
+            <AnonymousBanner />
             <TabNav />
             <main className="flex-1 p-4 md:p-6">
               <div className="max-w-7xl mx-auto">

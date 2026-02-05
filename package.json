@@ -19,6 +19,7 @@
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",
+    "js-cookie": "^3.0.5",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.447.0",
     "mongoose": "^8.7.0",
@@ -35,6 +36,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/js-cookie": "^3.0.6",
     "@types/node": "^22.7.4",
     "@types/react": "^18.3.10",
     "@types/react-dom": "^18.3.0",

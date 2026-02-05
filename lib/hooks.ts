@@ -2,31 +2,52 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { aircraftApi, pilotApi, flightApi, auditApi, weatherApi, documentApi, parsedDocumentApi, profileApi } from './api';
+import { useAnonymous } from './anonymous-context';
 import type { Aircraft, Pilot, Flight, WeatherData } from './types';
 
 // Aircraft Hooks
 export function useAircraft() {
+  const { isAnonymous, data } = useAnonymous();
+
   return useQuery({
-    queryKey: ['aircraft'],
-    queryFn: aircraftApi.getAll,
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    gcTime: 30 * 60 * 1000, // 30 minutes
+    queryKey: ['aircraft', { anonymous: isAnonymous }],
+    queryFn: async () => {
+      if (isAnonymous) {
+        return data.aircraft;
+      }
+      return aircraftApi.getAll();
+    },
+    staleTime: isAnonymous ? 0 : 5 * 60 * 1000,
+    gcTime: isAnonymous ? 0 : 30 * 60 * 1000,
   });
 }
 
 export function useAircraftById(id: string) {
+  const { isAnonymous, getAircraft } = useAnonymous();
+
   return useQuery({
-    queryKey: ['aircraft', id],
-    queryFn: () => aircraftApi.getById(id),
+    queryKey: ['aircraft', id, { anonymous: isAnonymous }],
+    queryFn: async () => {
+      if (isAnonymous) {
+        return getAircraft(id) as Aircraft | null;
+      }
+      return aircraftApi.getById(id);
+    },
     enabled: !!id,
   });
 }
 
 export function useCreateAircraft() {
   const queryClient = useQueryClient();
+  const { isAnonymous, addAircraft } = useAnonymous();
 
   return useMutation({
-    mutationFn: (aircraft: Partial<Aircraft>) => aircraftApi.create(aircraft),
+    mutationFn: async (aircraft: Partial<Aircraft>) => {
+      if (isAnonymous) {
+        return addAircraft(aircraft);
+      }
+      return aircraftApi.create(aircraft);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['aircraft'] });
     },
@@ -35,22 +56,36 @@ export function useCreateAircraft() {
 
 export function useUpdateAircraft() {
   const queryClient = useQueryClient();
+  const { isAnonymous, updateAircraft } = useAnonymous();
 
   return useMutation({
-    mutationFn: ({ id, aircraft }: { id: string; aircraft: Partial<Aircraft> }) =>
-      aircraftApi.update(id, aircraft),
+    mutationFn: async ({ id, aircraft }: { id: string; aircraft: Partial<Aircraft> }) => {
+      if (isAnonymous) {
+        return updateAircraft(id, aircraft);
+      }
+      return aircraftApi.update(id, aircraft);
+    },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['aircraft'] });
-      queryClient.setQueryData(['aircraft', data._id], data);
+      if (data) {
+        queryClient.setQueryData(['aircraft', data._id], data);
+      }
     },
   });
 }
 
 export function useDeleteAircraft() {
   const queryClient = useQueryClient();
+  const { isAnonymous, deleteAircraft } = useAnonymous();
 
   return useMutation({
-    mutationFn: (id: string) => aircraftApi.delete(id),
+    mutationFn: async (id: string) => {
+      if (isAnonymous) {
+        deleteAircraft(id);
+        return;
+      }
+      return aircraftApi.delete(id);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['aircraft'] });
     },
@@ -59,27 +94,47 @@ export function useDeleteAircraft() {
 
 // Pilot Hooks
 export function usePilots() {
+  const { isAnonymous, data } = useAnonymous();
+
   return useQuery({
-    queryKey: ['pilots'],
-    queryFn: pilotApi.getAll,
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    gcTime: 30 * 60 * 1000, // 30 minutes
+    queryKey: ['pilots', { anonymous: isAnonymous }],
+    queryFn: async () => {
+      if (isAnonymous) {
+        return data.pilots;
+      }
+      return pilotApi.getAll();
+    },
+    staleTime: isAnonymous ? 0 : 5 * 60 * 1000,
+    gcTime: isAnonymous ? 0 : 30 * 60 * 1000,
   });
 }
 
 export function usePilotById(id: string) {
+  const { isAnonymous, getPilot } = useAnonymous();
+
   return useQuery({
-    queryKey: ['pilots', id],
-    queryFn: () => pilotApi.getById(id),
+    queryKey: ['pilots', id, { anonymous: isAnonymous }],
+    queryFn: async () => {
+      if (isAnonymous) {
+        return getPilot(id) as Pilot | null;
+      }
+      return pilotApi.getById(id);
+    },
     enabled: !!id,
   });
 }
 
 export function useCreatePilot() {
   const queryClient = useQueryClient();
+  const { isAnonymous, addPilot } = useAnonymous();
 
   return useMutation({
-    mutationFn: (pilot: Partial<Pilot>) => pilotApi.create(pilot),
+    mutationFn: async (pilot: Partial<Pilot>) => {
+      if (isAnonymous) {
+        return addPilot(pilot);
+      }
+      return pilotApi.create(pilot);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pilots'] });
     },
@@ -88,22 +143,36 @@ export function useCreatePilot() {
 
 export function useUpdatePilot() {
   const queryClient = useQueryClient();
+  const { isAnonymous, updatePilot } = useAnonymous();
 
   return useMutation({
-    mutationFn: ({ id, pilot }: { id: string; pilot: Partial<Pilot> }) =>
-      pilotApi.update(id, pilot),
+    mutationFn: async ({ id, pilot }: { id: string; pilot: Partial<Pilot> }) => {
+      if (isAnonymous) {
+        return updatePilot(id, pilot);
+      }
+      return pilotApi.update(id, pilot);
+    },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['pilots'] });
-      queryClient.setQueryData(['pilots', data._id], data);
+      if (data) {
+        queryClient.setQueryData(['pilots', data._id], data);
+      }
     },
   });
 }
 
 export function useDeletePilot() {
   const queryClient = useQueryClient();
+  const { isAnonymous, deletePilot } = useAnonymous();
 
   return useMutation({
-    mutationFn: (id: string) => pilotApi.delete(id),
+    mutationFn: async (id: string) => {
+      if (isAnonymous) {
+        deletePilot(id);
+        return;
+      }
+      return pilotApi.delete(id);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pilots'] });
     },
@@ -133,37 +202,77 @@ export function useApplyLogbook() {
 
 // Flight Hooks
 export function useFlights(params?: { status?: string; upcoming?: boolean; pilotId?: string }) {
+  const { isAnonymous, data } = useAnonymous();
+
   return useQuery({
-    queryKey: ['flights', params],
-    queryFn: () => flightApi.getAll(params),
-    staleTime: 2 * 60 * 1000, // 2 minutes (flights change more often)
-    gcTime: 15 * 60 * 1000, // 15 minutes
+    queryKey: ['flights', params, { anonymous: isAnonymous }],
+    queryFn: async () => {
+      if (isAnonymous) {
+        let flights = data.flights;
+        if (params?.pilotId) {
+          flights = flights.filter(f => {
+            const pilotId = typeof f.pilot === 'string' ? f.pilot : f.pilot?._id;
+            return pilotId === params.pilotId;
+          });
+        }
+        if (params?.status) {
+          flights = flights.filter(f => f.status === params.status);
+        }
+        return flights;
+      }
+      return flightApi.getAll(params);
+    },
+    staleTime: isAnonymous ? 0 : 2 * 60 * 1000,
+    gcTime: isAnonymous ? 0 : 15 * 60 * 1000,
   });
 }
 
 export function useFlightsByPilot(pilotId: string | undefined) {
+  const { isAnonymous, data } = useAnonymous();
+
   return useQuery({
-    queryKey: ['flights', 'byPilot', pilotId],
-    queryFn: () => flightApi.getAll({ pilotId }),
+    queryKey: ['flights', 'byPilot', pilotId, { anonymous: isAnonymous }],
+    queryFn: async () => {
+      if (isAnonymous) {
+        return data.flights.filter(f => {
+          const flightPilotId = typeof f.pilot === 'string' ? f.pilot : f.pilot?._id;
+          return flightPilotId === pilotId;
+        });
+      }
+      return flightApi.getAll({ pilotId });
+    },
     enabled: !!pilotId,
-    staleTime: 2 * 60 * 1000,
-    gcTime: 15 * 60 * 1000,
+    staleTime: isAnonymous ? 0 : 2 * 60 * 1000,
+    gcTime: isAnonymous ? 0 : 15 * 60 * 1000,
   });
 }
 
 export function useFlightById(id: string) {
+  const { isAnonymous, getFlight } = useAnonymous();
+
   return useQuery({
-    queryKey: ['flights', id],
-    queryFn: () => flightApi.getById(id),
+    queryKey: ['flights', id, { anonymous: isAnonymous }],
+    queryFn: async () => {
+      if (isAnonymous) {
+        return getFlight(id) as Flight | null;
+      }
+      return flightApi.getById(id);
+    },
     enabled: !!id,
   });
 }
 
 export function useCreateFlight() {
   const queryClient = useQueryClient();
+  const { isAnonymous, addFlight } = useAnonymous();
 
   return useMutation({
-    mutationFn: (flight: Partial<Flight>) => flightApi.create(flight),
+    mutationFn: async (flight: Partial<Flight>) => {
+      if (isAnonymous) {
+        return addFlight(flight);
+      }
+      return flightApi.create(flight);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['flights'] });
     },
@@ -172,22 +281,36 @@ export function useCreateFlight() {
 
 export function useUpdateFlight() {
   const queryClient = useQueryClient();
+  const { isAnonymous, updateFlight } = useAnonymous();
 
   return useMutation({
-    mutationFn: ({ id, flight }: { id: string; flight: Partial<Flight> }) =>
-      flightApi.update(id, flight),
+    mutationFn: async ({ id, flight }: { id: string; flight: Partial<Flight> }) => {
+      if (isAnonymous) {
+        return updateFlight(id, flight);
+      }
+      return flightApi.update(id, flight);
+    },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['flights'] });
-      queryClient.setQueryData(['flights', data._id], data);
+      if (data) {
+        queryClient.setQueryData(['flights', data._id], data);
+      }
     },
   });
 }
 
 export function useDeleteFlight() {
   const queryClient = useQueryClient();
+  const { isAnonymous, deleteFlight } = useAnonymous();
 
   return useMutation({
-    mutationFn: (id: string) => flightApi.delete(id),
+    mutationFn: async (id: string) => {
+      if (isAnonymous) {
+        deleteFlight(id);
+        return;
+      }
+      return flightApi.delete(id);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['flights'] });
     },

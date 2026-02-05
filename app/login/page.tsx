@@ -1,11 +1,26 @@
 'use client';
 
 import { signIn } from 'next-auth/react';
-import { Plane } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Plane, UserX } from 'lucide-react';
+import Cookies from 'js-cookie';
+
+const ANONYMOUS_COOKIE = 'loggerai-anonymous-session';
 
 export default function LoginPage() {
+  const router = useRouter();
+
   const handleGoogleSignIn = () => {
     signIn('google', { callbackUrl: '/' });
+  };
+
+  const handleAnonymousMode = () => {
+    // Set the anonymous cookie (expires when browser closes - session cookie)
+    Cookies.set(ANONYMOUS_COOKIE, 'true');
+    // Also set in sessionStorage for the context to pick up
+    sessionStorage.setItem('loggerai-anonymous-mode', 'true');
+    // Navigate to home
+    router.push('/');
   };
 
   return (
@@ -48,6 +63,33 @@ export default function LoginPage() {
             </svg>
             Continue with Google
           </button>
+
+          {/* Divider */}
+          <div className="relative my-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-zinc-200"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="bg-white px-4 text-zinc-500">or</span>
+            </div>
+          </div>
+
+          {/* Anonymous Mode Button */}
+          <button
+            onClick={handleAnonymousMode}
+            className="w-full flex items-center justify-center gap-3 px-4 py-3 border border-zinc-200 rounded-xl bg-zinc-50 hover:bg-zinc-100 transition-colors text-zinc-600 font-medium"
+          >
+            <UserX className="h-5 w-5" />
+            Continue as Guest
+          </button>
+
+          {/* Anonymous Mode Info */}
+          <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <p className="text-xs text-amber-800">
+              <strong>Guest mode:</strong> Your data will only be stored in your browser session.
+              Closing the browser will clear all data. No account required.
+            </p>
+          </div>
 
           {/* Footer */}
           <p className="text-center text-sm text-zinc-500 mt-6">

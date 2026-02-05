@@ -7,7 +7,7 @@ import { parseDocumentUltraFast, StepLog } from '@/lib/services/reductoService';
 import { classifyDocumentFast } from '@/lib/services/aiService';
 import { saveFile } from '@/lib/services/fileStorage';
 import { suggestAttachments, mapDetectedTypeToStorageType } from '@/lib/services/autoAttachService';
-import { calculateSummary } from '@/lib/services/documentProcessingUtils';
+import { calculateSummary, updatePilotExperience, updateAircraftFromEntries } from '@/lib/services/documentProcessingUtils';
 
 export const maxDuration = 300;
 
@@ -257,7 +257,7 @@ export async function POST(request: NextRequest) {
 
           // Update pilot experience if applicable
           if (autoAttachPilotId && ['pilot_logbook', 'logbook'].includes(documentType)) {
-            await updatePilotFromEntries(autoAttachPilotId, entries);
+            await updatePilotExperience(autoAttachPilotId, entries);
           }
 
           // Update aircraft if applicable
@@ -308,96 +308,4 @@ export async function POST(request: NextRequest) {
       'Connection': 'keep-alive',
     },
   });
-}
-
-async function updatePilotFromEntries(pilotId: string, entries: any[]) {
-  const pilot = await Pilot.findById(pilotId);
-  if (!pilot) return;
-
-  let flatEntries = entries;
-  if (entries.length === 1 && entries[0].flights) {
-    flatEntries = entries[0].flights;
-  }
-
-  const flightEntries = flatEntries.map((e: any) => ({
-    date: e.date || '',
-    aircraftIdent: e.aircraftIdent || e.aircraft || '',
-    aircraftType: e.aircraftType || '',
-    from: e.from || '',
-    to: e.to || '',
-    totalTime: e.totalTime || e.duration || 0,
-    pic: e.pic || 0,
-    night: e.night || 0,
-    actualInstrument: e.actualInstrument || 0,
-    crossCountry: e.crossCountry || 0,
-    landingsDay: e.landingsDay || 0,
-    landingsNight: e.landingsNight || 0,
-  })).filter((e: any) => e.date && e.aircraftIdent);
-
-  pilot.flightEntries = flightEntries;
-
-  const now = new Date();
-  const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-
-  let totalHours = 0, picHours = 0, nightHours = 0, ifrHours = 0, crossCountryHours = 0;
-  let last90DaysHours = 0, last30DaysHours = 0;
-
-  for (const entry of flightEntries) {
-    totalHours += entry.totalTime;
-    picHours += entry.pic || 0;
-    nightHours += entry.night || 0;
-    ifrHours += entry.actualInstrument || 0;
-    crossCountryHours += entry.crossCountry || 0;
-
-    if (entry.date) {
-      const entryDate = new Date(entry.date);
-      if (!isNaN(entryDate.getTime())) {
-        if (entryDate >= ninetyDaysAgo) last90DaysHours += entry.totalTime;
-        if (entryDate >= thirtyDaysAgo) last30DaysHours += entry.totalTime;
-      }
-    }
-  }
-
-  pilot.experience = {
-    totalHours: Math.round(totalHours * 10) / 10,
-    picHours: Math.round(picHours * 10) / 10,
-    nightHours: Math.round(nightHours * 10) / 10,
-    ifrHours: Math.round(ifrHours * 10) / 10,
-    crossCountryHours: Math.round(crossCountryHours * 10) / 10,
-    last90DaysHours: Math.round(last90DaysHours * 10) / 10,
-    last30DaysHours: Math.round(last30DaysHours * 10) / 10,
-  };
-
-  await pilot.save();
-}
-
-async function updateAircraftFromEntries(aircraftId: string, entries: any[]) {
-  const aircraft = await Aircraft.findById(aircraftId);
-  if (!aircraft) return;
-
-  let maxHobbs = aircraft.currentHours.hobbs;
-  let maxTach = aircraft.currentHours.tach;
-
-  for (const entry of entries) {
-    if (entry.hobbsTime && entry.hobbsTime > maxHobbs) maxHobbs = entry.hobbsTime;
-    if (entry.tachTime && entry.tachTime > maxTach) maxTach = entry.tachTime;
-  }
-
-  if (maxHobbs > aircraft.currentHours.hobbs) aircraft.currentHours.hobbs = maxHobbs;
-  if (maxTach > aircraft.currentHours.tach) aircraft.currentHours.tach = maxTach;
-
-  const newLogs = entries.map((entry: any) => ({
-    date: entry.date ? new Date(entry.date) : new Date(),
-    description: entry.description || entry.workPerformed || 'Entry',
-    hobbsTime: entry.hobbsTime || aircraft.currentHours.hobbs,
-    tachTime: entry.tachTime || aircraft.currentHours.tach,
-    mechanic: entry.mechanic || entry.signedBy,
-  })).filter(log => log.description !== 'Entry');
-
-  if (newLogs.length > 0) {
-    aircraft.logs.push(...newLogs);
-  }
-
-  await aircraft.save();
 }

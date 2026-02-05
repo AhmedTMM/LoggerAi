@@ -122,10 +122,32 @@ export async function readFile(relativePath: string): Promise<Buffer> {
   return fs.readFile(filePath);
 }
 
-// Read a file and return as base64
+// Read a file and return as base64 using streaming for memory efficiency
 export async function readFileAsBase64(relativePath: string): Promise<string> {
-  const buffer = await readFile(relativePath);
-  return buffer.toString('base64');
+  const filePath = path.join(UPLOADS_DIR, relativePath);
+  const stats = await fs.stat(filePath);
+
+  // For files under 10MB, direct read is faster
+  if (stats.size < 10 * 1024 * 1024) {
+    const buffer = await fs.readFile(filePath);
+    return buffer.toString('base64');
+  }
+
+  // For larger files, stream in chunks to avoid peak memory spikes
+  const { createReadStream } = await import('fs');
+  return new Promise<string>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    const stream = createReadStream(filePath, { highWaterMark: 1024 * 1024 }); // 1MB chunks
+
+    stream.on('data', (chunk: string | Buffer) => {
+      if (typeof chunk === 'string') chunk = Buffer.from(chunk);
+      chunks.push(chunk);
+    });
+    stream.on('end', () => {
+      resolve(Buffer.concat(chunks).toString('base64'));
+    });
+    stream.on('error', reject);
+  });
 }
 
 // Delete a file from the uploads directory

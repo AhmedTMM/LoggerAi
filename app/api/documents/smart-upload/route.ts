@@ -13,7 +13,9 @@ import {
   mapDetectedTypeToStorageType,
   isPilotDocument,
   isAircraftDocument,
-  invalidateAllCaches
+  invalidateAllCaches,
+  findCachedPilotByName,
+  findCachedAircraftByTail
 } from '@/lib/services/autoAttachService';
 import {
   calculateSummary,
@@ -23,8 +25,6 @@ import {
 } from '@/lib/services/documentProcessingUtils';
 
 export const maxDuration = 300;
-
-const MONGODB_SAFE_SIZE = 10 * 1024 * 1024;
 
 // ============ FILENAME-BASED FALLBACK EXTRACTION ============
 // Extract tail number from filename (e.g., "N6196P-Airframe-Log-1.pdf" -> "N6196P")
@@ -146,18 +146,18 @@ export async function POST(request: NextRequest) {
 
         progress(25, `Detected: ${documentType}`);
 
-        // Save file to disk if large
-        const isLargeFile = fileBase64.length > MONGODB_SAFE_SIZE;
+        // Always save file to disk for reliability (avoids storing base64 in MongoDB)
+        progress(30, 'Saving file...');
         let storedFile: any = null;
-
-        if (isLargeFile) {
-          progress(30, 'Saving file...');
+        try {
           storedFile = await saveFile(
             fileBase64,
             filename || `doc_${Date.now()}.${fileType === 'pdf' ? 'pdf' : 'png'}`,
             fileType,
             'other'
           );
+        } catch (saveErr) {
+          console.error('[Smart-Upload] File save error:', saveErr);
         }
 
         progress(35, 'Looking for matches...');
@@ -173,16 +173,10 @@ export async function POST(request: NextRequest) {
         // Try to match or create pilot
         if (pilotTypes && analysis?.pilotName) {
           progress(40, 'Matching pilot...');
-          const pilots = await Pilot.find({}).select('_id name email').lean();
-          const normalizedSearch = analysis.pilotName.toLowerCase().trim();
-
-          let matchedPilot = pilots.find((p: any) =>
-            (p.name || '').toLowerCase().includes(normalizedSearch) ||
-            normalizedSearch.includes((p.name || '').toLowerCase())
-          );
+          const matchedPilot = await findCachedPilotByName(analysis.pilotName);
 
           if (matchedPilot) {
-            pilotId = matchedPilot._id.toString();
+            pilotId = matchedPilot._id;
             progress(45, `Linked to pilot: ${matchedPilot.name}`);
           } else {
             // Create new pilot
@@ -229,20 +223,11 @@ export async function POST(request: NextRequest) {
         const shouldMatchAircraft = aircraftTypes || documentType === 'maintenance';
         if (shouldMatchAircraft && tailNumbers.length > 0) {
           progress(50, 'Matching aircraft...');
-          const allAircraft = await Aircraft.find({}).select('_id tailNumber').lean();
+          const matchedAircraft = await findCachedAircraftByTail(tailNumbers);
 
-          for (const tail of tailNumbers) {
-            const normalizedTail = tail.toUpperCase().replace(/[^A-Z0-9]/g, '');
-            const matchedAircraft = allAircraft.find((a: any) => {
-              const acTail = (a.tailNumber || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-              return acTail === normalizedTail || acTail.includes(normalizedTail) || normalizedTail.includes(acTail);
-            });
-
-            if (matchedAircraft) {
-              aircraftId = matchedAircraft._id.toString();
-              progress(55, `Linked to aircraft: ${matchedAircraft.tailNumber}`);
-              break;
-            }
+          if (matchedAircraft) {
+            aircraftId = matchedAircraft._id;
+            progress(55, `Linked to aircraft: ${matchedAircraft.tailNumber}`);
           }
 
           // Create new aircraft if not found and this is an aircraft document
@@ -316,7 +301,6 @@ export async function POST(request: NextRequest) {
           analysis,
           filePath: storedFile?.relativePath,
           fileSize: storedFile?.size || fileSizeBytes,
-          fileBase64: (!storedFile && !isLargeFile) ? fileBase64 : undefined,
         });
 
         // Link document to pilot/aircraft
@@ -370,17 +354,19 @@ export async function POST(request: NextRequest) {
 
           progress(92, 'Updating linked records...');
 
-          // Update pilot experience from logbook
+          // PARALLEL: Update pilot and aircraft simultaneously
+          const updatePromises: Promise<void>[] = [];
+
           if (pilotId && ['pilot_logbook', 'logbook'].includes(documentType) && entries.length > 0) {
-            await updatePilotExperience(pilotId, entries);
+            updatePromises.push(updatePilotExperience(pilotId, entries));
           }
 
-          // Update aircraft from maintenance docs
           if (aircraftId && ['aircraft_logbook', 'maintenance', 'inspection'].includes(documentType) && entries.length > 0) {
-            console.log(`[Smart-Upload] Updating aircraft ${aircraftId} with ${entries.length} entries (docType: ${documentType})`);
-            await updateAircraftFromEntries(aircraftId, entries, categoryFromFilename || undefined, userId);
-          } else {
-            console.log(`[Smart-Upload] Skipping aircraft update: aircraftId=${aircraftId}, docType=${documentType}, entries=${entries.length}`);
+            updatePromises.push(updateAircraftFromEntries(aircraftId, entries, categoryFromFilename || undefined, userId));
+          }
+
+          if (updatePromises.length > 0) {
+            await Promise.all(updatePromises);
           }
 
           // Run audit if we have both pilot and aircraft

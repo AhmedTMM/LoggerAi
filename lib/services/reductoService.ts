@@ -16,23 +16,6 @@ interface ParsedDocument {
   rawText: string;
 }
 
-interface LogbookEntry {
-  date: string;
-  aircraft: string;
-  route: string;
-  duration: number;
-  remarks?: string;
-}
-
-interface MaintenanceEntry {
-  date: string;
-  description: string;
-  hobbsTime?: number;
-  tachTime?: number;
-  mechanic?: string;
-  signOff?: boolean;
-}
-
 // Document analysis result for classification
 export interface DocumentAnalysis {
   detectedType: 'logbook' | 'maintenance' | 'poh' | 'unknown';
@@ -244,7 +227,7 @@ export async function parseDocumentUltraFast(
 
     // Calculate stats
     let totalHours = 0;
-    if (documentType === 'logbook') {
+    if (isLogbookType) {
       totalHours = items.reduce((sum: number, entry: any) => {
         return sum + (parseFloat(entry.totalTime) || parseFloat(entry.duration) || 0);
       }, 0);
@@ -253,7 +236,7 @@ export async function parseDocumentUltraFast(
     const totalDuration = Date.now() - startTime;
     await log('complete', 'Document processing complete!', 100, {
       entryCount: items.length,
-      totalHours: documentType === 'logbook' ? Math.round(totalHours * 10) / 10 : undefined,
+      totalHours: isLogbookType ? Math.round(totalHours * 10) / 10 : undefined,
       processingTimeMs: totalDuration,
       success: true,
       mode: 'ultra-fast-vision'
@@ -569,7 +552,7 @@ export async function parseDocumentFast(
 
     // Calculate stats
     let totalHours = 0;
-    if (documentType === 'logbook') {
+    if (isLogbookType) {
       totalHours = items.reduce((sum: number, entry: any) => {
         return sum + (parseFloat(entry.totalTime) || parseFloat(entry.duration) || 0);
       }, 0);
@@ -578,7 +561,7 @@ export async function parseDocumentFast(
     const totalDuration = Date.now() - startTime;
     await log('complete', 'Document processing complete!', 100, {
       entryCount: items.length,
-      totalHours: documentType === 'logbook' ? Math.round(totalHours * 10) / 10 : undefined,
+      totalHours: isLogbookType ? Math.round(totalHours * 10) / 10 : undefined,
       processingTimeMs: totalDuration,
       success: true,
       mode: 'hybrid-fast'
@@ -767,26 +750,18 @@ export async function parseDocument(
     const items = (extraction as any).result || [];
     let extractedData: Record<string, any> = {};
 
-    if (documentType === 'logbook') {
-      extractedData = { entries: items };
-      await log('structuring', `Extracted ${items.length} logbook entries`, 85, {
-        entryCount: items.length,
-        sampleFields: items[0] ? Object.keys(items[0]).slice(0, 5) : []
-      });
-    } else {
-      extractedData = { entries: items };
-      await log('structuring', `Extracted ${items.length} maintenance entries`, 85, {
-        entryCount: items.length,
-        sampleFields: items[0] ? Object.keys(items[0]).slice(0, 5) : []
-      });
-    }
+    extractedData = { entries: items };
+    await log('structuring', `Extracted ${items.length} ${isLogbookType ? 'logbook' : 'maintenance'} entries`, 85, {
+      entryCount: items.length,
+      sampleFields: items[0] ? Object.keys(items[0]).slice(0, 5) : []
+    });
 
     await log('validating_output', 'Validating extracted data...', 90);
 
     // Calculate some stats for logging
     const entryCount = items.length;
     let totalHours = 0;
-    if (documentType === 'logbook') {
+    if (isLogbookType) {
       totalHours = items.reduce((sum: number, entry: any) => {
         return sum + (parseFloat(entry.totalTime) || parseFloat(entry.duration) || 0);
       }, 0);
@@ -794,7 +769,7 @@ export async function parseDocument(
 
     await log('validating_output', 'Data validation complete', 95, {
       entryCount,
-      totalHours: documentType === 'logbook' ? Math.round(totalHours * 10) / 10 : undefined,
+      totalHours: isLogbookType ? Math.round(totalHours * 10) / 10 : undefined,
       confidence: 1.0
     });
 
@@ -823,122 +798,6 @@ export async function parseDocument(
       error: (error as Error).message,
     };
   }
-}
-
-// Process raw Reducto output into structured data
-function processExtractedData(rawResult: any, documentType: string): ParsedDocument {
-  const extractedText = rawResult.text || rawResult.extracted_text || '';
-  const tables = rawResult.tables || [];
-  const structuredData = rawResult.structured_data || {};
-
-  let extractedData: Record<string, any> = {};
-
-  if (documentType === 'logbook') {
-    extractedData = parseLogbookData(structuredData, tables, extractedText);
-  } else if (documentType === 'maintenance') {
-    extractedData = parseMaintenanceData(structuredData, tables, extractedText);
-  }
-
-  return {
-    documentType: documentType as 'logbook' | 'maintenance',
-    extractedData,
-    confidence: rawResult.confidence || 0.8,
-    rawText: extractedText,
-  };
-}
-
-// Parse pilot logbook entries
-function parseLogbookData(
-  structured: any,
-  tables: any[],
-  rawText: string
-): { entries: LogbookEntry[] } {
-  const entries: LogbookEntry[] = [];
-
-  // If structured data contains entries
-  if (structured.entries) {
-    for (const entry of structured.entries) {
-      entries.push({
-        date: entry.date || '',
-        aircraft: entry.aircraft || entry.tail_number || '',
-        route: entry.route || entry.from_to || '',
-        duration: parseFloat(entry.duration || entry.total_time || '0'),
-        remarks: entry.remarks || entry.notes || '',
-      });
-    }
-  }
-
-  // Parse from tables if available
-  if (tables.length > 0) {
-    for (const table of tables) {
-      const headers = table.headers || [];
-      const rows = table.rows || [];
-
-      for (const row of rows) {
-        const entry: LogbookEntry = {
-          date: '',
-          aircraft: '',
-          route: '',
-          duration: 0,
-        };
-
-        headers.forEach((header: string, idx: number) => {
-          const value = row[idx];
-          const headerLower = header.toLowerCase();
-
-          if (headerLower.includes('date')) entry.date = value;
-          if (headerLower.includes('aircraft') || headerLower.includes('tail'))
-            entry.aircraft = value;
-          if (headerLower.includes('route') || headerLower.includes('from'))
-            entry.route = value;
-          if (headerLower.includes('time') || headerLower.includes('duration'))
-            entry.duration = parseFloat(value) || 0;
-          if (headerLower.includes('remark')) entry.remarks = value;
-        });
-
-        if (entry.date || entry.aircraft) {
-          entries.push(entry);
-        }
-      }
-    }
-  }
-
-  return { entries };
-}
-
-// Parse maintenance log entries
-function parseMaintenanceData(
-  structured: any,
-  tables: any[],
-  rawText: string
-): { entries: MaintenanceEntry[] } {
-  const entries: MaintenanceEntry[] = [];
-
-  // If structured data contains entries
-  if (structured.entries || structured.maintenance_items) {
-    const items = structured.entries || structured.maintenance_items;
-    for (const entry of items) {
-      entries.push({
-        date: entry.date || '',
-        description: entry.description || entry.work_performed || '',
-        hobbsTime: parseFloat(entry.hobbs || entry.hobbs_time || '0') || undefined,
-        tachTime: parseFloat(entry.tach || entry.tach_time || '0') || undefined,
-        mechanic: entry.mechanic || entry.technician || '',
-        signOff: entry.sign_off || entry.signed || false,
-      });
-    }
-  }
-
-  // Parse annual/inspection data
-  if (structured.annual_date || structured.last_annual) {
-    entries.push({
-      date: structured.annual_date || structured.last_annual,
-      description: 'Annual Inspection',
-      signOff: true,
-    });
-  }
-
-  return { entries };
 }
 
 // Extraction prompts for different document types
@@ -1220,11 +1079,12 @@ export async function parsePOHFromUrl(pohUrl: string, onStep?: StepCallback): Pr
 
 export type { ReductoResponse, ParsedDocument };
 
-export function aggregateLogbookHours(entries: LogbookEntry[]): {
+export function aggregateLogbookHours(entries: any[]): {
   totalHours: number;
   picHours: number;
   nightHours: number;
   ifrHours: number;
+  crossCountryHours: number;
   last90DaysHours: number;
   last30DaysHours: number;
 } {
@@ -1236,31 +1096,18 @@ export function aggregateLogbookHours(entries: LogbookEntry[]): {
   let picHours = 0;
   let nightHours = 0;
   let ifrHours = 0;
+  let crossCountryHours = 0;
   let last90DaysHours = 0;
   let last30DaysHours = 0;
 
   for (const entry of entries) {
-    const duration = entry.duration || 0;
+    const duration = entry.totalTime || entry.duration || 0;
     totalHours += duration;
+    picHours += entry.pic || 0;
+    nightHours += entry.night || 0;
+    ifrHours += (entry.actualInstrument || 0) + (entry.simulatedInstrument || 0);
+    crossCountryHours += entry.crossCountry || 0;
 
-    // Simple heuristics since our basic prompt might not capture every column
-    // Assume if it's in the logbook, it contributes to total.
-    // We'll estimate PIC as 100% for now unless defined otherwise (often safe for private logbooks uploaded by owner)
-    // Real parsing would look for specific columns.
-    picHours += duration;
-
-    // Check remarks for "Night" or "IFR" keywords if explicit columns missing
-    const remarks = (entry.remarks || '').toLowerCase();
-
-    if (remarks.includes('night')) {
-      nightHours += duration;
-    }
-
-    if (remarks.includes('ifr') || remarks.includes('imc') || remarks.includes('approach')) {
-      ifrHours += duration;
-    }
-
-    // Date based calc
     if (entry.date) {
       const entryDate = new Date(entry.date);
       if (!isNaN(entryDate.getTime())) {
@@ -1271,11 +1118,12 @@ export function aggregateLogbookHours(entries: LogbookEntry[]): {
   }
 
   return {
-    totalHours,
-    picHours,
-    nightHours,
-    ifrHours,
-    last90DaysHours,
-    last30DaysHours
+    totalHours: Math.round(totalHours * 10) / 10,
+    picHours: Math.round(picHours * 10) / 10,
+    nightHours: Math.round(nightHours * 10) / 10,
+    ifrHours: Math.round(ifrHours * 10) / 10,
+    crossCountryHours: Math.round(crossCountryHours * 10) / 10,
+    last90DaysHours: Math.round(last90DaysHours * 10) / 10,
+    last30DaysHours: Math.round(last30DaysHours * 10) / 10,
   };
 }

@@ -82,6 +82,47 @@ export function isAircraftDocument(type: DetectedDocumentType): boolean {
 }
 
 /**
+ * Find a pilot by name using cached data
+ * Returns the first pilot whose name contains or is contained by the search string
+ */
+export async function findCachedPilotByName(name: string): Promise<{ _id: string; name: string } | null> {
+  if (!name || name.trim().length < 2) return null;
+  const normalizedSearch = name.toLowerCase().trim();
+  const pilots = await getCachedPilots();
+
+  const matched = pilots.find((p: any) =>
+    (p.name || '').toLowerCase().includes(normalizedSearch) ||
+    normalizedSearch.includes((p.name || '').toLowerCase())
+  );
+
+  return matched ? { _id: matched._id.toString(), name: matched.name } : null;
+}
+
+/**
+ * Find an aircraft by tail number using cached data
+ * Normalizes tail numbers for comparison (strips non-alphanumeric, case-insensitive)
+ */
+export async function findCachedAircraftByTail(tailNumbers: string[]): Promise<{ _id: string; tailNumber: string } | null> {
+  if (!tailNumbers || tailNumbers.length === 0) return null;
+  const aircraft = await getCachedAircraft();
+
+  for (const tail of tailNumbers) {
+    const normalizedTail = tail.toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+    const matched = aircraft.find((a: any) => {
+      const acTail = (a.tailNumber || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      return acTail === normalizedTail || acTail.includes(normalizedTail) || normalizedTail.includes(acTail);
+    });
+
+    if (matched) {
+      return { _id: matched._id.toString(), tailNumber: matched.tailNumber };
+    }
+  }
+
+  return null;
+}
+
+/**
  * Fuzzy match a pilot name against existing pilots
  * Returns the best match if confidence is high enough
  * NOW WITH CACHING for ultra-fast lookups!

@@ -10,7 +10,7 @@ export interface AuditResult {
   weather?: IWeatherData;
 }
 
-export async function runLegalityAudit(
+export async function runBasicLegalityAudit(
   aircraft: IAircraft,
   pilot: IPilot,
   flightDate: Date,
@@ -54,10 +54,6 @@ export async function runLegalityAudit(
 
   // 100-hour inspection (if applicable - for hire/instruction)
   if (aircraft.maintenanceDates.hundredHour) {
-    const lastHundredHour = aircraft.maintenanceDates.hundredHour;
-    const hoursSinceInspection = aircraft.currentHours.tach - (lastHundredHour as any);
-    // This is simplified - actual logic would track hours at last inspection
-
     checks.push({
       category: 'maintenance',
       item: '100-Hour Inspection',

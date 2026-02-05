@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   // 1. Validate Cron Secret
   const authHeader = request.headers.get('authorization');
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
 
   try {
@@ -52,10 +52,6 @@ export async function GET(request: Request) {
     })
       .populate('pilot')
       .populate('aircraft');
-
-    console.log(
-      `[Pre-Flight Alert] Found ${dangerousFlights.length} dangerous flights within the next hour`
-    );
 
     const results: {
       flightId: string;
@@ -145,7 +141,6 @@ export async function GET(request: Request) {
       results,
     });
   } catch (error) {
-    console.error('Pre-flight alert cron failed:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ success: false, error: 'Internal Server Error' }, { status: 500 });
   }
 }

@@ -66,7 +66,6 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Action error:', error);
     return new NextResponse('Internal Server Error', { status: 500 });
   }
 }

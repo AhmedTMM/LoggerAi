@@ -34,8 +34,6 @@ export async function POST(request: NextRequest) {
     // Check if this is a "magic add" request (only tail number provided)
     // or if the user wants to force a lookup
     if (body.tailNumber && Object.keys(body).length === 1) {
-      console.log(`Starting automated add for ${body.tailNumber}`);
-
       // 1. Fetch details from Registry & Firecrawl (includes Image & POH URL)
       const details = await fetchAircraftDetails(body.tailNumber);
 
@@ -57,7 +55,6 @@ export async function POST(request: NextRequest) {
 
       // 2. If we found a POH URL, try to parse it with Reducto for real operating limits
       if (aircraftData.pohUrl) {
-        console.log(`Parsing POH from ${aircraftData.pohUrl}...`);
         try {
           const pohResult = await parsePOHFromUrl(aircraftData.pohUrl);
 
@@ -66,7 +63,6 @@ export async function POST(request: NextRequest) {
 
             // Merge/Overwrite with Reducto data if valid
             if (parsedLimits.vSpeeds || parsedLimits.weights) {
-              console.log('Successfully parsed POH data via Reducto');
               aircraftData.operatingLimits = {
                 vSpeeds: parsedLimits.vSpeeds || aircraftData.operatingLimits?.vSpeeds,
                 weights: parsedLimits.weights || aircraftData.operatingLimits?.weights
@@ -74,15 +70,9 @@ export async function POST(request: NextRequest) {
             }
           }
         } catch (pohError) {
-          console.error('Failed to parse POH via Reducto, falling back to scraped data', pohError);
-          // Continue with Scraped data
+          // Continue with scraped data if Reducto parsing fails
         }
       }
-
-      console.log('Final Aircraft Data to Save:', JSON.stringify({
-        tail: aircraftData.tailNumber,
-        limits: aircraftData.operatingLimits
-      }, null, 2));
 
       const aircraft = new Aircraft(aircraftData);
       await aircraft.save();
@@ -96,7 +86,6 @@ export async function POST(request: NextRequest) {
     }
 
   } catch (error) {
-    console.error('Add aircraft error:', error);
     return NextResponse.json(
       { success: false, error: (error as Error).message },
       { status: 400 }
@@ -124,7 +113,6 @@ export async function DELETE(request: NextRequest) {
     await Aircraft.findOneAndDelete({ _id: id, userId });
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Delete aircraft error:', error);
     return NextResponse.json(
       { success: false, error: (error as Error).message },
       { status: 500 }

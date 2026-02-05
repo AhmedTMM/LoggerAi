@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/db';
 import Flight from '@/lib/models/Flight';
-import { generateAISafetyAnalysis, sendAISafetyEmail, IAISafetyAnalysis } from '@/lib/services/aiSafetyService';
+import { generateAISafetyAnalysis, sendAISafetyEmail } from '@/lib/services/aiSafetyService';
 import { IPilot } from '@/lib/models/Pilot';
 import { IAircraft } from '@/lib/models/Aircraft';
 
@@ -49,7 +49,6 @@ export async function POST(
     }
 
     // Generate AI analysis
-    console.log(`[AI] Generating AI safety analysis for flight ${params.id}...`);
     const aiAnalysis = await generateAISafetyAnalysis(
       flight,
       pilot,
@@ -86,13 +85,11 @@ export async function POST(
 
     await flight.save();
 
-    // Send email with AI analysis - always to hardcoded address
+    // Send email with AI analysis
     let emailResult = { success: false, message: 'Email not sent' };
-    const recipientEmail = 'ahmed@abushagur.com';
-    if (sendEmail) {
-      console.log(`[AI] Sending AI analysis email to ${recipientEmail}...`);
+    const recipientEmail = process.env.SAFETY_EMAIL_RECIPIENT;
+    if (sendEmail && recipientEmail) {
       emailResult = await sendAISafetyEmail(flight, aiAnalysis, recipientEmail);
-      console.log(`[AI] Email result:`, emailResult);
     }
 
     return NextResponse.json({
@@ -106,7 +103,6 @@ export async function POST(
     });
 
   } catch (error) {
-    console.error('AI Analysis error:', error);
     return NextResponse.json(
       { success: false, error: (error as Error).message },
       { status: 500 }

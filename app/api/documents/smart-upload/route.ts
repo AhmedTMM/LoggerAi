@@ -7,7 +7,7 @@ import Pilot from '@/lib/models/Pilot';
 import { parseDocumentUltraFast } from '@/lib/services/reductoService';
 import { classifyDocumentFast } from '@/lib/services/aiService';
 import { saveFile } from '@/lib/services/fileStorage';
-import { runLegalityAudit } from '@/lib/services/auditEngine';
+import { runBasicLegalityAudit } from '@/lib/services/auditEngine';
 import { fetchAircraftDetails } from '@/lib/services/firecrawlService';
 import {
   mapDetectedTypeToStorageType,
@@ -391,7 +391,7 @@ export async function POST(request: NextRequest) {
               const pilot = await Pilot.findById(pilotId);
               const aircraft = await Aircraft.findById(aircraftId);
               if (pilot && aircraft) {
-                const auditResult = await runLegalityAudit(aircraft, pilot, new Date(), 'KJFK');
+                const auditResult = await runBasicLegalityAudit(aircraft, pilot, new Date(), 'KJFK');
                 auditStatus = auditResult.overallStatus;
 
                 // Store audit results on pilot

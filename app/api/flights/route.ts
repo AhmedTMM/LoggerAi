@@ -98,12 +98,11 @@ export async function POST(request: NextRequest) {
     try {
       await runComprehensiveSafetyAnalysis(flight._id.toString());
     } catch (auditError) {
-      console.warn('Initial audit failed, flight created without analysis:', auditError);
       // Fall back to basic audit
       try {
         await runLegalityAudit(flight._id.toString(), false);
-      } catch (basicAuditError) {
-        console.warn('Basic audit also failed:', basicAuditError);
+      } catch {
+        // Flight created without analysis - audit can be retried later
       }
     }
 

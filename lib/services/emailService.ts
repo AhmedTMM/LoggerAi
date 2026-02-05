@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import { IFlight } from '../models/Flight';
+import { getStatusConfig } from './documentProcessingUtils';
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
@@ -28,19 +29,9 @@ export async function sendAuditEmail(flight: IFlight): Promise<EmailResult> {
     };
   }
 
-  const statusEmoji =
-    flight.overallStatus === 'go'
-      ? '✅'
-      : flight.overallStatus === 'caution'
-        ? '⚠️'
-        : '❌';
-
-  const statusText =
-    flight.overallStatus === 'go'
-      ? 'GO - Flight Approved'
-      : flight.overallStatus === 'caution'
-        ? 'CAUTION - Review Required'
-        : 'NO-GO - Flight Not Recommended';
+  const statusCfg = getStatusConfig(flight.overallStatus);
+  const statusEmoji = statusCfg.emoji;
+  const statusText = statusCfg.text;
 
   // Build check summary
   const checkSummary = flight.legalityChecks
@@ -121,20 +112,9 @@ Always verify information independently before flight.
 export function generateAuditHTML(flight: IFlight): string {
   const pilot = flight.pilot as any;
   const aircraft = flight.aircraft as any;
-
-  const statusColor =
-    flight.overallStatus === 'go'
-      ? '#10b981'
-      : flight.overallStatus === 'caution'
-        ? '#f59e0b'
-        : '#ef4444';
-
-  const statusText =
-    flight.overallStatus === 'go'
-      ? 'GO - Flight Approved'
-      : flight.overallStatus === 'caution'
-        ? 'CAUTION - Review Required'
-        : 'NO-GO - Flight Not Recommended';
+  const statusCfg = getStatusConfig(flight.overallStatus);
+  const statusColor = statusCfg.color;
+  const statusText = statusCfg.text;
 
   const checksHTML = flight.legalityChecks
     .map((check) => {
@@ -202,13 +182,13 @@ export async function sendOwnerDangerAlert(flight: IFlight): Promise<EmailResult
     };
   }
 
-  const isDangerous = flight.overallStatus === 'no-go' || flight.overallStatus === 'caution';
-  if (!isDangerous) {
+  const statusCfg = getStatusConfig(flight.overallStatus);
+  if (!statusCfg.isDangerous) {
     return { success: false, message: 'Flight is not dangerous - no alert needed' };
   }
 
-  const statusColor = flight.overallStatus === 'no-go' ? '#ef4444' : '#f59e0b';
-  const statusText = flight.overallStatus === 'no-go' ? 'NO-GO - FLIGHT NOT RECOMMENDED' : 'CAUTION - RISKS IDENTIFIED';
+  const statusColor = statusCfg.color;
+  const statusText = statusCfg.text.toUpperCase();
   const urgencyText = flight.overallStatus === 'no-go' ? '🚨 URGENT SAFETY ALERT' : '⚠️ SAFETY ADVISORY';
 
   // Build risk factors list
@@ -423,8 +403,8 @@ export async function sendPreFlightAgenticAlert(
     return { success: false, message: 'Aircraft owner email not found' };
   }
 
-  const isDangerous = flight.overallStatus === 'no-go' || flight.overallStatus === 'caution';
-  if (!isDangerous) {
+  const statusCfg = getStatusConfig(flight.overallStatus);
+  if (!statusCfg.isDangerous) {
     return { success: false, message: 'Flight is not dangerous - no alert needed' };
   }
 
@@ -432,14 +412,10 @@ export async function sendPreFlightAgenticAlert(
     ? `https://${process.env.VERCEL_URL}`
     : 'http://localhost:3000';
 
-  const statusColor = flight.overallStatus === 'no-go' ? '#dc2626' : '#d97706';
-  const statusBgColor = flight.overallStatus === 'no-go' ? '#fef2f2' : '#fffbeb';
-  const urgencyText = flight.overallStatus === 'no-go'
-    ? 'CRITICAL SAFETY ALERT'
-    : 'PRE-FLIGHT SAFETY WARNING';
-  const statusLabel = flight.overallStatus === 'no-go'
-    ? 'NO-GO - IMMEDIATE ACTION REQUIRED'
-    : 'CAUTION - REVIEW RECOMMENDED';
+  const statusColor = statusCfg.color;
+  const statusBgColor = statusCfg.bgColor;
+  const urgencyText = flight.overallStatus === 'no-go' ? 'CRITICAL SAFETY ALERT' : 'PRE-FLIGHT SAFETY WARNING';
+  const statusLabel = flight.overallStatus === 'no-go' ? 'NO-GO - IMMEDIATE ACTION REQUIRED' : 'CAUTION - REVIEW RECOMMENDED';
 
   // Calculate time until flight
   const flightTime = flight.scheduledDateTime || flight.scheduledDate;
@@ -715,8 +691,9 @@ export async function sendPilotSafetyBriefing(
     return { success: false, message: 'Pilot email not found' };
   }
 
-  const statusColor = flight.overallStatus === 'no-go' ? '#dc2626' : '#d97706';
-  const statusLabel = flight.overallStatus === 'no-go' ? 'NO-GO' : 'CAUTION';
+  const statusCfg = getStatusConfig(flight.overallStatus);
+  const statusColor = statusCfg.color;
+  const statusLabel = statusCfg.shortLabel;
 
   const riskFactors = flight.legalityChecks
     .filter(check => check.status === 'fail' || check.status === 'warning')

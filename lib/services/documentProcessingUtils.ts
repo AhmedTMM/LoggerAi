@@ -13,6 +13,49 @@ export const MS_PER_DAY = 86400000;
 export const DAYS_90_MS = 90 * MS_PER_DAY;
 export const DAYS_30_MS = 30 * MS_PER_DAY;
 
+// Flight status configuration - centralizes all status display logic
+export type FlightStatusType = 'go' | 'caution' | 'no-go';
+
+interface StatusConfig {
+  emoji: string;
+  text: string;
+  shortLabel: string;
+  color: string;
+  bgColor: string;
+  isDangerous: boolean;
+}
+
+const STATUS_CONFIG: Record<FlightStatusType, StatusConfig> = {
+  'go': {
+    emoji: '✅',
+    text: 'GO - Flight Approved',
+    shortLabel: 'GO',
+    color: '#10b981',
+    bgColor: '#ecfdf5',
+    isDangerous: false,
+  },
+  'caution': {
+    emoji: '⚠️',
+    text: 'CAUTION - Review Required',
+    shortLabel: 'CAUTION',
+    color: '#f59e0b',
+    bgColor: '#fffbeb',
+    isDangerous: true,
+  },
+  'no-go': {
+    emoji: '❌',
+    text: 'NO-GO - Flight Not Recommended',
+    shortLabel: 'NO-GO',
+    color: '#ef4444',
+    bgColor: '#fef2f2',
+    isDangerous: true,
+  },
+};
+
+export function getStatusConfig(status: FlightStatusType | string): StatusConfig {
+  return STATUS_CONFIG[status as FlightStatusType] || STATUS_CONFIG['no-go'];
+}
+
 /**
  * Round a number to one decimal place
  */

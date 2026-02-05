@@ -189,18 +189,6 @@ export function parseJsonResponse<T = any>(response: string): T {
   return JSON.parse(cleaned);
 }
 
-/**
- * Safe JSON parse with fallback
- */
-export function safeParseJson<T = any>(response: string, fallback: T): T {
-  try {
-    return parseJsonResponse<T>(response);
-  } catch {
-    console.error('Failed to parse AI JSON response:', response.substring(0, 500));
-    return fallback;
-  }
-}
-
 export default {
   getOpenRouterClient,
   isOpenRouterConfigured,
@@ -208,6 +196,5 @@ export default {
   generateCompletion,
   generateVisionCompletion,
   parseJsonResponse,
-  safeParseJson,
   MODELS: OPENROUTER_MODELS,
 };

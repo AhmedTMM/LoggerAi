@@ -8,6 +8,7 @@ import { classifyDocumentFast, FastDocumentClassification } from '@/lib/services
 import { saveFile } from '@/lib/services/fileStorage';
 import { reconcileDocumentLinks } from '@/lib/services/reconciliationService';
 import { requireAuth } from '@/lib/auth-helpers';
+import { calculateSummary } from '@/lib/services/documentProcessingUtils';
 
 // Allow longer timeout for large file processing
 export const maxDuration = 300;
@@ -258,24 +259,6 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-function calculateSummary(entries: any[]) {
-  if (!entries || entries.length === 0) {
-    return { totalEntries: 0 };
-  }
-
-  const totalHours = entries.reduce((sum, e) => sum + (e.totalTime || e.duration || 0), 0);
-  const dates = entries
-    .map(e => e.date)
-    .filter(Boolean)
-    .sort();
-
-  return {
-    totalEntries: entries.length,
-    totalHours: Math.round(totalHours * 10) / 10,
-    dateRange: dates.length > 0 ? { from: dates[0], to: dates[dates.length - 1] } : undefined,
-  };
 }
 
 async function updateAircraftFromParsedData(

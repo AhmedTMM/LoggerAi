@@ -1,7 +1,5 @@
 import mongoose, { Schema, Model, Types } from 'mongoose';
 
-export type FlightStatus = 'planned' | 'go' | 'caution' | 'no-go' | 'completed' | 'cancelled';
-
 export interface ILegalityCheck {
   category: 'maintenance' | 'compliance' | 'safety' | 'pilot' | 'weather' | 'performance';
   item: string;

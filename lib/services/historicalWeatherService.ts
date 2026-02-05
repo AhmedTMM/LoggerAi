@@ -51,26 +51,14 @@ export async function fetchHistoricalMETAR(
     // Iowa State ASOS archive URL
     const url = `https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=${cleanAirport}&data=all&year1=${year}&month1=${month}&day1=${day}&year2=${year}&month2=${month}&day2=${day}&tz=Etc/UTC&format=onlycomma&latlon=no&elev=no&missing=null&trace=null&direct=no`;
 
-    console.log(`[HistoricalWeather] Fetching METAR for ${cleanAirport} on ${year}-${month}-${day}`);
-    console.log(`[HistoricalWeather] URL: ${url}`);
-
     const response = await fetch(url);
-
-    if (!response.ok) {
-      console.warn(`[HistoricalWeather] HTTP ${response.status} for ${cleanAirport} on ${date.toISOString()}`);
-      return null;
-    }
+    if (!response.ok) return null;
 
     const csvText = await response.text();
     const lines = csvText.trim().split('\n');
 
-    console.log(`[HistoricalWeather] Received ${lines.length} lines for ${cleanAirport}`);
-
     // Skip header, get first data line
-    if (lines.length < 2) {
-      console.warn(`[HistoricalWeather] No data available for ${cleanAirport} on ${year}-${month}-${day}`);
-      return null;
-    }
+    if (lines.length < 2) return null;
 
     const data = lines[1].split(',');
 
@@ -115,8 +103,7 @@ export async function fetchHistoricalMETAR(
       }
     };
 
-  } catch (error) {
-    console.error(`[HistoricalWeather] Error fetching METAR:`, error);
+  } catch {
     return null;
   }
 }
@@ -194,38 +181,4 @@ function determineFlightCategory(
 
   // VFR: Ceiling ≥ 3000ft AND Visibility > 5sm
   return 'VFR';
-}
-
-/**
- * Batch fetch historical weather for multiple flights
- */
-export async function fetchHistoricalWeatherBatch(
-  flights: Array<{ airport: string; date: string }>
-): Promise<Map<string, HistoricalMETAR>> {
-  const results = new Map<string, HistoricalMETAR>();
-
-  // Process in batches to avoid rate limiting
-  const batchSize = 5;
-  for (let i = 0; i < flights.length; i += batchSize) {
-    const batch = flights.slice(i, i + batchSize);
-
-    const promises = batch.map(async ({ airport, date }) => {
-      const flightDate = new Date(date);
-      const key = `${airport}_${date}`;
-
-      const weather = await fetchHistoricalMETAR(airport, flightDate);
-      if (weather) {
-        results.set(key, weather);
-      }
-    });
-
-    await Promise.all(promises);
-
-    // Small delay between batches
-    if (i + batchSize < flights.length) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-  }
-
-  return results;
 }

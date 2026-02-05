@@ -6,6 +6,7 @@ import Aircraft from '@/lib/models/Aircraft';
 import Pilot from '@/lib/models/Pilot';
 import ParsedDocument from '@/lib/models/ParsedDocument';
 import { requireAuth } from '@/lib/auth-helpers';
+import { calculateSummary } from '@/lib/services/documentProcessingUtils';
 
 export async function POST(request: NextRequest) {
   try {
@@ -195,24 +196,6 @@ async function processDocumentInBackground(
       });
     } catch { }
   }
-}
-
-function calculateSummary(entries: any[]) {
-  if (!entries || entries.length === 0) {
-    return { totalEntries: 0 };
-  }
-
-  const totalHours = entries.reduce((sum, e) => sum + (e.totalTime || e.duration || 0), 0);
-  const dates = entries
-    .map(e => e.date)
-    .filter(Boolean)
-    .sort();
-
-  return {
-    totalEntries: entries.length,
-    totalHours: Math.round(totalHours * 10) / 10,
-    dateRange: dates.length > 0 ? { from: dates[0], to: dates[dates.length - 1] } : undefined,
-  };
 }
 
 async function updateAircraftFromParsedData(

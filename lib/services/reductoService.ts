@@ -217,17 +217,9 @@ export async function parseDocumentUltraFast(
       extractionTimeMs: extractionTime
     });
 
-    console.log(`[UltraFast] ========== AI RAW RESPONSE ==========`);
-    console.log(`[UltraFast] Response length: ${aiText.length} characters`);
-    console.log(`[UltraFast] First 1000 chars:`, aiText.substring(0, 1000));
-    console.log(`[UltraFast] Last 500 chars:`, aiText.substring(Math.max(0, aiText.length - 500)));
-    console.log(`[UltraFast] =====================================`);
-
     await log('structuring', 'Parsing extracted data...', 80);
 
     // Parse the AI response using the robust JSON repair utility
-    console.log(`[UltraFast] Attempting to parse AI response (${aiText.length} chars)...`);
-
     const repairResult = repairAndParseJSON(aiText);
 
     let items: any[] = [];
@@ -239,17 +231,9 @@ export async function parseDocumentUltraFast(
       rawData = rest;
 
       if (repairResult.wasRepaired) {
-        console.log(`[UltraFast] ✓ JSON repaired using: ${repairResult.repairMethod}`);
-        console.log(`[UltraFast] ✓ Recovered ${repairResult.entriesRecovered} entries`);
         await log('structuring', `Recovered ${items.length} entries (${repairResult.repairMethod})`, 85);
-      } else {
-        console.log(`[UltraFast] ✓ JSON parsed directly, ${items.length} entries`);
       }
     } else {
-      console.error('[UltraFast] ❌ All JSON repair attempts failed');
-      console.error('[UltraFast] First 2000 chars:', aiText.substring(0, 2000));
-      console.error('[UltraFast] Last 1000 chars:', aiText.substring(Math.max(0, aiText.length - 1000)));
-      console.log('[UltraFast] Falling back to OCR pipeline...');
       await log('error', 'Could not parse AI response, falling back to OCR pipeline', 80);
       return parseDocumentFast(fileBase64, fileType, documentType, onStep);
     }
@@ -257,21 +241,6 @@ export async function parseDocumentUltraFast(
     await log('validating_output', 'Validating extracted entries...', 90, {
       entryCount: items.length
     });
-
-    console.log(`[UltraFast] ========== FINAL EXTRACTION RESULT ==========`);
-    console.log(`[UltraFast] Document type: ${documentType}`);
-    console.log(`[UltraFast] Total entries extracted: ${items.length}`);
-    if (items.length > 0) {
-      console.log(`[UltraFast] First entry:`, JSON.stringify(items[0], null, 2).substring(0, 300));
-      console.log(`[UltraFast] Last entry:`, JSON.stringify(items[items.length - 1], null, 2).substring(0, 300));
-    } else {
-      console.error(`[UltraFast] ❌ NO ENTRIES EXTRACTED - THIS IS A PROBLEM!`);
-    }
-    if (Object.keys(rawData).length > 0) {
-      console.log(`[UltraFast] Additional fields:`, Object.keys(rawData));
-      console.log(`[UltraFast] Additional data:`, JSON.stringify(rawData, null, 2).substring(0, 500));
-    }
-    console.log(`[UltraFast] ============================================`);
 
     // Calculate stats
     let totalHours = 0;
@@ -290,8 +259,6 @@ export async function parseDocumentUltraFast(
       mode: 'ultra-fast-vision'
     });
 
-    console.log(`[UltraFast] Completed in ${(totalDuration / 1000).toFixed(1)}s - ${items.length} entries extracted`);
-
     return {
       success: true,
       data: {
@@ -304,20 +271,14 @@ export async function parseDocumentUltraFast(
 
   } catch (error) {
     const errorMessage = (error as Error).message;
-    console.error('[UltraFast] Error:', error);
 
     // Check if it's a quota/rate limit error
     if (errorMessage.includes('quota') || errorMessage.includes('429') || errorMessage.includes('rate')) {
-      console.log('[UltraFast] AI quota exceeded, skipping AI extraction entirely');
       await log('error', 'AI quota exceeded, using OCR-only mode', 0);
-      // Skip to parseDocument (no AI) instead of parseDocumentFast (uses AI)
       return parseDocument(fileBase64, fileType, documentType, onStep);
     }
 
     await log('error', `Direct extraction failed: ${errorMessage}`, 0);
-
-    // Fall back to the OCR-based method
-    console.log('[UltraFast] Falling back to OCR pipeline...');
     return parseDocumentFast(fileBase64, fileType, documentType, onStep);
   }
 }
@@ -541,8 +502,8 @@ export async function parseDocumentFast(
             .filter(Boolean)
             .join('\n\n');
         }
-      } catch (fetchError) {
-        console.error('Failed to fetch URL result:', fetchError);
+      } catch {
+        // URL fetch failed, will fall back to extract method below
       }
     }
 
@@ -575,23 +536,15 @@ export async function parseDocumentFast(
     } catch (aiError: any) {
       // Check if it's a quota/rate limit error
       if (aiError.message?.includes('quota') || aiError.message?.includes('429') || aiError.message?.includes('rate')) {
-        console.error('[FastParse] AI quota exceeded, falling back to standard extraction');
         await log('error', 'AI quota exceeded, using standard extraction', 60);
         return parseDocument(fileBase64, fileType, documentType, onStep);
       }
       throw aiError;
     }
 
-    console.log(`[FastParse] ========== AI RAW RESPONSE ==========`);
-    console.log(`[FastParse] Response length: ${aiText.length} characters`);
-    console.log(`[FastParse] First 1000 chars:`, aiText.substring(0, 1000));
-    console.log(`[FastParse] Last 500 chars:`, aiText.substring(Math.max(0, aiText.length - 500)));
-    console.log(`[FastParse] =========================================`);
-
     await log('structuring', 'AI extraction complete', 80);
 
     // 5. Parse the AI response using the robust JSON repair utility
-    console.log(`[FastParse] Attempting to parse AI response (${aiText.length} chars)...`);
 
     const repairResult = repairAndParseJSON(aiText);
 
@@ -604,16 +557,9 @@ export async function parseDocumentFast(
       rawData = rest;
 
       if (repairResult.wasRepaired) {
-        console.log(`[FastParse] ✓ JSON repaired using: ${repairResult.repairMethod}`);
-        console.log(`[FastParse] ✓ Recovered ${repairResult.entriesRecovered} entries`);
         await log('structuring', `Recovered ${items.length} entries (${repairResult.repairMethod})`, 85);
-      } else {
-        console.log(`[FastParse] ✓ JSON parsed directly, ${items.length} entries`);
       }
     } else {
-      console.error('[FastParse] ❌ All JSON repair attempts failed');
-      console.error('[FastParse] First 2000 chars:', aiText.substring(0, 2000));
-      console.error('[FastParse] Last 1000 chars:', aiText.substring(Math.max(0, aiText.length - 1000)));
       await log('error', 'Failed to parse AI extraction response', 80);
     }
 
@@ -638,22 +584,6 @@ export async function parseDocumentFast(
       mode: 'hybrid-fast'
     });
 
-    console.log(`[FastParse] ========== FINAL EXTRACTION RESULT ==========`);
-    console.log(`[FastParse] Document type: ${documentType}`);
-    console.log(`[FastParse] Total entries extracted: ${items.length}`);
-    console.log(`[FastParse] Processing time: ${(totalDuration / 1000).toFixed(1)}s (OCR: ${(ocrDuration / 1000).toFixed(1)}s)`);
-    if (items.length > 0) {
-      console.log(`[FastParse] First entry:`, JSON.stringify(items[0], null, 2).substring(0, 300));
-      console.log(`[FastParse] Last entry:`, JSON.stringify(items[items.length - 1], null, 2).substring(0, 300));
-    } else {
-      console.error(`[FastParse] ❌ NO ENTRIES EXTRACTED - THIS IS A PROBLEM!`);
-    }
-    if (Object.keys(rawData).length > 0) {
-      console.log(`[FastParse] Additional fields:`, Object.keys(rawData));
-      console.log(`[FastParse] Additional data:`, JSON.stringify(rawData, null, 2).substring(0, 500));
-    }
-    console.log(`[FastParse] ===============================================`);
-
     return {
       success: true,
       data: {
@@ -665,11 +595,8 @@ export async function parseDocumentFast(
     };
 
   } catch (error) {
-    console.error('Fast parse error:', error);
     await log('error', `Fast processing failed: ${(error as Error).message}`, 0);
-
     // Fall back to the slower but more reliable extract method
-    console.log('[FastParse] Falling back to standard extraction method...');
     return parseDocument(fileBase64, fileType, documentType, onStep);
   }
 }
@@ -887,7 +814,6 @@ export async function parseDocument(
       },
     };
   } catch (error) {
-    console.error('Reducto service error:', error);
     await log('error', `Processing failed: ${(error as Error).message}`, 0, {
       errorType: (error as Error).name,
       errorMessage: (error as Error).message
@@ -1352,227 +1278,4 @@ export function aggregateLogbookHours(entries: LogbookEntry[]): {
     last90DaysHours,
     last30DaysHours
   };
-}
-
-// Document Analysis Prompt - for quick classification before full parsing
-const DOCUMENT_ANALYSIS_PROMPT = `
-You are an expert aviation document classifier. Analyze this document and provide a quick assessment.
-
-DOCUMENT TYPES TO IDENTIFY:
-1. PILOT LOGBOOK - Contains flight entries with dates, aircraft, times, landings
-   - Look for: DATE columns, AIRCRAFT/TAIL columns, TIME columns (SEL, MEL, PIC, etc.)
-   - Page layout is typically tabular with many columns
-   - May have "PILOT LOGBOOK" header or standard Jeppesen/ASA format
-
-2. MAINTENANCE LOG - Aircraft maintenance records
-   - Look for: Date, Description of work, Hobbs/Tach times, Mechanic signatures
-   - References to inspections, parts, ADs (Airworthiness Directives)
-   - May have "AIRCRAFT MAINTENANCE LOG" or "ENGINE LOG" headers
-
-3. POH (Pilot Operating Handbook) - Aircraft operating manual
-   - Sections for performance, limitations, emergency procedures
-   - V-speeds, weight & balance, checklists
-   - Usually has manufacturer branding and model designation
-
-4. UNKNOWN - Cannot determine document type
-
-QUALITY ASSESSMENT:
-- EXCELLENT: Clear print/type, easy to read
-- GOOD: Minor quality issues, still clearly readable
-- FAIR: Some OCR/handwriting challenges, partially degraded
-- POOR: Significant quality issues, many unclear portions
-
-OUTPUT JSON:
-{
-  "detectedType": "logbook" | "maintenance" | "poh" | "unknown",
-  "confidence": 0.0-1.0,
-  "suggestedName": "Descriptive name for this document",
-  "pilotName": "Name if found on logbook cover/pages",
-  "aircraftTailNumbers": ["N12345", "N67890"],
-  "dateRange": {"from": "YYYY-MM-DD", "to": "YYYY-MM-DD"},
-  "estimatedEntryCount": 50,
-  "documentQuality": "excellent" | "good" | "fair" | "poor",
-  "qualityNotes": ["Handwritten entries", "Some faded text"],
-  "isHandwritten": true/false,
-  "pageCount": 10,
-  "summary": "Brief 1-2 sentence description of what this document contains"
-}
-`;
-
-// Analyze a document to determine type and quality before full parsing
-export async function analyzeDocument(
-  fileBase64: string,
-  fileType: 'pdf' | 'image',
-  onStep?: StepCallback
-): Promise<{ success: boolean; analysis?: DocumentAnalysis; error?: string }> {
-  const apiKey = process.env.REDUCTO_API_KEY;
-  const startTime = Date.now();
-
-  const log = async (step: ProcessingStep, message: string, progress: number, details?: Record<string, any>) => {
-    if (onStep) {
-      await onStep({
-        step,
-        message,
-        timestamp: new Date(),
-        progress,
-        details,
-        duration: Date.now() - startTime
-      });
-    }
-  };
-
-  if (!apiKey) {
-    console.warn('Reducto API key not configured');
-    await log('error', 'Reducto API key not configured', 0);
-    return {
-      success: false,
-      error: 'Reducto API key not configured',
-    };
-  }
-
-  try {
-    await log('initializing', 'Initializing document analysis...', 5);
-
-    const client = new Reducto({ apiKey });
-
-    await log('preparing', 'Preparing document for analysis...', 10);
-
-    // Upload file
-    const fileBuffer = Buffer.from(fileBase64, 'base64');
-
-    // Calculate dynamic timeouts based on file size
-    const uploadTimeout = getScaledTimeout(REDUCTO_UPLOAD_TIMEOUT_BASE, fileBuffer.length);
-    const extractTimeout = getScaledTimeout(REDUCTO_EXTRACT_TIMEOUT_BASE, fileBuffer.length);
-
-    await log('uploading', 'Uploading document for classification...', 20, {
-      sizeKB: Math.round(fileBuffer.length / 1024),
-      timeout: `${uploadTimeout / 1000}s`
-    });
-
-    const upload = await withTimeout(
-      client.upload({
-        file: await toFile(fileBuffer, fileType === 'image' ? 'document.png' : 'document.pdf'),
-        extension: fileType === 'image' ? 'png' : 'pdf',
-      }),
-      uploadTimeout,
-      'Reducto upload'
-    );
-
-    await log('uploading', 'Document uploaded successfully', 35);
-
-    // Run analysis extraction
-    await log('classifying', 'AI is classifying document type...', 45, {
-      timeout: `${extractTimeout / 1000}s`
-    });
-
-    const extraction = await withTimeout(
-      client.extract.run({
-        input: upload,
-        instructions: {
-          system_prompt: DOCUMENT_ANALYSIS_PROMPT,
-        },
-        settings: {
-          optimize_for_latency: true
-        }
-      }),
-      extractTimeout,
-      'Reducto document analysis'
-    );
-
-    await log('analyzing', 'Processing classification results...', 70);
-
-    if ('job_id' in extraction && !('result' in extraction)) {
-      await log('error', 'Received async job id but expected sync result', 70);
-      return { success: false, error: 'Received async job id but expected sync result' };
-    }
-
-    const items = (extraction as any).result || [];
-    const analysisResult = items.length > 0 ? items[0] : null;
-
-    if (!analysisResult) {
-      // Fallback analysis if extraction returns empty
-      await log('analyzing', 'Using fallback analysis (limited data)', 85);
-      return {
-        success: true,
-        analysis: {
-          detectedType: 'unknown',
-          confidence: 0.3,
-          suggestedName: `Document_${Date.now()}`,
-          estimatedEntryCount: 0,
-          documentQuality: 'fair',
-          qualityNotes: ['Unable to fully analyze document'],
-          isHandwritten: false,
-          summary: 'Document could not be fully analyzed'
-        }
-      };
-    }
-
-    // Build the analysis object from the extraction result
-    const analysis: DocumentAnalysis = {
-      detectedType: analysisResult.detectedType || 'unknown',
-      confidence: analysisResult.confidence || 0.5,
-      suggestedName: analysisResult.suggestedName || generateSuggestedName(analysisResult),
-      pilotName: analysisResult.pilotName,
-      aircraftTailNumbers: analysisResult.aircraftTailNumbers,
-      dateRange: analysisResult.dateRange,
-      estimatedEntryCount: analysisResult.estimatedEntryCount || 0,
-      documentQuality: analysisResult.documentQuality || 'fair',
-      qualityNotes: analysisResult.qualityNotes || [],
-      isHandwritten: analysisResult.isHandwritten || false,
-      pageCount: analysisResult.pageCount,
-      summary: analysisResult.summary || 'Aviation document'
-    };
-
-    await log('complete', 'Document analysis complete!', 100, {
-      detectedType: analysis.detectedType,
-      confidence: analysis.confidence,
-      quality: analysis.documentQuality,
-      isHandwritten: analysis.isHandwritten,
-      estimatedEntries: analysis.estimatedEntryCount
-    });
-
-    return {
-      success: true,
-      analysis
-    };
-
-  } catch (error) {
-    console.error('Document analysis error:', error);
-    await log('error', `Analysis failed: ${(error as Error).message}`, 0);
-    return {
-      success: false,
-      error: (error as Error).message,
-    };
-  }
-}
-
-// Generate a suggested name based on analysis results
-function generateSuggestedName(analysis: any): string {
-  const type = analysis.detectedType || 'document';
-  const typeLabel = type === 'logbook' ? 'Pilot Logbook'
-    : type === 'maintenance' ? 'Maintenance Log'
-    : type === 'poh' ? 'POH'
-    : 'Aviation Document';
-
-  const parts: string[] = [typeLabel];
-
-  if (analysis.pilotName) {
-    parts.push(`- ${analysis.pilotName}`);
-  }
-
-  if (analysis.aircraftTailNumbers?.length > 0) {
-    parts.push(`(${analysis.aircraftTailNumbers.slice(0, 2).join(', ')})`);
-  }
-
-  if (analysis.dateRange?.from) {
-    const fromYear = analysis.dateRange.from.split('-')[0];
-    const toYear = analysis.dateRange.to?.split('-')[0] || fromYear;
-    if (fromYear === toYear) {
-      parts.push(fromYear);
-    } else {
-      parts.push(`${fromYear}-${toYear}`);
-    }
-  }
-
-  return parts.join(' ');
 }

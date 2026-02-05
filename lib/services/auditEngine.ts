@@ -2,6 +2,7 @@ import { IAircraft } from '../models/Aircraft';
 import { IPilot } from '../models/Pilot';
 import { ILegalityCheck, IWeatherData } from '../models/Flight';
 import { fetchWeatherData } from './weatherService';
+import { MS_PER_DAY } from './documentProcessingUtils';
 
 export interface AuditResult {
   checks: ILegalityCheck[];
@@ -23,7 +24,7 @@ export async function runLegalityAudit(
   // Annual inspection check
   const annualDue = new Date(aircraft.maintenanceDates.annual);
   annualDue.setFullYear(annualDue.getFullYear() + 1);
-  const annualDaysLeft = Math.ceil((annualDue.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  const annualDaysLeft = Math.ceil((annualDue.getTime() - now.getTime()) / MS_PER_DAY);
 
   if (annualDaysLeft < 0) {
     checks.push({
@@ -69,7 +70,7 @@ export async function runLegalityAudit(
   // Transponder check (24-month)
   const transponderDue = new Date(aircraft.maintenanceDates.transponder);
   transponderDue.setMonth(transponderDue.getMonth() + 24);
-  const transponderDaysLeft = Math.ceil((transponderDue.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  const transponderDaysLeft = Math.ceil((transponderDue.getTime() - now.getTime()) / MS_PER_DAY);
 
   if (transponderDaysLeft < 0) {
     checks.push({
@@ -97,7 +98,7 @@ export async function runLegalityAudit(
   // Static system/altimeter check (24-month for IFR)
   const staticDue = new Date(aircraft.maintenanceDates.staticSystem);
   staticDue.setMonth(staticDue.getMonth() + 24);
-  const staticDaysLeft = Math.ceil((staticDue.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  const staticDaysLeft = Math.ceil((staticDue.getTime() - now.getTime()) / MS_PER_DAY);
 
   if (staticDaysLeft < 0) {
     checks.push({
@@ -126,7 +127,7 @@ export async function runLegalityAudit(
 
   // Medical certification
   const medicalExp = new Date(pilot.medicalExpiration);
-  const medicalDaysLeft = Math.ceil((medicalExp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  const medicalDaysLeft = Math.ceil((medicalExp.getTime() - now.getTime()) / MS_PER_DAY);
 
   if (medicalDaysLeft < 0) {
     checks.push({
@@ -154,7 +155,7 @@ export async function runLegalityAudit(
 
   // Flight review (24-month)
   const flightReviewExp = new Date(pilot.flightReviewExpiration);
-  const flightReviewDaysLeft = Math.ceil((flightReviewExp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  const flightReviewDaysLeft = Math.ceil((flightReviewExp.getTime() - now.getTime()) / MS_PER_DAY);
 
   if (flightReviewDaysLeft < 0) {
     checks.push({

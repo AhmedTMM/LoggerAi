@@ -7,6 +7,7 @@ import { IAircraft } from '@/lib/models/Aircraft';
 import { IPilot } from '@/lib/models/Pilot';
 import { fetchWeatherData, fetchEnhancedWeatherData, fetchRouteWeather } from './weatherService';
 import { runComprehensiveSafetyAnalysis } from './comprehensiveSafetyService';
+import { MS_PER_DAY } from './documentProcessingUtils';
 
 export interface IRiskScenario {
     title: string;
@@ -32,7 +33,7 @@ function checkAnnualInspection(aircraft: IAircraft, asOf: Date): ILegalityCheck 
     oneYearLater.setFullYear(oneYearLater.getFullYear() + 1);
 
     const isOverdue = asOf > oneYearLater;
-    const daysUntilDue = Math.floor((oneYearLater.getTime() - asOf.getTime()) / 86400000);
+    const daysUntilDue = Math.floor((oneYearLater.getTime() - asOf.getTime()) / MS_PER_DAY);
 
     if (isOverdue) {
         return {
@@ -68,7 +69,7 @@ function checkTransponder(aircraft: IAircraft, asOf: Date): ILegalityCheck {
     twoYearsLater.setMonth(twoYearsLater.getMonth() + 24);
 
     const isOverdue = asOf > twoYearsLater;
-    const daysUntilDue = Math.floor((twoYearsLater.getTime() - asOf.getTime()) / 86400000);
+    const daysUntilDue = Math.floor((twoYearsLater.getTime() - asOf.getTime()) / MS_PER_DAY);
 
     if (isOverdue) {
         return {
@@ -112,7 +113,7 @@ function checkStaticSystem(aircraft: IAircraft, asOf: Date, isIFR: boolean): ILe
     twoYearsLater.setMonth(twoYearsLater.getMonth() + 24);
 
     const isOverdue = asOf > twoYearsLater;
-    const daysUntilDue = Math.floor((twoYearsLater.getTime() - asOf.getTime()) / 86400000);
+    const daysUntilDue = Math.floor((twoYearsLater.getTime() - asOf.getTime()) / MS_PER_DAY);
 
     if (isOverdue) {
         return {
@@ -183,7 +184,7 @@ function checkHundredHour(aircraft: IAircraft, asOf: Date, isForHire: boolean): 
 function checkMedical(pilot: IPilot, asOf: Date): ILegalityCheck {
     const medicalExp = new Date(pilot.medicalExpiration);
     const isExpired = asOf > medicalExp;
-    const daysUntilExp = Math.floor((medicalExp.getTime() - asOf.getTime()) / 86400000);
+    const daysUntilExp = Math.floor((medicalExp.getTime() - asOf.getTime()) / MS_PER_DAY);
 
     if (isExpired) {
         return {
@@ -214,7 +215,7 @@ function checkMedical(pilot: IPilot, asOf: Date): ILegalityCheck {
 function checkFlightReview(pilot: IPilot, asOf: Date): ILegalityCheck {
     const bfrExp = new Date(pilot.flightReviewExpiration);
     const isExpired = asOf > bfrExp;
-    const daysUntilExp = Math.floor((bfrExp.getTime() - asOf.getTime()) / 86400000);
+    const daysUntilExp = Math.floor((bfrExp.getTime() - asOf.getTime()) / MS_PER_DAY);
 
     if (isExpired) {
         return {
@@ -654,36 +655,4 @@ function calculateRiskScenarios(aircraft: IAircraft, pilot: IPilot, weather: IWe
         const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
         return severityOrder[a.severity] - severityOrder[b.severity];
     });
-}
-
-// Standalone audit for screenshot-parsed data (no flightId yet)
-export function runOfflineAudit(
-    aircraft: IAircraft,
-    pilot: IPilot,
-    scheduledDate: Date,
-    weather?: { flightCategory: 'VFR' | 'MVFR' | 'IFR' | 'LIFR'; wind: { speed: number; gust?: number } }
-): AuditResult {
-    const checks: ILegalityCheck[] = [];
-
-    // Maintenance checks
-    checks.push(checkAnnualInspection(aircraft, scheduledDate));
-    checks.push(checkTransponder(aircraft, scheduledDate));
-    checks.push(checkStaticSystem(aircraft, scheduledDate, pilot.certificates?.instrumentRated || false));
-    checks.push(checkHundredHour(aircraft, scheduledDate, false));
-
-    // Pilot currency checks
-    checks.push(checkMedical(pilot, scheduledDate));
-    checks.push(checkFlightReview(pilot, scheduledDate));
-
-    // Weather/safety checks
-    if (weather) {
-        const weatherChecks = checkWeatherVsPilot(weather.flightCategory, weather.wind, pilot);
-        checks.push(...weatherChecks);
-    }
-
-    const overallStatus = calculateOverallStatus(checks);
-    const summary = generateSummary(checks, overallStatus);
-    const riskScenarios = calculateRiskScenarios(aircraft, pilot, weather ? { ...weather, station: '', metar: '', visibility: 10, fetchedAt: new Date() } as any : undefined, scheduledDate);
-
-    return { overallStatus, checks, summary, riskScenarios };
 }

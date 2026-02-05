@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/db';
+import { requireAuth } from '@/lib/auth-helpers';
+import mongoose from 'mongoose';
 import Pilot from '@/lib/models/Pilot';
 import ParsedDocument from '@/lib/models/ParsedDocument';
 
@@ -80,9 +82,19 @@ export async function POST(
     { params }: { params: { id: string } }
 ) {
     try {
+        const { error, userId } = await requireAuth();
+        if (error) return error;
+
         await dbConnect();
         const body = await request.json();
         const { documentId, action } = body;
+
+        if (!mongoose.Types.ObjectId.isValid(params.id)) {
+            return NextResponse.json(
+                { success: false, error: 'Invalid pilot ID' },
+                { status: 400 }
+            );
+        }
 
         if (!documentId) {
             return NextResponse.json(
@@ -91,7 +103,7 @@ export async function POST(
             );
         }
 
-        const pilot = await Pilot.findById(params.id);
+        const pilot = await Pilot.findOne({ _id: params.id, userId });
         if (!pilot) {
             return NextResponse.json(
                 { success: false, error: 'Pilot not found' },
@@ -158,7 +170,7 @@ export async function POST(
         });
     } catch (error) {
         return NextResponse.json(
-            { success: false, error: (error as Error).message },
+            { success: false, error: 'Failed to apply logbook' },
             { status: 500 }
         );
     }

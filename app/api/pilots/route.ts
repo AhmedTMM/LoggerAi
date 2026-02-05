@@ -14,7 +14,7 @@ export async function GET() {
     return NextResponse.json({ success: true, data: pilots });
   } catch (error) {
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to process request' },
       { status: 500 }
     );
   }
@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Create pilot error:', error);
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to process request' },
       { status: 400 }
     );
   }

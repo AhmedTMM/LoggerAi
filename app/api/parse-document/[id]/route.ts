@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAuth } from '@/lib/auth-helpers';
+import mongoose from 'mongoose';
 import dbConnect from '@/lib/db';
 import ParsedDocument from '@/lib/models/ParsedDocument';
 import Aircraft from '@/lib/models/Aircraft';
@@ -9,9 +11,19 @@ export async function GET(
     request: NextRequest,
     { params }: { params: { id: string } }
 ) {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
+    if (!mongoose.Types.ObjectId.isValid(params.id)) {
+        return NextResponse.json(
+            { success: false, error: 'Invalid document ID' },
+            { status: 400 }
+        );
+    }
+
     try {
         await dbConnect();
-        const doc = await ParsedDocument.findById(params.id)
+        const doc = await ParsedDocument.findOne({ _id: params.id, userId })
             .populate('aircraft', 'tailNumber model')
             .lean();
 
@@ -25,7 +37,7 @@ export async function GET(
         return NextResponse.json({ success: true, data: doc });
     } catch (error) {
         return NextResponse.json(
-            { success: false, error: (error as Error).message },
+            { success: false, error: 'Failed to fetch document' },
             { status: 500 }
         );
     }
@@ -36,13 +48,23 @@ export async function PATCH(
     request: NextRequest,
     { params }: { params: { id: string } }
 ) {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
+    if (!mongoose.Types.ObjectId.isValid(params.id)) {
+        return NextResponse.json(
+            { success: false, error: 'Invalid document ID' },
+            { status: 400 }
+        );
+    }
+
     try {
         await dbConnect();
         const body = await request.json();
         const { aircraftId, pilotId } = body;
 
         // Get current document to check existing links
-        const currentDoc = await ParsedDocument.findById(params.id);
+        const currentDoc = await ParsedDocument.findOne({ _id: params.id, userId });
         if (!currentDoc) {
             return NextResponse.json(
                 { success: false, error: 'Document not found' },
@@ -96,8 +118,8 @@ export async function PATCH(
             }
         }
 
-        const doc = await ParsedDocument.findByIdAndUpdate(
-            params.id,
+        const doc = await ParsedDocument.findOneAndUpdate(
+            { _id: params.id, userId },
             { $set: update },
             { new: true }
         ).populate('aircraft', 'tailNumber model')
@@ -107,7 +129,7 @@ export async function PATCH(
         return NextResponse.json({ success: true, data: doc });
     } catch (error) {
         return NextResponse.json(
-            { success: false, error: (error as Error).message },
+            { success: false, error: 'Failed to update document' },
             { status: 500 }
         );
     }
@@ -118,13 +140,29 @@ export async function DELETE(
     request: NextRequest,
     { params }: { params: { id: string } }
 ) {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
+    if (!mongoose.Types.ObjectId.isValid(params.id)) {
+        return NextResponse.json(
+            { success: false, error: 'Invalid document ID' },
+            { status: 400 }
+        );
+    }
+
     try {
         await dbConnect();
-        await ParsedDocument.findByIdAndDelete(params.id);
+        const doc = await ParsedDocument.findOneAndDelete({ _id: params.id, userId });
+        if (!doc) {
+            return NextResponse.json(
+                { success: false, error: 'Document not found' },
+                { status: 404 }
+            );
+        }
         return NextResponse.json({ success: true });
     } catch (error) {
         return NextResponse.json(
-            { success: false, error: (error as Error).message },
+            { success: false, error: 'Failed to delete document' },
             { status: 500 }
         );
     }

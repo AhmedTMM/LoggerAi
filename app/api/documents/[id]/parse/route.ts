@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAuth } from '@/lib/auth-helpers';
+import mongoose from 'mongoose';
 import { parseDocumentUltraFast } from '@/lib/services/reductoService';
 import dbConnect from '@/lib/db';
 import ParsedDocument from '@/lib/models/ParsedDocument';
@@ -17,19 +19,29 @@ interface RouteContext {
 }
 
 // Helper to update document progress
-async function updateProgress(docId: string, progress: number, progressStep: string, status?: string) {
+async function updateProgress(docId: string, userId: string, progress: number, progressStep: string, status?: string) {
   const update: Record<string, any> = { progress, progressStep };
   if (status) update.status = status;
-  await ParsedDocument.findByIdAndUpdate(docId, update);
+  await ParsedDocument.findOneAndUpdate({ _id: docId, userId }, update);
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
   const { id: docId } = await context.params;
 
+  const { error, userId } = await requireAuth();
+  if (error) return error;
+
+  if (!mongoose.Types.ObjectId.isValid(docId)) {
+    return NextResponse.json(
+      { success: false, error: 'Invalid document ID' },
+      { status: 400 }
+    );
+  }
+
   try {
     await dbConnect();
 
-    const doc = await ParsedDocument.findById(docId);
+    const doc = await ParsedDocument.findOne({ _id: docId, userId });
     if (!doc) {
       return NextResponse.json(
         { success: false, error: 'Document not found' },
@@ -88,10 +100,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     try {
       // Progress: 30% - Uploading to Reducto
-      await updateProgress(docId, 30, 'uploading', 'parsing');
+      await updateProgress(docId, userId, 30, 'uploading', 'parsing');
 
       // Progress: 50% - Processing document
-      await updateProgress(docId, 50, 'processing');
+      await updateProgress(docId, userId, 50, 'processing');
 
       // Use ultra-fast direct Gemini vision extraction
       // POH documents are treated as logbooks for extraction purposes
@@ -99,17 +111,17 @@ export async function POST(request: NextRequest, context: RouteContext) {
       const result = await parseDocumentUltraFast(fileBase64, doc.fileType, parseType);
 
       // Progress: 80% - Extracting entries
-      await updateProgress(docId, 80, 'extracting');
+      await updateProgress(docId, userId, 80, 'extracting');
 
       if (!result.success) {
-        await ParsedDocument.findByIdAndUpdate(docId, {
+        await ParsedDocument.findOneAndUpdate({ _id: docId, userId }, {
           status: 'failed',
           progress: 0,
           progressStep: 'failed',
           error: result.error,
         });
         return NextResponse.json(
-          { success: false, error: result.error, documentId: docId },
+          { success: false, error: 'Failed to parse document', documentId: docId },
           { status: 500 }
         );
       }
@@ -122,7 +134,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       const summary = calculateSummary(entries);
 
       // Update document with parsed data
-      await ParsedDocument.findByIdAndUpdate(docId, {
+      await ParsedDocument.findOneAndUpdate({ _id: docId, userId }, {
         status: 'completed',
         progress: 100,
         progressStep: 'complete',
@@ -165,21 +177,21 @@ export async function POST(request: NextRequest, context: RouteContext) {
       });
     } catch (parseError) {
       console.error('Parse error:', parseError);
-      await ParsedDocument.findByIdAndUpdate(docId, {
+      await ParsedDocument.findOneAndUpdate({ _id: docId, userId }, {
         status: 'failed',
         progress: 0,
         progressStep: 'failed',
         error: (parseError as Error).message,
       });
       return NextResponse.json(
-        { success: false, error: (parseError as Error).message },
+        { success: false, error: 'Failed to parse document' },
         { status: 500 }
       );
     }
   } catch (error) {
     console.error('Document parse trigger error:', error);
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to parse document' },
       { status: 500 }
     );
   }
@@ -189,10 +201,20 @@ export async function POST(request: NextRequest, context: RouteContext) {
 export async function GET(request: NextRequest, context: RouteContext) {
   const { id: docId } = await context.params;
 
+  const { error, userId } = await requireAuth();
+  if (error) return error;
+
+  if (!mongoose.Types.ObjectId.isValid(docId)) {
+    return NextResponse.json(
+      { success: false, error: 'Invalid document ID' },
+      { status: 400 }
+    );
+  }
+
   try {
     await dbConnect();
 
-    const doc = await ParsedDocument.findById(docId)
+    const doc = await ParsedDocument.findOne({ _id: docId, userId })
       .select('status progress progressStep error summary entries filename documentType')
       .lean();
 
@@ -209,7 +231,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     });
   } catch (error) {
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to fetch document status' },
       { status: 500 }
     );
   }

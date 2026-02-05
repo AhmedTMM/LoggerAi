@@ -7,6 +7,8 @@ import {
   fetchWeatherForTime,
   fetchRouteWeather,
 } from '@/lib/services/weatherService';
+import { requireAuth } from '@/lib/auth-helpers';
+import { rateLimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,7 +17,22 @@ export async function GET(
   { params }: { params: { airport: string } }
 ) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
+    // Rate limit weather requests: 60 per minute per user
+    const rateLimited = rateLimit(`weather:${userId}`, { maxRequests: 60, windowSeconds: 60 });
+    if (rateLimited) return rateLimited;
+
     const airport = params.airport.toUpperCase();
+
+    // Validate airport code format (ICAO: 4 chars, FAA: 3-4 chars)
+    if (!/^[A-Z0-9]{3,4}$/.test(airport)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid airport code' },
+        { status: 400 }
+      );
+    }
     const { searchParams } = new URL(request.url);
 
     // Check for enhanced mode
@@ -105,7 +122,7 @@ export async function GET(
   } catch (error) {
     console.error('Weather fetch error:', error);
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to fetch weather data' },
       { status: 500 }
     );
   }

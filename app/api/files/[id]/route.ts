@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/db';
 import ParsedDocument from '@/lib/models/ParsedDocument';
 import { readFile, fileExists } from '@/lib/services/fileStorage';
+import { requireAuth } from '@/lib/auth-helpers';
+import mongoose from 'mongoose';
+
+// Sanitize filename for Content-Disposition header to prevent header injection
+function sanitizeFilename(filename: string): string {
+  return filename.replace(/[^\w\s.\-]/g, '_').substring(0, 255);
+}
 
 // Serve a stored file by document ID
 export async function GET(
@@ -9,11 +16,21 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     const { id } = await params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid document ID' },
+        { status: 400 }
+      );
+    }
 
     await dbConnect();
 
-    const doc = await ParsedDocument.findById(id).lean();
+    // Only serve files owned by the authenticated user
+    const doc = await ParsedDocument.findOne({ _id: id, userId }).lean();
 
     if (!doc) {
       return NextResponse.json(
@@ -21,6 +38,8 @@ export async function GET(
         { status: 404 }
       );
     }
+
+    const safeFilename = sanitizeFilename(doc.originalFilename || doc.filename || 'document');
 
     // Check if we have a file path
     if (doc.filePath) {
@@ -32,8 +51,9 @@ export async function GET(
         return new NextResponse(new Uint8Array(fileBuffer), {
           headers: {
             'Content-Type': mimeType,
-            'Content-Disposition': `inline; filename="${doc.originalFilename || doc.filename}"`,
-            'Cache-Control': 'public, max-age=31536000', // Cache for 1 year
+            'Content-Disposition': `inline; filename="${safeFilename}"`,
+            'Cache-Control': 'private, max-age=3600',
+            'X-Content-Type-Options': 'nosniff',
           },
         });
       }
@@ -47,7 +67,8 @@ export async function GET(
       return new NextResponse(new Uint8Array(fileBuffer), {
         headers: {
           'Content-Type': mimeType,
-          'Content-Disposition': `inline; filename="${doc.originalFilename || doc.filename}"`,
+          'Content-Disposition': `inline; filename="${safeFilename}"`,
+          'X-Content-Type-Options': 'nosniff',
         },
       });
     }
@@ -59,7 +80,7 @@ export async function GET(
   } catch (error) {
     console.error('File serve error:', error);
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to serve file' },
       { status: 500 }
     );
   }

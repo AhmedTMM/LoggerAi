@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import dbConnect from '@/lib/db';
 import ParsedDocument from '@/lib/models/ParsedDocument';
-import { auth } from '@/lib/auth';
+import { requireAuth } from '@/lib/auth-helpers';
 
 export async function GET(request: NextRequest) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     const searchParams = request.nextUrl.searchParams;
     const documentId = searchParams.get('documentId');
 
@@ -15,17 +19,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    await dbConnect();
-
-    // Get authenticated user
-    const session = await auth();
-    const userId = session?.user?.id;
-    if (!userId) {
+    if (!mongoose.Types.ObjectId.isValid(documentId)) {
       return NextResponse.json(
-        { success: false, error: 'Authentication required' },
-        { status: 401 }
+        { success: false, error: 'Invalid document ID' },
+        { status: 400 }
       );
     }
+
+    await dbConnect();
 
     // Find the document
     const doc = await ParsedDocument.findOne({ _id: documentId, userId })
@@ -54,7 +55,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('Status check error:', error);
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'An internal error occurred while checking document status' },
       { status: 500 }
     );
   }
@@ -63,6 +64,9 @@ export async function GET(request: NextRequest) {
 // Also support POST for batch status checks
 export async function POST(request: NextRequest) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     const body = await request.json();
     const { documentIds } = body;
 
@@ -73,21 +77,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await dbConnect();
-
-    // Get authenticated user
-    const session = await auth();
-    const userId = session?.user?.id;
-    if (!userId) {
+    // Validate all document IDs
+    const validIds = documentIds.filter((id: string) => mongoose.Types.ObjectId.isValid(id));
+    if (validIds.length === 0) {
       return NextResponse.json(
-        { success: false, error: 'Authentication required' },
-        { status: 401 }
+        { success: false, error: 'No valid document IDs provided' },
+        { status: 400 }
       );
     }
 
+    await dbConnect();
+
     // Find all documents
     const docs = await ParsedDocument.find({
-      _id: { $in: documentIds },
+      _id: { $in: validIds },
       userId
     })
       .select('_id status progress progressStep error summary documentType aircraft pilot')
@@ -115,7 +118,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Batch status check error:', error);
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'An internal error occurred while checking document status' },
       { status: 500 }
     );
   }

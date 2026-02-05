@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: true, data: flights });
   } catch (error) {
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to process request' },
       { status: 500 }
     );
   }
@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, data: populatedFlight }, { status: 201 });
   } catch (error) {
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to process request' },
       { status: 400 }
     );
   }

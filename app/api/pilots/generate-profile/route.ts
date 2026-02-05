@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/db';
+import { requireAuth } from '@/lib/auth-helpers';
+import mongoose from 'mongoose';
 import Pilot from '@/lib/models/Pilot';
 import ParsedDocument from '@/lib/models/ParsedDocument';
 import { parseDocument } from '@/lib/services/reductoService';
@@ -20,6 +22,9 @@ import { generatePilotProfile } from '@/lib/services/aiService';
  */
 export async function POST(request: NextRequest) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await dbConnect();
     const body = await request.json();
 
@@ -80,8 +85,8 @@ export async function POST(request: NextRequest) {
     if (createPilot) {
       console.log('[ProfileGen] Creating pilot in database...');
 
-      // Check if email already exists
-      const existingPilot = await Pilot.findOne({ email: generatedProfile.email });
+      // Check if email already exists for this user
+      const existingPilot = await Pilot.findOne({ email: generatedProfile.email, userId });
       if (existingPilot) {
         return NextResponse.json(
           {
@@ -95,6 +100,7 @@ export async function POST(request: NextRequest) {
 
       // Save the parsed document first
       savedDocument = await ParsedDocument.create({
+        userId,
         filename: body.filename || `logbook_${Date.now()}.pdf`,
         documentType: 'logbook',
         status: 'completed',
@@ -111,6 +117,7 @@ export async function POST(request: NextRequest) {
 
       // Create the pilot with all the generated data
       savedPilot = await Pilot.create({
+        userId,
         name: generatedProfile.name,
         email: generatedProfile.email,
         certificates: generatedProfile.certificates,
@@ -147,7 +154,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('[ProfileGen] Error:', error);
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to generate pilot profile' },
       { status: 500 }
     );
   }

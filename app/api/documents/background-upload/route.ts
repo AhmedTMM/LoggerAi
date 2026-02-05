@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import dbConnect from '@/lib/db';
 import ParsedDocument from '@/lib/models/ParsedDocument';
-import { auth } from '@/lib/auth';
+import { requireAuth } from '@/lib/auth-helpers';
 import Aircraft, { LogbookCategory } from '@/lib/models/Aircraft';
 import Pilot from '@/lib/models/Pilot';
 import { classifyDocumentFast } from '@/lib/services/aiService';
@@ -58,17 +59,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await dbConnect();
+    const { error, userId } = await requireAuth();
+    if (error) return error;
 
-    // Get authenticated user
-    const session = await auth();
-    const userId = session?.user?.id;
-    if (!userId) {
-      return NextResponse.json(
-        { success: false, error: 'Authentication required' },
-        { status: 401 }
-      );
-    }
+    await dbConnect();
 
     // Classify document quickly
     const classification = await classifyDocumentFast(fileBase64, fileType);
@@ -346,7 +340,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Background upload error:', error);
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'An internal error occurred during upload' },
       { status: 500 }
     );
   }

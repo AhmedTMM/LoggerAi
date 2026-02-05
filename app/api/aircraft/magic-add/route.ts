@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/db';
 import Aircraft from '@/lib/models/Aircraft';
 import { scrapeAircraftByTailNumber, isValidNNumber } from '@/lib/services/faaScrapingService';
+import { requireAuth } from '@/lib/auth-helpers';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // Allow up to 60 seconds for scraping
 
 export async function POST(request: NextRequest) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await dbConnect();
     const body = await request.json();
     const { tailNumber } = body;
@@ -32,7 +36,7 @@ export async function POST(request: NextRequest) {
       ? tailNumber.toUpperCase()
       : `N${tailNumber.toUpperCase()}`;
 
-    const existing = await Aircraft.findOne({ tailNumber: cleanTail });
+    const existing = await Aircraft.findOne({ tailNumber: cleanTail, userId });
     if (existing) {
       return NextResponse.json(
         { success: false, error: `Aircraft ${cleanTail} already exists in the database.` },
@@ -87,7 +91,7 @@ export async function POST(request: NextRequest) {
       scrapedData: scrapedData.scrapedData,
     };
 
-    const aircraft = new Aircraft(aircraftData);
+    const aircraft = new Aircraft({ ...aircraftData, userId });
     await aircraft.save();
 
     console.log(`[Magic Add] Successfully created aircraft ${cleanTail}`);
@@ -101,7 +105,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('[Magic Add] Error:', error);
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to add aircraft' },
       { status: 500 }
     );
   }

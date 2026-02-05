@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import dbConnect from '@/lib/db';
 import Flight from '@/lib/models/Flight';
+import { requireAuth } from '@/lib/auth-helpers';
 import { generateAISafetyAnalysis, sendAISafetyEmail } from '@/lib/services/aiSafetyService';
 import { IPilot } from '@/lib/models/Pilot';
 import { IAircraft } from '@/lib/models/Aircraft';
@@ -12,13 +14,23 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await dbConnect();
+
+    if (!mongoose.Types.ObjectId.isValid(params.id)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid ID' },
+        { status: 400 }
+      );
+    }
 
     const body = await request.json().catch(() => ({}));
     const sendEmail = body.sendEmail !== false; // Default to sending email
 
     // Fetch flight with populated pilot and aircraft
-    const flight = await Flight.findById(params.id)
+    const flight = await Flight.findOne({ _id: params.id, userId })
       .populate('pilot')
       .populate('aircraft')
       .exec();
@@ -104,7 +116,7 @@ export async function POST(
 
   } catch (error) {
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to run AI analysis' },
       { status: 500 }
     );
   }
@@ -116,9 +128,19 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await dbConnect();
 
-    const flight = await Flight.findById(params.id)
+    if (!mongoose.Types.ObjectId.isValid(params.id)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid ID' },
+        { status: 400 }
+      );
+    }
+
+    const flight = await Flight.findOne({ _id: params.id, userId })
       .populate('pilot')
       .populate('aircraft')
       .exec();
@@ -142,7 +164,7 @@ export async function GET(
 
   } catch (error) {
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to retrieve AI analysis' },
       { status: 500 }
     );
   }

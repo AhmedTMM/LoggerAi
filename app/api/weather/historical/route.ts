@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchHistoricalMETAR } from '@/lib/services/historicalWeatherService';
+import { requireAuth } from '@/lib/auth-helpers';
 
 export async function POST(request: NextRequest) {
   try {
+    const { error } = await requireAuth();
+    if (error) return error;
+
     const body = await request.json();
     const { airport, date } = body;
 
@@ -44,7 +48,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Historical weather API error:', error);
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to fetch historical weather' },
       { status: 500 }
     );
   }

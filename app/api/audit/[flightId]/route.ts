@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import dbConnect from '@/lib/db';
 import Flight from '@/lib/models/Flight';
+import { requireAuth } from '@/lib/auth-helpers';
 import { runLegalityAudit } from '@/lib/services/legalityService';
 import { runComprehensiveSafetyAnalysis } from '@/lib/services/comprehensiveSafetyService';
 import { sendAuditEmail, sendOwnerDangerAlert } from '@/lib/services/emailService';
@@ -13,8 +15,18 @@ export async function POST(
   { params }: { params: { flightId: string } }
 ) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await dbConnect();
     const { flightId } = params;
+
+    if (!mongoose.Types.ObjectId.isValid(flightId)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid ID' },
+        { status: 400 }
+      );
+    }
 
     // Check for query params
     const { searchParams } = new URL(request.url);
@@ -28,7 +40,7 @@ export async function POST(
       comprehensiveAnalysis = await runComprehensiveSafetyAnalysis(flightId);
       result = {
         overallStatus: comprehensiveAnalysis.goNoGoRecommendation,
-        checks: (await Flight.findById(flightId))?.legalityChecks || [],
+        checks: (await Flight.findOne({ _id: flightId, userId }))?.legalityChecks || [],
         summary: comprehensiveAnalysis.reasoning,
         riskScenarios: comprehensiveAnalysis.combinedRiskScenarios,
       };
@@ -44,7 +56,7 @@ export async function POST(
     };
 
     if (result.overallStatus === 'no-go' || result.overallStatus === 'caution') {
-      const flight = await Flight.findById(flightId)
+      const flight = await Flight.findOne({ _id: flightId, userId })
         .populate('pilot')
         .populate('aircraft')
         .exec();
@@ -78,7 +90,7 @@ export async function POST(
     }
 
     // Return populated flight
-    const populatedFlight = await Flight.findById(flightId)
+    const populatedFlight = await Flight.findOne({ _id: flightId, userId })
       .populate('pilot', 'name email certificates experience safetyAnalysis')
       .populate('aircraft', 'tailNumber model maintenanceDates currentHours operatingLimits safetyAnalysis owner');
 
@@ -92,7 +104,7 @@ export async function POST(
   } catch (error) {
     console.error('Audit error:', error);
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to run audit' },
       { status: 500 }
     );
   }
@@ -104,10 +116,20 @@ export async function GET(
   { params }: { params: { flightId: string } }
 ) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await dbConnect();
     const { flightId } = params;
 
-    const flight = await Flight.findById(flightId)
+    if (!mongoose.Types.ObjectId.isValid(flightId)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid ID' },
+        { status: 400 }
+      );
+    }
+
+    const flight = await Flight.findOne({ _id: flightId, userId })
       .populate('pilot', 'name email certificates experience safetyAnalysis')
       .populate('aircraft', 'tailNumber model maintenanceDates currentHours operatingLimits safetyAnalysis owner');
 
@@ -133,7 +155,7 @@ export async function GET(
     });
   } catch (error) {
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to retrieve audit' },
       { status: 500 }
     );
   }

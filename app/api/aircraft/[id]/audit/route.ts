@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import Aircraft from '@/lib/models/Aircraft';
 import { runAV1ONICSAudit, getAV1ONICSSummary } from '@/lib/services/av1onicsService';
+import { requireAuth } from '@/lib/auth-helpers';
+import mongoose from 'mongoose';
 
 /**
  * POST /api/aircraft/[id]/audit
@@ -12,11 +14,21 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await connectDB();
     const { id } = await params;
 
-    // Get aircraft
-    const aircraft = await Aircraft.findById(id);
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid aircraft ID' },
+        { status: 400 }
+      );
+    }
+
+    // Get aircraft (scoped to user)
+    const aircraft = await Aircraft.findOne({ _id: id, userId });
     if (!aircraft) {
       return NextResponse.json(
         { success: false, error: 'Aircraft not found' },
@@ -69,11 +81,21 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await connectDB();
     const { id } = await params;
 
-    // Get aircraft
-    const aircraft = await Aircraft.findById(id);
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid aircraft ID' },
+        { status: 400 }
+      );
+    }
+
+    // Get aircraft (scoped to user)
+    const aircraft = await Aircraft.findOne({ _id: id, userId });
     if (!aircraft) {
       return NextResponse.json(
         { success: false, error: 'Aircraft not found' },

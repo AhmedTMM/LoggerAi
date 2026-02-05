@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
+import mongoose from 'mongoose';
 import dbConnect from '@/lib/db';
 import ParsedDocument from '@/lib/models/ParsedDocument';
-import { auth } from '@/lib/auth';
+import { requireAuth } from '@/lib/auth-helpers';
 import Aircraft, { LogbookCategory } from '@/lib/models/Aircraft';
 import Pilot from '@/lib/models/Pilot';
 import { parseDocumentUltraFast } from '@/lib/services/reductoService';
@@ -106,19 +107,16 @@ export async function POST(request: NextRequest) {
           return;
         }
 
-        progress(5, 'Connecting to database...');
-        await dbConnect();
-
-        // Get authenticated user
-        const session = await auth();
-        const userId = session?.user?.id;
-        console.log('[Smart-Upload] Auth check:', { hasSession: !!session, hasUser: !!session?.user, userId });
-        if (!userId) {
-          console.error('[Smart-Upload] No userId found in session');
+        // Authenticate user
+        const { error: authError, userId } = await requireAuth();
+        if (authError) {
           send({ type: 'error', message: 'Authentication required' });
           safeClose();
           return;
         }
+
+        progress(5, 'Connecting to database...');
+        await dbConnect();
 
         progress(10, 'Analyzing document with AI...');
 
@@ -173,7 +171,13 @@ export async function POST(request: NextRequest) {
         // Try to match or create pilot
         if (pilotTypes && analysis?.pilotName) {
           progress(40, 'Matching pilot...');
-          const matchedPilot = await findCachedPilotByName(analysis.pilotName);
+          const pilots = await Pilot.find({ userId }).select('_id name email').lean();
+          const normalizedSearch = analysis.pilotName.toLowerCase().trim();
+
+          let matchedPilot = pilots.find((p: any) =>
+            (p.name || '').toLowerCase().includes(normalizedSearch) ||
+            normalizedSearch.includes((p.name || '').toLowerCase())
+          );
 
           if (matchedPilot) {
             pilotId = matchedPilot._id;
@@ -223,7 +227,14 @@ export async function POST(request: NextRequest) {
         const shouldMatchAircraft = aircraftTypes || documentType === 'maintenance';
         if (shouldMatchAircraft && tailNumbers.length > 0) {
           progress(50, 'Matching aircraft...');
-          const matchedAircraft = await findCachedAircraftByTail(tailNumbers);
+          const allAircraft = await Aircraft.find({ userId }).select('_id tailNumber').lean();
+
+          for (const tail of tailNumbers) {
+            const normalizedTail = tail.toUpperCase().replace(/[^A-Z0-9]/g, '');
+            const matchedAircraft = allAircraft.find((a: any) => {
+              const acTail = (a.tailNumber || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+              return acTail === normalizedTail || acTail.includes(normalizedTail) || normalizedTail.includes(acTail);
+            });
 
           if (matchedAircraft) {
             aircraftId = matchedAircraft._id;
@@ -417,12 +428,12 @@ export async function POST(request: NextRequest) {
             status: 'failed',
             error: (parseError as Error).message,
           });
-          send({ type: 'error', message: (parseError as Error).message });
+          send({ type: 'error', message: 'An error occurred while processing the document' });
         }
 
       } catch (error) {
         console.error('Smart upload error:', error);
-        send({ type: 'error', message: (error as Error).message });
+        send({ type: 'error', message: 'An internal error occurred during upload' });
       } finally {
         safeClose();
       }

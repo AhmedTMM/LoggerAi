@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import dbConnect from '@/lib/db';
 import ParsedDocument from '@/lib/models/ParsedDocument';
-import { auth } from '@/lib/auth';
+import { requireAuth } from '@/lib/auth-helpers';
 
 /**
  * Update logbook entries with weather data
@@ -12,18 +13,20 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await dbConnect();
 
-    const session = await auth();
-    const userId = session?.user?.id;
-    if (!userId) {
+    const { id } = params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
       return NextResponse.json(
-        { success: false, error: 'Authentication required' },
-        { status: 401 }
+        { success: false, error: 'Invalid document ID' },
+        { status: 400 }
       );
     }
 
-    const { id } = params;
     const body = await request.json();
     const { weatherData } = body; // Map of entry index to weather data
 
@@ -75,7 +78,7 @@ export async function POST(
   } catch (error) {
     console.error('Enrich weather error:', error);
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'An internal error occurred while enriching weather data' },
       { status: 500 }
     );
   }

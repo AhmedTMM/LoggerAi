@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/db';
+import { requireAuth } from '@/lib/auth-helpers';
+import mongoose from 'mongoose';
 import Pilot from '@/lib/models/Pilot';
 
 // GET: Retrieve stored weather experience for a pilot
@@ -8,10 +10,20 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await dbConnect();
     const { id } = params;
 
-    const pilot = await Pilot.findById(id).select('weatherExperience name');
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid pilot ID' },
+        { status: 400 }
+      );
+    }
+
+    const pilot = await Pilot.findOne({ _id: id, userId }).select('weatherExperience name');
     if (!pilot) {
       return NextResponse.json(
         { success: false, error: 'Pilot not found' },
@@ -27,7 +39,7 @@ export async function GET(
   } catch (error) {
     console.error('Get weather experience error:', error);
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to retrieve weather experience' },
       { status: 500 }
     );
   }
@@ -39,8 +51,18 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
+    const { error, userId } = await requireAuth();
+    if (error) return error;
+
     await dbConnect();
     const { id } = params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid pilot ID' },
+        { status: 400 }
+      );
+    }
 
     const body = await request.json();
     const { totalFlights, flightsWithWeather, vfr, mvfr, ifr, lifr } = body;
@@ -53,7 +75,7 @@ export async function POST(
       );
     }
 
-    const pilot = await Pilot.findById(id);
+    const pilot = await Pilot.findOne({ _id: id, userId });
     if (!pilot) {
       return NextResponse.json(
         { success: false, error: 'Pilot not found' },
@@ -81,7 +103,7 @@ export async function POST(
   } catch (error) {
     console.error('Update weather experience error:', error);
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Failed to update weather experience' },
       { status: 500 }
     );
   }

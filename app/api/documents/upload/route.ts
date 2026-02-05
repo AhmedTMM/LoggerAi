@@ -6,11 +6,8 @@ import { classifyDocumentFast, FastDocumentClassification } from '@/lib/services
 import { saveFile } from '@/lib/services/fileStorage';
 import { reconcileDocumentLinks } from '@/lib/services/reconciliationService';
 import { requireAuth } from '@/lib/auth-helpers';
-import {
-  calculateSummary,
-  updatePilotExperience,
-  updateAircraftFromEntries
-} from '@/lib/services/documentProcessingUtils';
+import { calculateSummary } from '@/lib/services/documentProcessingUtils';
+import { rateLimit } from '@/lib/rate-limit';
 
 // Allow longer timeout for large file processing
 export const maxDuration = 300;
@@ -24,6 +21,10 @@ export async function POST(request: NextRequest) {
   try {
     const { error, userId } = await requireAuth();
     if (error) return error;
+
+    // Rate limit uploads: 20 per minute per user
+    const rateLimited = rateLimit(`doc-upload:${userId}`, { maxRequests: 20, windowSeconds: 60 });
+    if (rateLimited) return rateLimited;
 
     // Use text() instead of json() to handle larger payloads
     let body;
@@ -43,6 +44,15 @@ export async function POST(request: NextRequest) {
     if (!fileBase64 || !fileType) {
       return NextResponse.json(
         { success: false, error: 'Missing required fields: fileBase64, fileType' },
+        { status: 400 }
+      );
+    }
+
+    // Validate fileType to prevent arbitrary file uploads
+    const allowedFileTypes = ['pdf', 'image'];
+    if (!allowedFileTypes.includes(fileType)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid file type. Allowed: pdf, image' },
         { status: 400 }
       );
     }
@@ -257,7 +267,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Document upload error:', error);
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
+      { success: false, error: 'Document upload failed' },
       { status: 500 }
     );
   }

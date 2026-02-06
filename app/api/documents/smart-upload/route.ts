@@ -180,7 +180,7 @@ export async function POST(request: NextRequest) {
           );
 
           if (matchedPilot) {
-            pilotId = matchedPilot._id;
+            pilotId = matchedPilot._id.toString();
             progress(45, `Linked to pilot: ${matchedPilot.name}`);
           } else {
             // Create new pilot
@@ -237,8 +237,10 @@ export async function POST(request: NextRequest) {
             });
 
           if (matchedAircraft) {
-            aircraftId = matchedAircraft._id;
+            aircraftId = matchedAircraft._id.toString();
             progress(55, `Linked to aircraft: ${matchedAircraft.tailNumber}`);
+            break;
+          }
           }
 
           // Create new aircraft if not found and this is an aircraft document

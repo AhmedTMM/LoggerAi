@@ -6,7 +6,7 @@ import { classifyDocumentFast, FastDocumentClassification } from '@/lib/services
 import { saveFile } from '@/lib/services/fileStorage';
 import { reconcileDocumentLinks } from '@/lib/services/reconciliationService';
 import { requireAuth } from '@/lib/auth-helpers';
-import { calculateSummary } from '@/lib/services/documentProcessingUtils';
+import { calculateSummary, updateAircraftFromEntries, updatePilotExperience } from '@/lib/services/documentProcessingUtils';
 import { rateLimit } from '@/lib/rate-limit';
 
 // Allow longer timeout for large file processing

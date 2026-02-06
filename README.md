@@ -4,28 +4,40 @@ A comprehensive flight safety and compliance management platform for general avi
 
 ## Features
 
-- **Flight Legality Audits** - Automatically generates GO/CAUTION/NO-GO status based on FAA compliance checks
-- **Intelligent Logbook Parsing** - Uses AI to parse handwritten and PDF logbooks with OCR support
-- **Maintenance Tracking** - Monitors annual inspections, transponder checks, 100-hour inspections, and airworthiness items
-- **Risk Analysis** - Probabilistic safety analysis combining weather, pilot currency, and aircraft condition
-- **Fleet Management** - Manage multiple aircraft with detailed maintenance histories
-- **Pilot Management** - Track certifications, medical status, flight reviews, and experience
-- **Weather Integration** - Real-time METAR data from aviationweather.gov
-- **Email Notifications** - Automated pre-flight alerts and audit reports
+- **Flight Legality Audits** - Automatically generates GO/CAUTION/NO-GO status based on FAA compliance checks (14 CFR Part 91 & Part 61)
+- **Intelligent Logbook Parsing** - Uses Reducto AI to parse handwritten and PDF logbooks with OCR support
+- **Maintenance Tracking** - Monitors annual inspections, transponder checks, 100-hour inspections, altimeter/static system, VOR, ELT, and airworthiness directives
+- **Comprehensive Risk Analysis** - Probabilistic safety scoring combining weather, pilot currency, aircraft condition, and route familiarity
+- **Fleet Management** - Manage multiple aircraft with detailed maintenance histories, POH data, V-speeds, weight/balance, and MEL/KOEL configurations
+- **Pilot Management** - Track certifications, medical status, flight reviews, endorsements, and flight experience (total, PIC, night, IFR, recent)
+- **Weather Integration** - Real-time METAR/TAF data from aviationweather.gov with density altitude calculations and hazard identification
+- **Email Notifications** - Automated pre-flight alerts, audit reports, and mechanic/pilot notifications via Resend
+- **Document Management** - Upload, parse, and extract data from PDFs, flight plans, and aviation documents with AI-powered smart import
+- **Interactive Flight Map** - Leaflet-based map with flight route visualization and playback
+- **FAA Registry Lookup** - Look up aircraft data directly from the FAA registry
+- **Command Palette** - Quick-access command menu for navigating the application
 
 ## Tech Stack
 
 | Layer | Technologies |
 |-------|--------------|
-| Frontend | Next.js 14, React 18, TypeScript, Tailwind CSS |
-| Backend | Next.js API Routes, MongoDB, Mongoose |
-| AI Services | OpenRouter (multi-model), Reducto AI |
-| Other | React Query, Leaflet Maps, Recharts, Resend |
+| Framework | Next.js 14, React 18, TypeScript |
+| Styling | Tailwind CSS, Class Variance Authority |
+| State Management | TanStack React Query |
+| Database | MongoDB, Mongoose |
+| Authentication | NextAuth (v5 beta) with Google OAuth |
+| AI Services | OpenRouter (Claude, Gemini, GPT), Reducto AI (document parsing) |
+| Maps & Charts | Leaflet / React-Leaflet, Recharts |
+| Email | Resend |
+| Web Scraping | Firecrawl (POH data extraction) |
+| Validation | Zod |
+| Icons | Lucide React |
 
 ## Prerequisites
 
 - Node.js 18+
 - MongoDB (local or MongoDB Atlas)
+- Google OAuth credentials (for authentication)
 - API keys for: OpenRouter, Reducto AI, Resend
 
 ## Installation
@@ -46,13 +58,22 @@ A comprehensive flight safety and compliance management platform for general avi
    cp .env.example .env.local
    ```
 
-   Edit `.env.local` with your values:
+   Edit `.env.local` with your values (see `.env.example` for the full list):
    ```
+   # Database
    MONGODB_URI=mongodb://localhost:27017/aviation-intelligence
+
+   # Authentication
+   GOOGLE_CLIENT_ID=your_google_client_id
+   GOOGLE_CLIENT_SECRET=your_google_client_secret
+   AUTH_SECRET=your_auth_secret  # generate with: openssl rand -base64 32
+   NEXTAUTH_URL=http://localhost:3001
+
+   # AI & API Services
    OPENROUTER_API_KEY=your_openrouter_api_key
    REDUCTO_API_KEY=your_reducto_api_key
    RESEND_API_KEY=your_resend_api_key
-   FIRECRAWL_API_KEY=your_firecrawl_api_key
+   FIRECRAWL_API_KEY=your_firecrawl_api_key  # optional
    ```
 
 4. **Seed sample data (optional)**
@@ -71,35 +92,59 @@ A comprehensive flight safety and compliance management platform for general avi
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Start development server |
+| `npm run dev` | Start development server with hot reload |
 | `npm run build` | Build for production |
 | `npm start` | Start production server |
-| `npm run lint` | Run ESLint |
+| `npm run lint` | Run ESLint checks |
 | `npm run seed` | Populate database with sample data |
+| `npm run migrate:denormalize` | Backfill aircraft/pilot denormalized fields |
 
 ## Project Structure
 
 ```
 LoggerAi/
-├── app/                    # Next.js App Router
-│   ├── page.tsx           # Dashboard
-│   ├── aircraft/          # Aircraft management
-│   ├── pilots/            # Pilot profiles
-│   ├── flights/           # Flight planning & audits
-│   ├── maintenance/       # Maintenance tracking
-│   ├── files/             # Document management
-│   └── api/               # API routes
-├── components/            # React components
-│   ├── FlightMap.tsx     # Interactive map
-│   ├── LogbookUI.tsx     # Logbook interface
-│   └── ui/               # Base UI components
-├── lib/                   # Shared utilities
-│   ├── models/           # Mongoose schemas
-│   ├── services/         # Business logic
-│   ├── db.ts             # Database connection
-│   ├── hooks.ts          # React Query hooks
-│   └── types.ts          # TypeScript types
-└── scripts/              # Utility scripts
+├── app/                        # Next.js App Router
+│   ├── page.tsx               # Dashboard (fleet overview, stats)
+│   ├── layout.tsx             # Root layout with providers & navigation
+│   ├── aircraft/              # Aircraft management pages
+│   ├── pilots/                # Pilot management pages
+│   ├── flights/               # Flight planning & audits
+│   ├── maintenance/           # Maintenance tracking
+│   ├── files/                 # Document management
+│   ├── login/                 # Authentication page
+│   └── api/                   # Backend API routes
+│       ├── aircraft/          # Aircraft CRUD + analysis endpoints
+│       ├── pilots/            # Pilot CRUD + safety endpoints
+│       ├── flights/           # Flight CRUD + safety analysis
+│       ├── audit/             # Flight legality audit engine
+│       ├── documents/         # Document upload & AI parsing
+│       ├── weather/           # METAR/TAF data
+│       ├── auth/              # NextAuth authentication
+│       ├── cron/              # Scheduled tasks (hourly checks, alerts)
+│       └── actions/           # Email actions (pilot/mechanic)
+├── components/                # React components
+│   ├── FlightMap.tsx          # Interactive Leaflet map
+│   ├── FlightPlayback.tsx     # Flight route playback
+│   ├── LogbookUI.tsx          # Logbook upload & parsing
+│   ├── MagicImport.tsx        # AI-powered document import
+│   └── ui/                    # Base UI components
+├── lib/                       # Shared utilities & backend logic
+│   ├── models/                # Mongoose schemas (Aircraft, Pilot, Flight, etc.)
+│   ├── services/              # Business logic services
+│   │   ├── legalityService.ts     # FAA compliance audit engine
+│   │   ├── reductoService.ts      # Document parsing via Reducto AI
+│   │   ├── comprehensiveSafetyService.ts  # Risk analysis
+│   │   ├── weatherService.ts      # Weather data & analysis
+│   │   ├── emailService.ts        # Email notifications
+│   │   └── ...                    # Additional services
+│   ├── db.ts                  # MongoDB connection
+│   ├── auth.ts                # NextAuth configuration
+│   ├── hooks.ts               # React Query hooks
+│   ├── types.ts               # TypeScript type definitions
+│   └── faaRegulations.ts      # FAA regulatory constants
+├── scripts/                   # Utility & migration scripts
+├── middleware.ts              # Authentication middleware
+└── next.config.js             # Next.js configuration
 ```
 
 ## API Endpoints
@@ -107,7 +152,10 @@ LoggerAi/
 ### Aircraft
 - `GET/POST /api/aircraft` - List/create aircraft
 - `GET/PUT/DELETE /api/aircraft/[id]` - Manage aircraft
-- `GET /api/aircraft/[id]/analyze` - Generate safety analysis
+- `GET /api/aircraft/[id]/analyze` - Generate AI safety analysis
+- `GET /api/aircraft/[id]/audit` - Run maintenance audit
+- `GET /api/aircraft/lookup` - FAA registry lookup
+- `POST /api/aircraft/magic-add` - AI-powered aircraft addition
 
 ### Pilots
 - `GET/POST /api/pilots` - List/create pilots
@@ -117,11 +165,25 @@ LoggerAi/
 ### Flights
 - `GET/POST /api/flights` - List/create flights
 - `GET/PUT/DELETE /api/flights/[id]` - Manage flights
+- `GET /api/flights/[id]/safety-analysis` - Comprehensive safety analysis
 - `GET /api/audit/[flightId]` - Run legality audit
 
-### Other
-- `GET /api/weather/[airport]` - Get METAR data
+### Documents
 - `POST /api/documents/upload` - Upload documents
+- `POST /api/documents/smart-upload` - AI-powered upload with parsing
+- `POST /api/documents/[id]/parse` - Parse an uploaded document
+- `POST /api/documents/[id]/discover-aircraft` - Extract aircraft data from document
+
+### Weather
+- `GET /api/weather/[airport]` - Get METAR/TAF data
+
+### Email Actions
+- `POST /api/actions/email-pilot` - Send pilot alert
+- `POST /api/actions/email-mechanic` - Send mechanic notification
+
+### Scheduled Tasks
+- `GET /api/cron/hourly-check` - Hourly maintenance checks
+- `GET /api/cron/pre-flight-alert` - Pre-flight reminders
 
 ## FAA Compliance & Regulatory Framework
 
@@ -203,11 +265,17 @@ The system validates equipment against the FAA-required instrument lists:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `MONGODB_URI` | Yes | MongoDB connection string |
-| `OPENROUTER_API_KEY` | Yes | OpenRouter API key |
-| `REDUCTO_API_KEY` | Yes | Reducto AI API key |
+| `GOOGLE_CLIENT_ID` | Yes | Google OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth client secret |
+| `AUTH_SECRET` | Yes | NextAuth JWT secret (generate with `openssl rand -base64 32`) |
+| `NEXTAUTH_URL` | Yes | Authentication callback URL (e.g., `http://localhost:3001`) |
+| `OPENROUTER_API_KEY` | Yes | OpenRouter API key for AI models |
+| `REDUCTO_API_KEY` | Yes | Reducto AI API key for document parsing |
 | `RESEND_API_KEY` | Yes | Resend email API key |
-| `FIRECRAWL_API_KEY` | No | Firecrawl web scraping key |
+| `SAFETY_EMAIL_RECIPIENT` | No | Email address for safety alert notifications |
+| `FIRECRAWL_API_KEY` | No | Firecrawl web scraping key (POH data) |
 | `PORT` | No | Server port (default: 3000) |
+| `NODE_ENV` | No | Environment (`development` / `production`) |
 
 ## Disclaimer
 

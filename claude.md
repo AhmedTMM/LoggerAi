@@ -42,10 +42,13 @@ Simple stats dashboard: fleet size, pilot count, upcoming flights, quick actions
 Parses logbooks via Reducto AI. Detailed JSON schema prompt for structured extraction.
 
 ### `lib/services/legalityService.ts`
-FAA compliance engine:
-- Aircraft: Annual (12mo), Transponder (24mo), Static (IFR), 100-Hour
-- Pilot: Medical, Flight Review (BFR)
-- Weather: IFR conditions vs ratings, wind analysis
+FAA compliance engine with full 14 CFR citations:
+- Aircraft (Part 91 Subpart E): Annual (91.409a), Transponder (91.413), Altimeter/Static (91.411), 100-Hour (91.409b), ELT (91.207), VOR (91.171)
+- Pilot (Part 61): Medical (61.23) with BasicMed support, Flight Review (61.56) with WINGS alternative, Day/Night Landing Currency (61.57a/b), IFR Currency (61.57c)
+- Weather: VFR minimums (91.155), IFR vs pilot ratings, wind analysis
+
+### `lib/faaRegulations.ts`
+Comprehensive FAA regulatory constants: 14 CFR Parts 39, 43, 61, 91, 107, NTSB 830. All checks, endorsements, instruments, and currency requirements with section references.
 
 ## Environment Variables
 ```

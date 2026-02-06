@@ -1,15 +1,40 @@
 import mongoose, { Schema, Model } from 'mongoose';
 
 export interface ICertificate {
-  type: 'Student' | 'PPL' | 'CPL' | 'ATP' | 'Sport';
+  type: 'Student' | 'Recreational' | 'PPL' | 'CPL' | 'ATP' | 'Sport';
   instrumentRated: boolean;
   multiEngineRated: boolean;
+  // Additional ratings and instructor privileges
+  cfi?: boolean;            // Certified Flight Instructor (14 CFR 61.183)
+  cfii?: boolean;           // CFI - Instrument (14 CFR 61.183)
+  mei?: boolean;            // Multi-Engine Instructor
+  groundInstructor?: boolean;
+  remotePilot?: boolean;    // Part 107 sUAS rating
+  // Category/class ratings held
+  categoryClassRatings?: string[]; // e.g., ['ASEL', 'AMEL', 'Rotorcraft-Helicopter']
+  // Type ratings (e.g., for large/turbojet aircraft)
+  typeRatings?: string[];   // e.g., ['CE-525', 'B737']
+  certificateNumber?: string; // FAA certificate number
+  dateIssued?: Date;
 }
 
 export interface IEndorsement {
-  type: 'High Performance' | 'Complex' | 'Tailwheel' | 'High Altitude';
+  type:
+    | 'High Performance'    // 14 CFR 61.31(f) - >200 HP
+    | 'Complex'             // 14 CFR 61.31(e) - retractable gear, flaps, controllable prop
+    | 'Tailwheel'           // 14 CFR 61.31(i)
+    | 'High Altitude'       // 14 CFR 61.31(g) - pressurized >25,000 ft
+    | 'Solo'                // 14 CFR 61.87 - student solo endorsement
+    | 'Solo Cross-Country'  // 14 CFR 61.93
+    | 'Checkride'           // 14 CFR 61.39 - practical test endorsement
+    | 'Knowledge Test'      // 14 CFR 61.35
+    | 'Class B'             // 14 CFR 61.95 - Class B airspace (student)
+    | 'Class C'             // Class C airspace (student)
+    | 'Night';              // Sport pilot night endorsement
   date: Date;
   instructor: string;
+  regulatoryReference?: string; // e.g., "14 CFR 61.31(f)"
+  expirationDate?: Date;        // Some endorsements may expire
 }
 
 export interface IExperience {
@@ -20,6 +45,22 @@ export interface IExperience {
   crossCountryHours: number;
   last90DaysHours: number;
   last30DaysHours: number;
+  // Landing currency tracking (14 CFR 61.57)
+  landingCurrency?: {
+    dayLandingsLast90Days: number;      // 14 CFR 61.57(a) - need 3 for day pax
+    nightLandingsLast90Days: number;    // 14 CFR 61.57(b) - need 3 full-stop for night pax
+    lastDayLandingDate?: Date;
+    lastNightLandingDate?: Date;
+    tailwheelLandingsLast90Days?: number; // 14 CFR 61.57(a)(1) - must be full-stop in tailwheel
+  };
+  // IFR currency tracking (14 CFR 61.57(c))
+  ifrCurrency?: {
+    approachesLast6Months: number;       // Need 6 approaches
+    holdingLast6Months: boolean;         // Must have holding
+    interceptingTrackingLast6Months: boolean; // Must have intercepting/tracking
+    lastIFRDate?: Date;
+    ipcDate?: Date;                      // Instrument Proficiency Check date
+  };
 }
 
 export interface IFlightEntry {
@@ -67,8 +108,20 @@ export interface IPilot {
   experience: IExperience;
   flightEntries: IFlightEntry[];
   linkedDocuments: mongoose.Types.ObjectId[];
+  medicalClass?: '1st' | '2nd' | '3rd' | 'BasicMed'; // 14 CFR 61.23
   medicalExpiration: Date;
+  medicalDateOfBirth?: Date;  // Needed for age-based duration calculations per 14 CFR 61.23(d)
+  basicMed?: {
+    enabled: boolean;
+    lastPhysicalExam?: Date;    // Must be completed every 48 months
+    lastOnlineCourse?: Date;    // Aeromedical factors course every 24 months
+    checklist?: string;          // CMEC (Comprehensive Medical Examination Checklist)
+  };
   flightReviewExpiration: Date;
+  wingsPhaseCompleted?: {        // WINGS program can substitute for flight review per 14 CFR 61.56
+    phase: number;
+    completedDate: Date;
+  };
   weatherExperience?: IWeatherExperience;
   safetyAnalysis?: {
     lastAnalyzed: Date;
@@ -86,21 +139,36 @@ export interface IPilot {
 const CertificateSchema = new Schema<ICertificate>({
   type: {
     type: String,
-    enum: ['Student', 'PPL', 'CPL', 'ATP', 'Sport'],
+    enum: ['Student', 'Recreational', 'PPL', 'CPL', 'ATP', 'Sport'],
     required: true,
   },
   instrumentRated: { type: Boolean, default: false },
   multiEngineRated: { type: Boolean, default: false },
+  cfi: { type: Boolean, default: false },
+  cfii: { type: Boolean, default: false },
+  mei: { type: Boolean, default: false },
+  groundInstructor: { type: Boolean, default: false },
+  remotePilot: { type: Boolean, default: false },
+  categoryClassRatings: [{ type: String }],
+  typeRatings: [{ type: String }],
+  certificateNumber: { type: String },
+  dateIssued: { type: Date },
 });
 
 const EndorsementSchema = new Schema<IEndorsement>({
   type: {
     type: String,
-    enum: ['High Performance', 'Complex', 'Tailwheel', 'High Altitude'],
+    enum: [
+      'High Performance', 'Complex', 'Tailwheel', 'High Altitude',
+      'Solo', 'Solo Cross-Country', 'Checkride', 'Knowledge Test',
+      'Class B', 'Class C', 'Night',
+    ],
     required: true,
   },
   date: { type: Date, required: true },
   instructor: { type: String, required: true },
+  regulatoryReference: { type: String },
+  expirationDate: { type: Date },
 });
 
 const ExperienceSchema = new Schema<IExperience>({
@@ -111,6 +179,20 @@ const ExperienceSchema = new Schema<IExperience>({
   crossCountryHours: { type: Number, default: 0 },
   last90DaysHours: { type: Number, default: 0 },
   last30DaysHours: { type: Number, default: 0 },
+  landingCurrency: {
+    dayLandingsLast90Days: { type: Number, default: 0 },
+    nightLandingsLast90Days: { type: Number, default: 0 },
+    lastDayLandingDate: { type: Date },
+    lastNightLandingDate: { type: Date },
+    tailwheelLandingsLast90Days: { type: Number, default: 0 },
+  },
+  ifrCurrency: {
+    approachesLast6Months: { type: Number, default: 0 },
+    holdingLast6Months: { type: Boolean, default: false },
+    interceptingTrackingLast6Months: { type: Boolean, default: false },
+    lastIFRDate: { type: Date },
+    ipcDate: { type: Date },
+  },
 });
 
 const FlightEntrySchema = new Schema<IFlightEntry>({
@@ -174,13 +256,30 @@ const PilotSchema = new Schema<IPilot>(
       type: Schema.Types.ObjectId,
       ref: 'ParsedDocument',
     }],
+    medicalClass: {
+      type: String,
+      enum: ['1st', '2nd', '3rd', 'BasicMed'],
+    },
     medicalExpiration: {
       type: Date,
       required: true,
     },
+    medicalDateOfBirth: {
+      type: Date,
+    },
+    basicMed: {
+      enabled: { type: Boolean, default: false },
+      lastPhysicalExam: { type: Date },
+      lastOnlineCourse: { type: Date },
+      checklist: { type: String },
+    },
     flightReviewExpiration: {
       type: Date,
       required: true,
+    },
+    wingsPhaseCompleted: {
+      phase: { type: Number },
+      completedDate: { type: Date },
     },
     weatherExperience: {
       totalFlights: { type: Number, default: 0 },

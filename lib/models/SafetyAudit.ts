@@ -43,10 +43,15 @@ export interface IPilotSafetyAudit {
   experienceLevel: 'student' | 'low_time' | 'experienced' | 'professional';
   findings: IPilotSafetyFinding[];
   qualifications: {
-    certificateType: string;
+    certificateType: string;   // 14 CFR 61.5 certificate type
+    medicalClass?: string;     // 14 CFR 61.23 medical class
     instrumentRated: boolean;
     multiEngineRated: boolean;
+    cfi?: boolean;             // 14 CFR 61.183
+    cfii?: boolean;
     endorsements: string[];
+    typeRatings?: string[];
+    categoryClassRatings?: string[];
   };
   recency: {
     totalHours: number;
@@ -187,9 +192,14 @@ const PilotSafetyAuditSchema = new Schema<IPilotSafetyAudit>({
   findings: [PilotSafetyFindingSchema],
   qualifications: {
     certificateType: { type: String },
+    medicalClass: { type: String, enum: ['1st', '2nd', '3rd', 'BasicMed'] },
     instrumentRated: { type: Boolean, default: false },
     multiEngineRated: { type: Boolean, default: false },
+    cfi: { type: Boolean, default: false },
+    cfii: { type: Boolean, default: false },
     endorsements: [{ type: String }],
+    typeRatings: [{ type: String }],
+    categoryClassRatings: [{ type: String }],
   },
   recency: {
     totalHours: { type: Number, default: 0 },

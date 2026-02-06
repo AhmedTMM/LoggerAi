@@ -8,6 +8,7 @@ export interface ILegalityCheck {
   status: 'pass' | 'warning' | 'fail';
   message: string;
   details?: string;
+  regulatoryReference?: string; // FAR/CFR citation (e.g., "14 CFR 91.409(a)")
 }
 
 export interface IWeatherData {
@@ -218,6 +219,7 @@ const LegalityCheckSchema = new Schema<ILegalityCheck>({
   },
   message: { type: String, required: true },
   details: { type: String },
+  regulatoryReference: { type: String },
 });
 
 const WeatherHazardSchema = new Schema({

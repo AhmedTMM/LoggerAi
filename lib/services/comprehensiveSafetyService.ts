@@ -14,6 +14,7 @@ import {
 import { sendPreFlightAgenticAlert } from './emailService';
 import { MS_PER_DAY } from './documentProcessingUtils';
 import mongoose from 'mongoose';
+import { REGULATION_REFS } from '@/lib/faaRegulations';
 
 // Risk scenario interface
 interface IRiskScenario {
@@ -443,31 +444,34 @@ function generateLegalityChecks(
 ): ILegalityCheck[] {
   const checks: ILegalityCheck[] = [];
 
-  // Pilot medical
+  // Pilot medical (14 CFR 61.23)
   const medicalExp = new Date(pilot.medicalExpiration);
   const daysToMedical = Math.floor((medicalExp.getTime() - scheduledDate.getTime()) / MS_PER_DAY);
+  const medicalClass = pilot.medicalClass || '3rd';
   checks.push({
     category: 'pilot',
     item: 'Medical Certificate',
     status: daysToMedical < 0 ? 'fail' : daysToMedical <= 30 ? 'warning' : 'pass',
     message: daysToMedical < 0
-      ? `Expired ${Math.abs(daysToMedical)} days ago`
-      : `Valid for ${daysToMedical} more days`,
+      ? `${medicalClass}-class medical expired ${Math.abs(daysToMedical)} days ago`
+      : `${medicalClass}-class medical valid for ${daysToMedical} more days`,
+    regulatoryReference: REGULATION_REFS.MEDICAL_CERTIFICATE,
   });
 
-  // Flight review
+  // Flight review (14 CFR 61.56)
   const bfrExp = new Date(pilot.flightReviewExpiration);
   const daysToBFR = Math.floor((bfrExp.getTime() - scheduledDate.getTime()) / MS_PER_DAY);
   checks.push({
     category: 'pilot',
-    item: 'Flight Review (BFR)',
+    item: 'Flight Review',
     status: daysToBFR < 0 ? 'fail' : daysToBFR <= 30 ? 'warning' : 'pass',
     message: daysToBFR < 0
-      ? `Expired ${Math.abs(daysToBFR)} days ago`
+      ? `Expired ${Math.abs(daysToBFR)} days ago - pilot not legal as PIC`
       : `Valid for ${daysToBFR} more days`,
+    regulatoryReference: REGULATION_REFS.FLIGHT_REVIEW,
   });
 
-  // Annual inspection
+  // Annual inspection (14 CFR 91.409(a))
   const annualDate = new Date(aircraft.maintenanceDates.annual);
   const oneYearLater = new Date(annualDate);
   oneYearLater.setFullYear(oneYearLater.getFullYear() + 1);
@@ -477,11 +481,12 @@ function generateLegalityChecks(
     item: 'Annual Inspection',
     status: daysToAnnual < 0 ? 'fail' : daysToAnnual <= 30 ? 'warning' : 'pass',
     message: daysToAnnual < 0
-      ? `Overdue by ${Math.abs(daysToAnnual)} days`
+      ? `Overdue by ${Math.abs(daysToAnnual)} days - aircraft NOT airworthy`
       : `Valid for ${daysToAnnual} more days`,
+    regulatoryReference: REGULATION_REFS.ANNUAL_INSPECTION,
   });
 
-  // Transponder
+  // Transponder (14 CFR 91.413)
   const transponderDate = new Date(aircraft.maintenanceDates.transponder);
   const twoYearsLater = new Date(transponderDate);
   twoYearsLater.setMonth(twoYearsLater.getMonth() + 24);
@@ -493,6 +498,7 @@ function generateLegalityChecks(
     message: daysToTransponder < 0
       ? `Overdue by ${Math.abs(daysToTransponder)} days`
       : `Valid for ${daysToTransponder} more days`,
+    regulatoryReference: REGULATION_REFS.TRANSPONDER_CHECK,
   });
 
   // Weather vs pilot
@@ -507,6 +513,7 @@ function generateLegalityChecks(
           ? weatherVsPilot.warnings[0]
           : `Conditions acceptable for pilot qualifications`,
       details: weatherVsPilot.recommendations.join('; '),
+      regulatoryReference: REGULATION_REFS.VFR_MINIMUMS,
     });
 
     // Weather vs aircraft
@@ -530,6 +537,7 @@ function generateLegalityChecks(
             : 'pass',
       message: `${departureWeather.flightCategory} - Ceiling ${departureWeather.ceiling || 'CLR'}, Vis ${departureWeather.visibility}SM`,
       details: departureWeather.metar,
+      regulatoryReference: REGULATION_REFS.VFR_MINIMUMS,
     });
   }
 
@@ -544,6 +552,7 @@ function generateLegalityChecks(
             : 'pass',
       message: `${arrivalWeather.flightCategory} - Ceiling ${arrivalWeather.ceiling || 'CLR'}, Vis ${arrivalWeather.visibility}SM`,
       details: arrivalWeather.metar,
+      regulatoryReference: REGULATION_REFS.VFR_MINIMUMS,
     });
   }
 
@@ -557,7 +566,7 @@ function generateLegalityChecks(
           : 'pass',
       message: `${departureWeather.densityAltitude}ft density altitude`,
       details: departureWeather.densityAltitude > 7000
-        ? 'Expect reduced aircraft performance'
+        ? 'Expect reduced aircraft performance. Refer to POH performance charts.'
         : undefined,
     });
   }

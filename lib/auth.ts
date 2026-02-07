@@ -20,11 +20,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (token.sub && session.user) {
         session.user.id = token.sub;
       }
+      // Pass through the user's profile image from the token
+      if (token.picture && session.user) {
+        session.user.image = token.picture as string;
+      }
       return session;
     },
-    async jwt({ token, user }) {
-      if (user) {
-        token.sub = user.id;
+    async jwt({ token, user, account, profile, trigger }) {
+      // On initial sign-in or update, store the profile picture
+      if (account && profile?.picture) {
+        token.picture = profile.picture;
+      }
+      // Also store from user object if available (initial sign-in)
+      if (user?.image) {
+        token.picture = user.image;
       }
       return token;
     },

@@ -94,7 +94,7 @@ async function processUploadJob(job: UploadJob) {
     const entries = result.data?.extractedData?.entries ||
       (Array.isArray(result.data?.extractedData) ? result.data?.extractedData : []);
 
-    const summary = calculateSummary(entries);
+    const summary = calculateSummary(entries, documentType);
 
     // Fetch historical weather for pilot logbook entries
     if (['pilot_logbook', 'logbook'].includes(documentType) && entries.length > 0) {

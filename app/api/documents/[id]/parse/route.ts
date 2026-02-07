@@ -130,8 +130,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       const entries = result.data?.extractedData?.entries ||
         (Array.isArray(result.data?.extractedData) ? result.data?.extractedData : []);
 
-      // Calculate summary
-      const summary = calculateSummary(entries);
+      // Calculate summary (pass documentType to handle aircraft logs correctly)
+      const summary = calculateSummary(entries, doc.documentType);
 
       // Update document with parsed data
       await ParsedDocument.findOneAndUpdate({ _id: docId, userId }, {

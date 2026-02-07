@@ -78,14 +78,40 @@ export function detectEntryCategory(description: string): LogbookCategory {
 
 /**
  * Calculate summary statistics from parsed entries
+ * For pilot logbooks: sums flight times
+ * For aircraft logbooks: shows latest Hobbs/Tach (not sum)
  */
-export function calculateSummary(entries: any[]) {
+export function calculateSummary(entries: any[], documentType?: string) {
   if (!entries || entries.length === 0) {
     return { totalEntries: 0 };
   }
 
-  const totalHours = entries.reduce((sum, e) => sum + (e.totalTime || e.duration || 0), 0);
   const dates = entries.map(e => e.date).filter(Boolean).sort();
+  const isAircraftLog = documentType === 'aircraft_logbook' || documentType === 'maintenance';
+
+  // For aircraft logbooks, find the LATEST (max) Hobbs/Tach, don't sum
+  if (isAircraftLog) {
+    let maxHobbs = 0;
+    let maxTach = 0;
+
+    for (const entry of entries) {
+      if (entry.hobbsTime && entry.hobbsTime > maxHobbs) maxHobbs = entry.hobbsTime;
+      if (entry.tachTime && entry.tachTime > maxTach) maxTach = entry.tachTime;
+    }
+
+    // Use whichever is available, prefer Hobbs
+    const latestHours = maxHobbs > 0 ? maxHobbs : maxTach;
+
+    return {
+      totalEntries: entries.length,
+      totalHours: latestHours > 0 ? roundToTenths(latestHours) : 0,
+      dateRange: dates.length > 0 ? { from: dates[0], to: dates[dates.length - 1] } : undefined,
+      isLatestValue: true, // Flag to indicate this is latest value, not sum
+    };
+  }
+
+  // For pilot logbooks, sum all flight times
+  const totalHours = entries.reduce((sum, e) => sum + (e.totalTime || e.duration || 0), 0);
 
   return {
     totalEntries: entries.length,

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Plane, Plus, AlertTriangle, CheckCircle, Wrench, Trash2, RefreshCw, Clock, Shield, History, FileText, ChevronDown, ChevronUp, Pencil, Check, X, Info } from 'lucide-react';
-import { useAircraft, useCreateAircraft, useDeleteAircraft, useUpdateAircraft, useParsedDocuments, useGenerateSafetyAnalysis } from '@/lib/hooks';
+import { useAircraft, useCreateAircraft, useDeleteAircraft, useUpdateAircraft, useParsedDocuments, useGenerateSafetyAnalysis, useFetchAircraftImage } from '@/lib/hooks';
 import type { Aircraft } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -30,11 +30,13 @@ export default function AircraftPage() {
     const deleteAircraft = useDeleteAircraft();
     const updateAircraft = useUpdateAircraft();
     const generateSafetyAnalysis = useGenerateSafetyAnalysis();
+    const fetchAircraftImage = useFetchAircraftImage();
 
     const [selectedAircraft, setSelectedAircraft] = useState<Aircraft | null>(null);
     const [showAddModal, setShowAddModal] = useState(false);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [isGeneratingAnalysis, setIsGeneratingAnalysis] = useState(false);
+    const [isFetchingImage, setIsFetchingImage] = useState(false);
     const [editingDate, setEditingDate] = useState<string | null>(null);
     const [editDateValue, setEditDateValue] = useState('');
     const [activeTab, setActiveTab] = useState<TabType>('overview');
@@ -60,6 +62,22 @@ export default function AircraftPage() {
             }
         }
     }, [selectedAircraft?._id, selectedAircraft?.safetyAnalysis]);
+
+    // Auto-fetch aircraft image when aircraft is selected without one
+    useEffect(() => {
+        if (selectedAircraft && !selectedAircraft.imageUrl && !isFetchingImage) {
+            setIsFetchingImage(true);
+            fetchAircraftImage.mutate(selectedAircraft._id as string, {
+                onSuccess: () => {
+                    refetch();
+                    setIsFetchingImage(false);
+                },
+                onError: () => {
+                    setIsFetchingImage(false);
+                },
+            });
+        }
+    }, [selectedAircraft?._id, selectedAircraft?.imageUrl]);
 
     const getMaintenanceStatus = (date: Date | string) => {
         const days = getDaysUntil(date);
@@ -154,14 +172,29 @@ export default function AircraftPage() {
                                                 : "hover:bg-zinc-50"
                                         )}
                                     >
-                                        <div className="flex items-center justify-between mb-1">
-                                            <span className="font-bold text-zinc-900">{ac.tailNumber}</span>
-                                            {getDaysUntil(ac.maintenanceDates?.annual) < 30 && (
-                                                <AlertTriangle className="w-4 h-4 text-amber-500" />
-                                            )}
+                                        <div className="flex items-start gap-3 mb-2">
+                                            <div className="w-12 h-12 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg flex items-center justify-center overflow-hidden border border-blue-200 flex-shrink-0">
+                                                {ac.imageUrl ? (
+                                                    <img
+                                                        src={ac.imageUrl}
+                                                        alt={ac.tailNumber}
+                                                        className="w-full h-full object-cover"
+                                                    />
+                                                ) : (
+                                                    <Plane className="w-5 h-5 text-blue-600" />
+                                                )}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <span className="font-bold text-zinc-900">{ac.tailNumber}</span>
+                                                    {getDaysUntil(ac.maintenanceDates?.annual) < 30 && (
+                                                        <AlertTriangle className="w-4 h-4 text-amber-500" />
+                                                    )}
+                                                </div>
+                                                <p className="text-sm text-zinc-500 truncate">{ac.model}</p>
+                                            </div>
                                         </div>
-                                        <p className="text-sm text-zinc-500">{ac.model}</p>
-                                        <div className="flex items-center gap-3 mt-2 text-xs text-zinc-500">
+                                        <div className="flex items-center gap-3 text-xs text-zinc-500">
                                             {(() => {
                                                 const hobbsInfo = getDisplayHobbs(ac.currentHours?.hobbs, ac.currentHours?.tach);
                                                 return (
@@ -199,7 +232,9 @@ export default function AircraftPage() {
                                     <div className="flex items-start sm:items-center justify-between gap-4">
                                         <div className="flex items-center gap-3 sm:gap-4">
                                             <div className="w-14 h-14 sm:w-20 sm:h-20 bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl sm:rounded-2xl flex items-center justify-center overflow-hidden border-2 border-blue-200 shadow-sm flex-shrink-0">
-                                                {selectedAircraft.imageUrl ? (
+                                                {isFetchingImage ? (
+                                                    <RefreshCw className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600 animate-spin" />
+                                                ) : selectedAircraft.imageUrl ? (
                                                     <img
                                                         src={selectedAircraft.imageUrl}
                                                         alt={selectedAircraft.tailNumber}

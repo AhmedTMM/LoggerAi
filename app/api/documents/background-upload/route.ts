@@ -133,6 +133,23 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Ensure pilot name is extracted for pilot logbooks (even if AI didn't extract it)
+    if (['pilot_logbook', 'logbook'].includes(documentType) && analysis && !analysis.pilotName) {
+      // Try to extract name from filename
+      const nameMatch = filename.match(/([A-Z][a-z]+[A-Z][a-z]+)/);
+      if (nameMatch) {
+        analysis.pilotName = nameMatch[1];
+        console.log(`[Name Extraction] Extracted pilot name from filename: ${analysis.pilotName}`);
+      } else {
+        // Try to extract first/last name pattern
+        const simpleName = filename.match(/([A-Z][a-z]+)\s*[A-Z][a-z]+/);
+        if (simpleName) {
+          analysis.pilotName = simpleName[0];
+          console.log(`[Name Extraction] Extracted pilot name from filename: ${analysis.pilotName}`);
+        }
+      }
+    }
+
     // Save file to disk if large
     const isLargeFile = fileBase64.length > MONGODB_SAFE_SIZE;
     let storedFile: any = null;
@@ -277,10 +294,36 @@ export async function POST(request: NextRequest) {
           // Continue with basic data
         }
 
-        const newAircraft = await Aircraft.create(aircraftData);
-        aircraftId = newAircraft._id.toString();
-        created.aircraft = true;
-        invalidateAllCaches();
+        try {
+          const newAircraft = await Aircraft.create(aircraftData);
+          aircraftId = newAircraft._id.toString();
+          created.aircraft = true;
+          invalidateAllCaches();
+
+          // Auto-fetch aircraft image in background (don't await to avoid blocking)
+          if (!aircraftData.imageUrl) {
+            fetchAircraftDetails(tailNumbers[0])
+              .then((details) => {
+                if (details.success && details.data?.imageUrl) {
+                  Aircraft.findByIdAndUpdate(aircraftId, { imageUrl: details.data.imageUrl }).catch(console.error);
+                }
+              })
+              .catch((err) => console.error('Failed to auto-fetch aircraft image:', err));
+          }
+        } catch (aircraftError: any) {
+          // If duplicate key error, find existing aircraft by tail number
+          if (aircraftError.code === 11000) {
+            const existingAircraft = await Aircraft.findOne({
+              userId,
+              tailNumber: tailNumbers[0].toUpperCase()
+            });
+            if (existingAircraft) {
+              aircraftId = existingAircraft._id.toString();
+            }
+          } else {
+            throw aircraftError;
+          }
+        }
       }
     }
 

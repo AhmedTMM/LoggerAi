@@ -18,9 +18,9 @@ import OpenAI from 'openai';
 // These can be easily swapped to other providers (Claude, GPT, etc.)
 export const OPENROUTER_MODELS = {
   // Fast model for quick classifications and simple tasks
-  FAST: 'google/gemini-flash-1.5',
-  // Pro model for complex analysis and reasoning
-  PRO: 'google/gemini-pro-1.5',
+  FAST: 'google/gemini-3-flash-preview',
+  // Pro model for complex analysis and reasoning (legally compliant)
+  PRO: 'openai/gpt-oss-120b',
   // Alternative models (uncomment to use)
   // FAST: 'anthropic/claude-3-haiku',
   // PRO: 'anthropic/claude-3-5-sonnet',

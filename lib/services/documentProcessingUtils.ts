@@ -1,85 +1,60 @@
+/**
+ * Document processing utilities.
+ *
+ * Pure domain logic for working with parsed document entries:
+ *   - Summary calculation (hours, date ranges)
+ *   - Logbook entry category detection (engine, propeller, avionics, airframe)
+ *   - Pilot experience aggregation from logbook entries
+ *   - Aircraft maintenance / hours updates from parsed entries
+ *
+ * Flight-status display config has been moved to flightStatusConfig.ts.
+ */
+
 import Aircraft, { LogbookCategory } from '@/lib/models/Aircraft';
 import Pilot from '@/lib/models/Pilot';
 import { generateSafetyAnalysis } from '@/lib/services/safetyAnalysisService';
 import { invalidateAllCaches } from '@/lib/services/autoAttachService';
 
-/**
- * Shared utility functions for document processing
- * Consolidates duplicate logic from multiple API routes
- */
+// Re-export flight status from its new home so existing imports keep working.
+export { getStatusConfig, type FlightStatusType } from './flightStatusConfig';
 
-// Time constants to avoid magic numbers
-export const MS_PER_DAY = 86400000;
+// ============ TIME CONSTANTS ============
+
+export const MS_PER_DAY = 86_400_000;
 export const DAYS_30_MS = 30 * MS_PER_DAY;
 export const DAYS_90_MS = 90 * MS_PER_DAY;
 
-// Flight status configuration - centralizes all status display logic
-export type FlightStatusType = 'go' | 'caution' | 'no-go';
+// ============ MATH HELPERS ============
 
-interface StatusConfig {
-  emoji: string;
-  text: string;
-  shortLabel: string;
-  color: string;
-  bgColor: string;
-  isDangerous: boolean;
-}
-
-const STATUS_CONFIG: Record<FlightStatusType, StatusConfig> = {
-  'go': {
-    emoji: '✅',
-    text: 'GO - Flight Approved',
-    shortLabel: 'GO',
-    color: '#10b981',
-    bgColor: '#ecfdf5',
-    isDangerous: false,
-  },
-  'caution': {
-    emoji: '⚠️',
-    text: 'CAUTION - Review Required',
-    shortLabel: 'CAUTION',
-    color: '#f59e0b',
-    bgColor: '#fffbeb',
-    isDangerous: true,
-  },
-  'no-go': {
-    emoji: '❌',
-    text: 'NO-GO - Flight Not Recommended',
-    shortLabel: 'NO-GO',
-    color: '#ef4444',
-    bgColor: '#fef2f2',
-    isDangerous: true,
-  },
-};
-
-export function getStatusConfig(status: FlightStatusType | string): StatusConfig {
-  return STATUS_CONFIG[status as FlightStatusType] || STATUS_CONFIG['no-go'];
-}
-
-/**
- * Round a number to one decimal place
- */
+/** Round a number to one decimal place. */
 export function roundToTenths(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
-/**
- * Detect logbook entry category from description text
- */
+// ============ ENTRY CATEGORY DETECTION ============
+
+/** Detect logbook entry category from description text. */
 export function detectEntryCategory(description: string): LogbookCategory {
   const lower = (description || '').toLowerCase();
-  if (lower.includes('engine') || lower.includes('cylinder') || lower.includes('magneto') ||
-      lower.includes('spark plug') || lower.includes('oil change') || lower.includes('compression')) return 'engine';
+  if (
+    lower.includes('engine') || lower.includes('cylinder') || lower.includes('magneto') ||
+    lower.includes('spark plug') || lower.includes('oil change') || lower.includes('compression')
+  ) return 'engine';
   if (lower.includes('propeller') || lower.includes('prop ')) return 'propeller';
-  if (lower.includes('avionics') || lower.includes('radio') || lower.includes('transponder') ||
-      lower.includes('gps') || lower.includes('gia') || lower.includes('gdu') || lower.includes('comm')) return 'avionics';
+  if (
+    lower.includes('avionics') || lower.includes('radio') || lower.includes('transponder') ||
+    lower.includes('gps') || lower.includes('gia') || lower.includes('gdu') || lower.includes('comm')
+  ) return 'avionics';
   return 'airframe';
 }
 
+// ============ SUMMARY CALCULATION ============
+
 /**
- * Calculate summary statistics from parsed entries
- * For pilot logbooks: sums flight times
- * For aircraft logbooks: shows latest Hobbs/Tach (not sum)
+ * Calculate summary statistics from parsed entries.
+ *
+ * For pilot logbooks: sums flight times.
+ * For aircraft logbooks: shows the latest Hobbs/Tach (not summed).
  */
 export function calculateSummary(entries: any[], documentType?: string) {
   if (!entries || entries.length === 0) {
@@ -87,46 +62,47 @@ export function calculateSummary(entries: any[], documentType?: string) {
   }
 
   const dates = entries.map(e => e.date).filter(Boolean).sort();
+  const dateRange = dates.length > 0
+    ? { from: dates[0], to: dates[dates.length - 1] }
+    : undefined;
+
   const isAircraftLog = documentType === 'aircraft_logbook' || documentType === 'maintenance';
 
-  // For aircraft logbooks, find the LATEST (max) Hobbs/Tach, don't sum
   if (isAircraftLog) {
     let maxHobbs = 0;
     let maxTach = 0;
-
     for (const entry of entries) {
       if (entry.hobbsTime && entry.hobbsTime > maxHobbs) maxHobbs = entry.hobbsTime;
       if (entry.tachTime && entry.tachTime > maxTach) maxTach = entry.tachTime;
     }
-
-    // Use whichever is available, prefer Hobbs
     const latestHours = maxHobbs > 0 ? maxHobbs : maxTach;
 
     return {
       totalEntries: entries.length,
       totalHours: latestHours > 0 ? roundToTenths(latestHours) : 0,
-      dateRange: dates.length > 0 ? { from: dates[0], to: dates[dates.length - 1] } : undefined,
-      isLatestValue: true, // Flag to indicate this is latest value, not sum
+      dateRange,
+      isLatestValue: true,
     };
   }
 
-  // For pilot logbooks, sum all flight times
+  // Pilot logbook — sum all flight times.
   const totalHours = entries.reduce((sum, e) => sum + (e.totalTime || e.duration || 0), 0);
 
   return {
     totalEntries: entries.length,
     totalHours: roundToTenths(totalHours),
-    dateRange: dates.length > 0 ? { from: dates[0], to: dates[dates.length - 1] } : undefined,
+    dateRange,
   };
 }
 
-/**
- * Update pilot experience totals from logbook entries
- */
+// ============ PILOT EXPERIENCE ============
+
+/** Update pilot experience totals from logbook entries. */
 export async function updatePilotExperience(pilotId: string, entries: any[]) {
   const pilot = await Pilot.findById(pilotId);
   if (!pilot) return;
 
+  // Flatten if entries are wrapped in a single { flights: [...] } object.
   let flatEntries = entries;
   if (entries.length === 1 && entries[0].flights) {
     flatEntries = entries[0].flights;
@@ -195,14 +171,14 @@ export async function updatePilotExperience(pilotId: string, entries: any[]) {
   await pilot.save();
 }
 
-/**
- * Update aircraft maintenance dates and logs from parsed entries
- */
+// ============ AIRCRAFT UPDATES ============
+
+/** Update aircraft maintenance dates and logs from parsed entries. */
 export async function updateAircraftFromEntries(
   aircraftId: string,
   entries: any[],
   filenameCategory?: LogbookCategory,
-  userId?: string
+  userId?: string,
 ) {
   const aircraft = await Aircraft.findById(aircraftId);
   if (!aircraft) return;
@@ -211,6 +187,7 @@ export async function updateAircraftFromEntries(
     aircraft.userId = userId;
   }
 
+  // ---- Extract latest inspection dates ----
   let latestAnnual: Date | null = null;
   let latestTransponder: Date | null = null;
   let latestStatic: Date | null = null;
@@ -224,6 +201,7 @@ export async function updateAircraftFromEntries(
     const desc = (entry.description || '').toLowerCase();
 
     if (entryDate && !isNaN(entryDate.getTime())) {
+      // Check structured inspection types
       if (entry.isInspection && entry.inspectionType) {
         const inspType = entry.inspectionType.toLowerCase();
         if (inspType === 'annual' || inspType.includes('annual')) {
@@ -243,6 +221,7 @@ export async function updateAircraftFromEntries(
         }
       }
 
+      // Fallback: match keywords in description text
       if (desc.includes('annual') && !desc.includes('100')) {
         if (!latestAnnual || entryDate > latestAnnual) latestAnnual = entryDate;
       }
@@ -264,6 +243,7 @@ export async function updateAircraftFromEntries(
     if (entry.tachTime && entry.tachTime > maxTach) maxTach = entry.tachTime;
   }
 
+  // ---- Apply inspection dates ----
   if (latestAnnual) aircraft.maintenanceDates.annual = latestAnnual;
   if (latestTransponder) aircraft.maintenanceDates.transponder = latestTransponder;
   if (latestStatic) aircraft.maintenanceDates.staticSystem = latestStatic;
@@ -278,9 +258,11 @@ export async function updateAircraftFromEntries(
   if (latestElt) aircraft.airworthinessStatus.elt = latestElt;
   if (latestHundredHour) aircraft.airworthinessStatus.hundredHour = latestHundredHour;
 
+  // ---- Apply hours ----
   if (maxHobbs > aircraft.currentHours.hobbs) aircraft.currentHours.hobbs = maxHobbs;
   if (maxTach > aircraft.currentHours.tach) aircraft.currentHours.tach = maxTach;
 
+  // ---- Append log entries ----
   const newLogs = entries.map((entry: any) => {
     const description = entry.description || entry.workPerformed || 'Maintenance entry';
     const category = filenameCategory || detectEntryCategory(description);
@@ -313,6 +295,7 @@ export async function updateAircraftFromEntries(
     }
   }
 
+  // ---- Regenerate safety analysis ----
   const safetyAnalysis = generateSafetyAnalysis(entries, aircraft);
   aircraft.safetyAnalysis = safetyAnalysis;
 

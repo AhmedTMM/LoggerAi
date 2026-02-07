@@ -3,11 +3,11 @@ import { parseDocumentUltraFast } from '@/lib/services/reductoService';
 import dbConnect from '@/lib/db';
 import ParsedDocument from '@/lib/models/ParsedDocument';
 import { requireAuth } from '@/lib/auth-helpers';
+import { calculateSummary } from '@/lib/services/documentProcessingUtils';
 import {
-  calculateSummary,
-  updatePilotExperience,
-  updateAircraftFromEntries
-} from '@/lib/services/documentProcessingUtils';
+  extractEntriesFromResult,
+  updateLinkedRecords,
+} from '@/lib/services/documentUploadHelpers';
 
 export async function POST(request: NextRequest) {
   try {
@@ -26,7 +26,6 @@ export async function POST(request: NextRequest) {
 
     await dbConnect();
 
-    // Create a pending document record
     const doc = await ParsedDocument.create({
       userId,
       filename: filename || `${documentType}_${Date.now()}.${fileType}`,
@@ -35,14 +34,12 @@ export async function POST(request: NextRequest) {
       status: 'pending',
       aircraft: aircraftId || undefined,
       pilot: pilotId || undefined,
-      fileBase64: background ? fileBase64 : undefined, // Store for background re-parsing if needed
+      fileBase64: background ? fileBase64 : undefined,
     });
 
-    // If background mode, return immediately with doc ID
+    // Background mode: return immediately, fire off parsing
     if (background) {
-      // Fire off parsing in background (not awaited)
       processDocumentInBackground(doc._id.toString(), fileBase64, fileType, documentType, aircraftId, pilotId);
-
       return NextResponse.json({
         success: true,
         data: { documentId: doc._id, status: 'pending', message: 'Parsing started in background' },
@@ -53,7 +50,6 @@ export async function POST(request: NextRequest) {
     doc.status = 'parsing';
     await doc.save();
 
-    // Use ultra-fast direct Gemini vision extraction
     const result = await parseDocumentUltraFast(fileBase64, fileType, documentType);
 
     if (!result.success) {
@@ -66,9 +62,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Save parsed results
-    const entries = result.data?.extractedData?.entries ||
-      (Array.isArray(result.data?.extractedData) ? result.data?.extractedData : []);
+    const entries = extractEntriesFromResult(result);
 
     doc.status = 'completed';
     doc.parsedAt = new Date();
@@ -77,22 +71,7 @@ export async function POST(request: NextRequest) {
     doc.summary = calculateSummary(entries);
     await doc.save();
 
-    // Update linked records in parallel
-    const updatePromises: Promise<void>[] = [];
-
-    const aircraftDocTypes = ['aircraft_logbook', 'maintenance', 'inspection'];
-    if (aircraftId && aircraftDocTypes.includes(documentType) && entries.length > 0) {
-      updatePromises.push(updateAircraftFromEntries(aircraftId, entries));
-    }
-
-    const pilotDocTypes = ['pilot_logbook', 'logbook'];
-    if (pilotId && pilotDocTypes.includes(documentType) && entries.length > 0) {
-      updatePromises.push(updatePilotExperience(pilotId, entries));
-    }
-
-    if (updatePromises.length > 0) {
-      await Promise.all(updatePromises);
-    }
+    await updateLinkedRecords({ pilotId, aircraftId, documentType, entries });
 
     return NextResponse.json({
       success: true,
@@ -133,7 +112,7 @@ export async function GET(request: NextRequest) {
     if (status) query.status = status;
 
     const documents = await ParsedDocument.find(query)
-      .select('-fileBase64 -rawOutput') // Don't send large fields in list
+      .select('-fileBase64 -rawOutput')
       .sort({ uploadedAt: -1 })
       .limit(100)
       .lean();
@@ -153,9 +132,9 @@ async function processDocumentInBackground(
   docId: string,
   fileBase64: string,
   fileType: 'pdf' | 'image',
-  documentType: 'logbook' | 'maintenance' | 'poh',
+  documentType: string,
   aircraftId?: string,
-  pilotId?: string
+  pilotId?: string,
 ) {
   try {
     await dbConnect();
@@ -165,8 +144,7 @@ async function processDocumentInBackground(
     doc.status = 'parsing';
     await doc.save();
 
-    // Use ultra-fast direct Gemini vision extraction
-    const result = await parseDocumentUltraFast(fileBase64, fileType, documentType as 'logbook' | 'maintenance');
+    const result = await parseDocumentUltraFast(fileBase64, fileType, documentType as any);
 
     if (!result.success) {
       doc.status = 'failed';
@@ -175,41 +153,24 @@ async function processDocumentInBackground(
       return;
     }
 
-    const entries = result.data?.extractedData?.entries ||
-      (Array.isArray(result.data?.extractedData) ? result.data?.extractedData : []);
+    const entries = extractEntriesFromResult(result);
 
     doc.status = 'completed';
     doc.parsedAt = new Date();
     doc.rawOutput = result.data?.extractedData;
     doc.entries = entries;
     doc.summary = calculateSummary(entries);
-    doc.fileBase64 = undefined; // Clear stored file after successful parse
+    doc.fileBase64 = undefined;
     await doc.save();
 
-    // Update linked records in parallel
-    const bgUpdatePromises: Promise<void>[] = [];
-
-    const bgAircraftDocTypes = ['aircraft_logbook', 'maintenance', 'inspection'];
-    if (aircraftId && bgAircraftDocTypes.includes(documentType) && entries.length > 0) {
-      bgUpdatePromises.push(updateAircraftFromEntries(aircraftId, entries));
-    }
-
-    const bgPilotDocTypes = ['pilot_logbook', 'logbook'];
-    if (pilotId && bgPilotDocTypes.includes(documentType) && entries.length > 0) {
-      bgUpdatePromises.push(updatePilotExperience(pilotId, entries));
-    }
-
-    if (bgUpdatePromises.length > 0) {
-      await Promise.all(bgUpdatePromises);
-    }
+    await updateLinkedRecords({ pilotId, aircraftId, documentType, entries });
   } catch (error) {
     console.error('Background parsing error:', error);
     try {
       await ParsedDocument.findByIdAndUpdate(docId, {
         status: 'failed',
-        error: (error as Error).message
+        error: (error as Error).message,
       });
-    } catch { }
+    } catch { /* ignore */ }
   }
 }
-

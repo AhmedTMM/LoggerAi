@@ -6,23 +6,18 @@ import dbConnect from '@/lib/db';
 import ParsedDocument from '@/lib/models/ParsedDocument';
 import { readFileAsBase64, fileExists } from '@/lib/services/fileStorage';
 import {
-  calculateSummary,
-  updatePilotExperience,
-  updateAircraftFromEntries
-} from '@/lib/services/documentProcessingUtils';
+  extractEntriesFromResult,
+  updateLinkedRecords,
+  markDocumentFailed,
+  markDocumentComplete,
+  updateDocumentProgress,
+  resolveParseType,
+} from '@/lib/services/documentUploadHelpers';
 
-// Increase timeout to 5 minutes for large document processing
 export const maxDuration = 300;
 
 interface RouteContext {
   params: Promise<{ id: string }>;
-}
-
-// Helper to update document progress
-async function updateProgress(docId: string, userId: string, progress: number, progressStep: string, status?: string) {
-  const update: Record<string, any> = { progress, progressStep };
-  if (status) update.status = status;
-  await ParsedDocument.findOneAndUpdate({ _id: docId, userId }, update);
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
@@ -49,7 +44,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
-    // Check if already parsing or completed
     if (doc.status === 'parsing') {
       return NextResponse.json(
         { success: false, error: 'Document is already being parsed' },
@@ -64,10 +58,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
-    // Check if file data exists (either on disk or base64)
+    // Load file data from disk or inline base64
     let fileBase64 = doc.fileBase64;
-
-    // Try to load from disk if we have a file path
     if (!fileBase64 && doc.filePath) {
       const exists = await fileExists(doc.filePath);
       if (exists) {
@@ -86,12 +78,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
-    // Increment retry count if this is a retry
+    // Increment retry count if retrying a failed parse
     if (doc.status === 'failed') {
       doc.retryCount = (doc.retryCount || 0) + 1;
     }
 
-    // Start parsing
     doc.status = 'parsing';
     doc.progress = 10;
     doc.progressStep = 'queued';
@@ -99,70 +90,37 @@ export async function POST(request: NextRequest, context: RouteContext) {
     await doc.save();
 
     try {
-      // Progress: 30% - Uploading to Reducto
-      await updateProgress(docId, userId, 30, 'uploading', 'parsing');
+      await updateDocumentProgress(docId, 30, 'uploading', 'parsing', userId);
+      await updateDocumentProgress(docId, 50, 'processing', undefined, userId);
 
-      // Progress: 50% - Processing document
-      await updateProgress(docId, userId, 50, 'processing');
+      const result = await parseDocumentUltraFast(fileBase64, doc.fileType, resolveParseType(doc.documentType));
 
-      // Use ultra-fast direct Gemini vision extraction
-      // POH documents are treated as logbooks for extraction purposes
-      const parseType = doc.documentType === 'poh' ? 'logbook' : doc.documentType;
-      const result = await parseDocumentUltraFast(fileBase64, doc.fileType, parseType);
-
-      // Progress: 80% - Extracting entries
-      await updateProgress(docId, userId, 80, 'extracting');
+      await updateDocumentProgress(docId, 80, 'extracting', undefined, userId);
 
       if (!result.success) {
-        await ParsedDocument.findOneAndUpdate({ _id: docId, userId }, {
-          status: 'failed',
-          progress: 0,
-          progressStep: 'failed',
-          error: result.error,
-        });
+        await markDocumentFailed(docId, result.error || 'Parse failed', userId);
         return NextResponse.json(
           { success: false, error: 'Failed to parse document', documentId: docId },
           { status: 500 }
         );
       }
 
-      // Extract entries from result
-      const entries = result.data?.extractedData?.entries ||
-        (Array.isArray(result.data?.extractedData) ? result.data?.extractedData : []);
-
-      // Calculate summary (pass documentType to handle aircraft logs correctly)
-      const summary = calculateSummary(entries, doc.documentType);
-
-      // Update document with parsed data
-      await ParsedDocument.findOneAndUpdate({ _id: docId, userId }, {
-        status: 'completed',
-        progress: 100,
-        progressStep: 'complete',
-        parsedAt: new Date(),
-        rawOutput: result.data?.extractedData,
+      const entries = extractEntriesFromResult(result);
+      const { summary } = await markDocumentComplete(docId, {
         entries,
-        summary,
-        fileBase64: undefined, // Clear stored file to save space
+        rawOutput: result.data?.extractedData,
+        documentType: doc.documentType,
+      }, userId);
+
+      // Clear stored base64 to save space
+      await ParsedDocument.findOneAndUpdate({ _id: docId, userId }, { fileBase64: undefined });
+
+      await updateLinkedRecords({
+        pilotId: doc.pilot?.toString(),
+        aircraftId: doc.aircraft?.toString(),
+        documentType: doc.documentType,
+        entries,
       });
-
-      // Update linked records in parallel
-      const updatePromises: Promise<void>[] = [];
-
-      // Update linked aircraft if maintenance/inspection type
-      const aircraftDocTypes = ['aircraft_logbook', 'maintenance', 'inspection'];
-      if (doc.aircraft && aircraftDocTypes.includes(doc.documentType) && entries.length > 0) {
-        updatePromises.push(updateAircraftFromEntries(doc.aircraft.toString(), entries));
-      }
-
-      // Update linked pilot if logbook type
-      const pilotDocTypes = ['pilot_logbook', 'logbook'];
-      if (doc.pilot && pilotDocTypes.includes(doc.documentType) && entries.length > 0) {
-        updatePromises.push(updatePilotExperience(doc.pilot.toString(), entries));
-      }
-
-      if (updatePromises.length > 0) {
-        await Promise.all(updatePromises);
-      }
 
       return NextResponse.json({
         success: true,
@@ -177,12 +135,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       });
     } catch (parseError) {
       console.error('Parse error:', parseError);
-      await ParsedDocument.findOneAndUpdate({ _id: docId, userId }, {
-        status: 'failed',
-        progress: 0,
-        progressStep: 'failed',
-        error: (parseError as Error).message,
-      });
+      await markDocumentFailed(docId, (parseError as Error).message, userId);
       return NextResponse.json(
         { success: false, error: 'Failed to parse document' },
         { status: 500 }
@@ -236,4 +189,3 @@ export async function GET(request: NextRequest, context: RouteContext) {
     );
   }
 }
-

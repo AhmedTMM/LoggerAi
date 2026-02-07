@@ -1,9 +1,8 @@
 import { NextRequest } from 'next/server';
-import mongoose from 'mongoose';
 import dbConnect from '@/lib/db';
 import ParsedDocument from '@/lib/models/ParsedDocument';
 import { requireAuth } from '@/lib/auth-helpers';
-import Aircraft, { LogbookCategory } from '@/lib/models/Aircraft';
+import Aircraft from '@/lib/models/Aircraft';
 import Pilot from '@/lib/models/Pilot';
 import { parseDocumentUltraFast } from '@/lib/services/reductoService';
 import { classifyDocumentFast } from '@/lib/services/aiService';
@@ -15,38 +14,19 @@ import {
   isPilotDocument,
   isAircraftDocument,
   invalidateAllCaches,
-  findCachedPilotByName,
-  findCachedAircraftByTail
 } from '@/lib/services/autoAttachService';
 import {
-  calculateSummary,
-  detectEntryCategory,
-  updatePilotExperience,
-  updateAircraftFromEntries
-} from '@/lib/services/documentProcessingUtils';
+  extractTailFromFilename,
+  extractCategoryFromFilename,
+  extractEntriesFromResult,
+  updateLinkedRecords,
+  base64ToByteSize,
+  MAX_FILE_SIZE_BYTES,
+  resolveParseType,
+} from '@/lib/services/documentUploadHelpers';
+import { calculateSummary } from '@/lib/services/documentProcessingUtils';
 
 export const maxDuration = 300;
-
-// ============ FILENAME-BASED FALLBACK EXTRACTION ============
-// Extract tail number from filename (e.g., "N6196P-Airframe-Log-1.pdf" -> "N6196P")
-function extractTailFromFilename(filename: string): string | null {
-  if (!filename) return null;
-  // Pattern: N followed by up to 5 alphanumeric chars
-  const match = filename.match(/\b(N[0-9A-Z]{1,5})\b/i);
-  return match ? match[1].toUpperCase() : null;
-}
-
-// Extract logbook category from filename
-function extractCategoryFromFilename(filename: string): LogbookCategory | null {
-  if (!filename) return null;
-  const lower = filename.toLowerCase();
-  if (lower.includes('engine')) return 'engine';
-  if (lower.includes('airframe')) return 'airframe';
-  if (lower.includes('propeller') || lower.includes('prop')) return 'propeller';
-  if (lower.includes('avionics')) return 'avionics';
-  return null;
-}
-
 
 function formatSSE(data: any): string {
   return `data: ${JSON.stringify(data)}\n\n`;
@@ -71,11 +51,7 @@ export async function POST(request: NextRequest) {
       const safeClose = () => {
         if (isClosed) return;
         isClosed = true;
-        try {
-          controller.close();
-        } catch {
-          // Already closed
-        }
+        try { controller.close(); } catch { /* already closed */ }
       };
 
       const progress = (percent: number, message: string) => {
@@ -83,7 +59,7 @@ export async function POST(request: NextRequest) {
       };
 
       try {
-        // Parse request
+        // ---- Parse & validate request ----
         let body;
         try {
           body = await request.json();
@@ -100,14 +76,12 @@ export async function POST(request: NextRequest) {
           return;
         }
 
-        const fileSizeBytes = Math.ceil((fileBase64.length * 3) / 4);
-        if (fileSizeBytes > 50 * 1024 * 1024) {
+        if (base64ToByteSize(fileBase64.length) > MAX_FILE_SIZE_BYTES) {
           send({ type: 'error', message: 'File too large (max 50MB)' });
           safeClose();
           return;
         }
 
-        // Authenticate user
         const { error: authError, userId } = await requireAuth();
         if (authError) {
           send({ type: 'error', message: 'Authentication required' });
@@ -118,9 +92,8 @@ export async function POST(request: NextRequest) {
         progress(5, 'Connecting to database...');
         await dbConnect();
 
+        // ---- Classify document ----
         progress(10, 'Analyzing document with AI...');
-
-        // Classify document
         const classification = await classifyDocumentFast(fileBase64, fileType);
         let documentType = 'other';
         let analysis: any = null;
@@ -132,19 +105,18 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Filename-based fallback for large files or when classification fails
+        // Filename-based fallback
         const tailFromFilename = extractTailFromFilename(filename);
         const categoryFromFilename = extractCategoryFromFilename(filename);
 
         if (documentType === 'other' && (tailFromFilename || categoryFromFilename)) {
-          // Treat as maintenance document if filename suggests aircraft logbook
           documentType = 'maintenance';
           progress(20, `Filename suggests maintenance log for ${tailFromFilename || 'aircraft'}`);
         }
 
         progress(25, `Detected: ${documentType}`);
 
-        // Always save file to disk for reliability (avoids storing base64 in MongoDB)
+        // ---- Save file to disk ----
         progress(30, 'Saving file...');
         let storedFile: any = null;
         try {
@@ -158,23 +130,22 @@ export async function POST(request: NextRequest) {
           console.error('[Smart-Upload] File save error:', saveErr);
         }
 
+        // ---- Match / create pilot & aircraft ----
         progress(35, 'Looking for matches...');
-
-        // Look for existing pilot/aircraft or create new ones
         let pilotId: string | undefined;
         let aircraftId: string | undefined;
         const created = { pilot: false, aircraft: false };
 
-        const pilotTypes = isPilotDocument(analysis?.detectedType || 'other');
-        const aircraftTypes = isAircraftDocument(analysis?.detectedType || 'other');
+        const isPilotDoc = isPilotDocument(analysis?.detectedType || 'other');
+        const isAircraftDoc = isAircraftDocument(analysis?.detectedType || 'other');
 
-        // Try to match or create pilot
-        if (pilotTypes && analysis?.pilotName) {
+        // Pilot matching
+        if (isPilotDoc && analysis?.pilotName) {
           progress(40, 'Matching pilot...');
           const pilots = await Pilot.find({ userId }).select('_id name email').lean();
           const normalizedSearch = analysis.pilotName.toLowerCase().trim();
 
-          let matchedPilot = pilots.find((p: any) =>
+          const matchedPilot = pilots.find((p: any) =>
             (p.name || '').toLowerCase().includes(normalizedSearch) ||
             normalizedSearch.includes((p.name || '').toLowerCase())
           );
@@ -183,28 +154,18 @@ export async function POST(request: NextRequest) {
             pilotId = matchedPilot._id.toString();
             progress(45, `Linked to pilot: ${matchedPilot.name}`);
           } else {
-            // Create new pilot
             progress(45, `Creating new pilot: ${analysis.pilotName}`);
             const newPilot = await Pilot.create({
               userId,
               name: analysis.pilotName,
               email: `${analysis.pilotName.toLowerCase().replace(/\s+/g, '.')}@placeholder.com`,
-              certificates: {
-                type: 'PPL',
-                instrumentRated: false,
-                multiEngineRated: false,
-              },
+              certificates: { type: 'PPL', instrumentRated: false, multiEngineRated: false },
               endorsements: [],
               experience: {
-                totalHours: 0,
-                picHours: 0,
-                nightHours: 0,
-                ifrHours: 0,
-                crossCountryHours: 0,
-                last90DaysHours: 0,
-                last30DaysHours: 0,
+                totalHours: 0, picHours: 0, nightHours: 0, ifrHours: 0,
+                crossCountryHours: 0, last90DaysHours: 0, last30DaysHours: 0,
               },
-              medicalExpiration: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year from now
+              medicalExpiration: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
               flightReviewExpiration: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
             });
             pilotId = newPilot._id.toString();
@@ -213,18 +174,13 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Try to match or create aircraft
-        // IMPORTANT: Only link aircraft to aircraft documents, NOT pilot logbooks
-        // Pilot logbooks reference many aircraft but belong to the pilot
+        // Aircraft matching
         let tailNumbers = analysis?.aircraftTailNumbers || [];
-
-        // Fallback: extract tail number from filename if AI didn't find any
         if (tailNumbers.length === 0 && tailFromFilename) {
           tailNumbers = [tailFromFilename];
         }
 
-        // For maintenance docs (including filename-detected ones), try to match aircraft
-        const shouldMatchAircraft = aircraftTypes || documentType === 'maintenance';
+        const shouldMatchAircraft = isAircraftDoc || documentType === 'maintenance';
         if (shouldMatchAircraft && tailNumbers.length > 0) {
           progress(50, 'Matching aircraft...');
           const allAircraft = await Aircraft.find({ userId }).select('_id tailNumber').lean();
@@ -236,18 +192,16 @@ export async function POST(request: NextRequest) {
               return acTail === normalizedTail || acTail.includes(normalizedTail) || normalizedTail.includes(acTail);
             });
 
-          if (matchedAircraft) {
-            aircraftId = matchedAircraft._id.toString();
-            progress(55, `Linked to aircraft: ${matchedAircraft.tailNumber}`);
-            break;
-          }
+            if (matchedAircraft) {
+              aircraftId = matchedAircraft._id.toString();
+              progress(55, `Linked to aircraft: ${matchedAircraft.tailNumber}`);
+              break;
+            }
           }
 
-          // Create new aircraft if not found and this is an aircraft document
+          // Create new aircraft if not found
           if (!aircraftId && tailNumbers[0]) {
             progress(55, `Creating new aircraft: ${tailNumbers[0]}`);
-
-            // Try to fetch enriched data from FAA registry
             let aircraftData: any = {
               userId,
               tailNumber: tailNumbers[0].toUpperCase(),
@@ -255,24 +209,15 @@ export async function POST(request: NextRequest) {
               serial: 'Unknown',
               manufacturer: 'Unknown',
               year: new Date().getFullYear(),
-              maintenanceDates: {
-                annual: new Date(),
-                transponder: new Date(),
-                staticSystem: new Date(),
-              },
-              currentHours: {
-                hobbs: 0,
-                tach: 0,
-              },
+              maintenanceDates: { annual: new Date(), transponder: new Date(), staticSystem: new Date() },
+              currentHours: { hobbs: 0, tach: 0 },
               logs: [],
             };
 
             try {
               progress(56, 'Fetching aircraft details from FAA registry...');
               const details = await fetchAircraftDetails(tailNumbers[0]);
-
               if (details.success && details.data) {
-                // Merge enriched data
                 aircraftData = {
                   ...aircraftData,
                   manufacturer: details.data.manufacturer || aircraftData.manufacturer,
@@ -282,11 +227,10 @@ export async function POST(request: NextRequest) {
                   imageUrl: details.data.imageUrl,
                   operatingLimits: details.data.operatingLimits,
                 };
-                progress(57, `Enriched aircraft data from FAA registry`);
+                progress(57, 'Enriched aircraft data from FAA registry');
               }
-            } catch (error) {
-              console.error('Failed to fetch aircraft details:', error);
-              // Continue with basic data
+            } catch (err) {
+              console.error('Failed to fetch aircraft details:', err);
             }
 
             const newAircraft = await Aircraft.create(aircraftData);
@@ -296,9 +240,9 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        // ---- Create document record ----
         progress(60, 'Creating document record...');
-
-        // Create document
+        const fileSizeBytes = base64ToByteSize(fileBase64.length);
         const doc = await ParsedDocument.create({
           userId,
           filename: filename || `document_${Date.now()}.${fileType === 'pdf' ? 'pdf' : 'png'}`,
@@ -317,22 +261,18 @@ export async function POST(request: NextRequest) {
         });
 
         // Link document to pilot/aircraft
-        if (pilotId) {
-          await Pilot.findByIdAndUpdate(pilotId, { $addToSet: { linkedDocuments: doc._id } });
-        }
-        if (aircraftId) {
-          await Aircraft.findByIdAndUpdate(aircraftId, { $addToSet: { linkedDocuments: doc._id } });
-        }
+        const linkPromises: Promise<any>[] = [];
+        if (pilotId) linkPromises.push(Pilot.findByIdAndUpdate(pilotId, { $addToSet: { linkedDocuments: doc._id } }));
+        if (aircraftId) linkPromises.push(Aircraft.findByIdAndUpdate(aircraftId, { $addToSet: { linkedDocuments: doc._id } }));
+        if (linkPromises.length > 0) await Promise.all(linkPromises);
 
+        // ---- Parse the document ----
         progress(65, 'Extracting data from document...');
-
-        // Parse the document
         try {
-          const parseType = documentType === 'poh' ? 'logbook' : documentType;
           const result = await parseDocumentUltraFast(
             fileBase64,
             fileType,
-            parseType,
+            resolveParseType(documentType),
             (log) => {
               const mappedProgress = 65 + Math.round((log.progress / 100) * 25);
               progress(mappedProgress, log.message);
@@ -340,21 +280,15 @@ export async function POST(request: NextRequest) {
           );
 
           if (!result.success) {
-            await ParsedDocument.findByIdAndUpdate(doc._id, {
-              status: 'failed',
-              error: result.error,
-            });
+            await ParsedDocument.findByIdAndUpdate(doc._id, { status: 'failed', error: result.error });
             send({ type: 'error', message: result.error });
             safeClose();
             return;
           }
 
-          const entries = result.data?.extractedData?.entries ||
-            (Array.isArray(result.data?.extractedData) ? result.data?.extractedData : []);
-
+          const entries = extractEntriesFromResult(result);
           const summary = calculateSummary(entries);
 
-          // Update document with parsed data
           await ParsedDocument.findByIdAndUpdate(doc._id, {
             status: 'completed',
             progress: 100,
@@ -366,34 +300,28 @@ export async function POST(request: NextRequest) {
           });
 
           progress(92, 'Updating linked records...');
-
-          // PARALLEL: Update pilot and aircraft simultaneously
-          const updatePromises: Promise<void>[] = [];
-
-          if (pilotId && ['pilot_logbook', 'logbook'].includes(documentType) && entries.length > 0) {
-            updatePromises.push(updatePilotExperience(pilotId, entries));
-          }
-
-          if (aircraftId && ['aircraft_logbook', 'maintenance', 'inspection'].includes(documentType) && entries.length > 0) {
-            updatePromises.push(updateAircraftFromEntries(aircraftId, entries, categoryFromFilename || undefined, userId));
-          }
-
-          if (updatePromises.length > 0) {
-            await Promise.all(updatePromises);
-          }
+          await updateLinkedRecords({
+            pilotId,
+            aircraftId,
+            documentType,
+            entries,
+            filenameCategory: categoryFromFilename || undefined,
+            userId,
+          });
 
           // Run audit if we have both pilot and aircraft
           let auditStatus: string | undefined;
           if (pilotId && aircraftId) {
             progress(95, 'Running safety audit...');
             try {
-              const pilot = await Pilot.findById(pilotId);
-              const aircraft = await Aircraft.findById(aircraftId);
+              const [pilot, aircraft] = await Promise.all([
+                Pilot.findById(pilotId),
+                Aircraft.findById(aircraftId),
+              ]);
               if (pilot && aircraft) {
                 const auditResult = await runBasicLegalityAudit(aircraft, pilot, new Date(), 'KJFK');
                 auditStatus = auditResult.overallStatus;
 
-                // Store audit results on pilot
                 await Pilot.findByIdAndUpdate(pilotId, {
                   safetyAnalysis: {
                     lastAnalyzed: new Date(),
@@ -423,7 +351,6 @@ export async function POST(request: NextRequest) {
             linkedPilot: pilotId,
             linkedAircraft: aircraftId,
           });
-
         } catch (parseError) {
           console.error('Parse error:', parseError);
           await ParsedDocument.findByIdAndUpdate(doc._id, {
@@ -432,7 +359,6 @@ export async function POST(request: NextRequest) {
           });
           send({ type: 'error', message: 'An error occurred while processing the document' });
         }
-
       } catch (error) {
         console.error('Smart upload error:', error);
         send({ type: 'error', message: 'An internal error occurred during upload' });
@@ -450,4 +376,3 @@ export async function POST(request: NextRequest) {
     },
   });
 }
-

@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import mongoose from 'mongoose';
 import dbConnect from '@/lib/db';
 import ParsedDocument from '@/lib/models/ParsedDocument';
 import { requireAuth } from '@/lib/auth-helpers';
-import Aircraft, { LogbookCategory } from '@/lib/models/Aircraft';
+import Aircraft from '@/lib/models/Aircraft';
 import Pilot from '@/lib/models/Pilot';
 import { classifyDocumentFast } from '@/lib/services/aiService';
 import { saveFile } from '@/lib/services/fileStorage';
@@ -13,34 +12,20 @@ import {
   mapDetectedTypeToStorageType,
   isPilotDocument,
   isAircraftDocument,
-  invalidateAllCaches
+  invalidateAllCaches,
 } from '@/lib/services/autoAttachService';
+import {
+  MONGODB_SAFE_SIZE,
+  extractTailFromFilename,
+  extractCategoryFromFilename,
+  base64ToByteSize,
+  MAX_FILE_SIZE_BYTES,
+} from '@/lib/services/documentUploadHelpers';
 
 export const maxDuration = 60; // Only need 60s to accept and queue the upload
 
-const MONGODB_SAFE_SIZE = 10 * 1024 * 1024;
-
-// Extract tail number from filename
-function extractTailFromFilename(filename: string): string | null {
-  if (!filename) return null;
-  const match = filename.match(/\b(N[0-9A-Z]{1,5})\b/i);
-  return match ? match[1].toUpperCase() : null;
-}
-
-// Extract logbook category from filename
-function extractCategoryFromFilename(filename: string): LogbookCategory | null {
-  if (!filename) return null;
-  const lower = filename.toLowerCase();
-  if (lower.includes('engine')) return 'engine';
-  if (lower.includes('airframe')) return 'airframe';
-  if (lower.includes('propeller') || lower.includes('prop')) return 'propeller';
-  if (lower.includes('avionics')) return 'avionics';
-  return null;
-}
-
 export async function POST(request: NextRequest) {
   try {
-    // Parse request
     const body = await request.json();
     const { fileBase64, fileType, filename } = body;
 
@@ -51,8 +36,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const fileSizeBytes = Math.ceil((fileBase64.length * 3) / 4);
-    if (fileSizeBytes > 50 * 1024 * 1024) {
+    const fileSizeBytes = base64ToByteSize(fileBase64.length);
+    if (fileSizeBytes > MAX_FILE_SIZE_BYTES) {
       return NextResponse.json(
         { success: false, error: 'File too large (max 50MB)' },
         { status: 400 }
@@ -64,7 +49,7 @@ export async function POST(request: NextRequest) {
 
     await dbConnect();
 
-    // Classify document quickly
+    // ---- Classify document ----
     const classification = await classifyDocumentFast(fileBase64, fileType);
     let documentType = 'other';
     let analysis: any = null;
@@ -76,24 +61,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Filename-based fallback - check for pilot name or aircraft tail number
+    // ---- Filename-based fallback classification ----
     const tailFromFilename = extractTailFromFilename(filename);
     const categoryFromFilename = extractCategoryFromFilename(filename);
     const filenameLower = (filename || '').toLowerCase();
 
-    // Smart filename-based classification
     if (documentType === 'other') {
-      // Check if filename contains a person's name (likely pilot logbook)
-      // Names typically have capital letters in multiple parts, like "AhmedAbushagur"
       const hasPersonName = filename && /[A-Z][a-z]+[A-Z][a-z]+/.test(filename);
       const hasLogbookKeyword = filenameLower.includes('logbook') || filenameLower.includes('log');
 
       if (hasPersonName && !tailFromFilename) {
-        // Person name without tail number = pilot logbook
         documentType = 'pilot_logbook';
         console.log(`[Classification] Detected pilot logbook from filename: ${filename}`);
-
-        // Create basic analysis for pilot logbook
         if (!analysis) {
           const nameMatch = filename.match(/([A-Z][a-z]+[A-Z][a-z]+)/);
           analysis = {
@@ -101,28 +80,23 @@ export async function POST(request: NextRequest) {
             confidence: 0.7,
             suggestedName: filename,
             pilotName: nameMatch ? nameMatch[1] : null,
-            summary: 'Pilot logbook detected from filename pattern'
+            summary: 'Pilot logbook detected from filename pattern',
           };
         }
       } else if (tailFromFilename && (hasLogbookKeyword || categoryFromFilename)) {
-        // Tail number + logbook keywords = aircraft maintenance
         documentType = 'maintenance';
         console.log(`[Classification] Detected maintenance from filename: ${filename}`);
-
-        // Create basic analysis for maintenance
         if (!analysis) {
           analysis = {
             detectedType: 'maintenance',
             confidence: 0.7,
             suggestedName: filename,
             aircraftTailNumbers: [tailFromFilename],
-            summary: 'Aircraft maintenance log detected from filename pattern'
+            summary: 'Aircraft maintenance log detected from filename pattern',
           };
         }
       } else if (tailFromFilename) {
-        // Just tail number = maintenance
         documentType = 'maintenance';
-
         if (!analysis) {
           analysis = {
             detectedType: 'maintenance',
@@ -133,16 +107,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Ensure pilot name is extracted for pilot logbooks (even if AI didn't extract it)
+    // Ensure pilot name is extracted for pilot logbooks
     if (['pilot_logbook', 'logbook'].includes(documentType) && analysis && !analysis.pilotName) {
-      // Try to extract name from filename
-      const nameMatch = filename.match(/([A-Z][a-z]+[A-Z][a-z]+)/);
+      const nameMatch = filename?.match(/([A-Z][a-z]+[A-Z][a-z]+)/);
       if (nameMatch) {
         analysis.pilotName = nameMatch[1];
         console.log(`[Name Extraction] Extracted pilot name from filename: ${analysis.pilotName}`);
       } else {
-        // Try to extract first/last name pattern
-        const simpleName = filename.match(/([A-Z][a-z]+)\s*[A-Z][a-z]+/);
+        const simpleName = filename?.match(/([A-Z][a-z]+)\s*[A-Z][a-z]+/);
         if (simpleName) {
           analysis.pilotName = simpleName[0];
           console.log(`[Name Extraction] Extracted pilot name from filename: ${analysis.pilotName}`);
@@ -150,7 +122,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Save file to disk if large
+    // ---- Save file to disk if large ----
     const isLargeFile = fileBase64.length > MONGODB_SAFE_SIZE;
     let storedFile: any = null;
 
@@ -163,20 +135,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Look for existing pilot/aircraft or create new ones
+    // ---- Match / create pilot & aircraft ----
     let pilotId: string | undefined;
     let aircraftId: string | undefined;
     const created = { pilot: false, aircraft: false };
 
-    const pilotTypes = isPilotDocument(analysis?.detectedType || 'other');
-    const aircraftTypes = isAircraftDocument(analysis?.detectedType || 'other');
+    const isPilotDoc = isPilotDocument(analysis?.detectedType || 'other');
+    const isAircraftDoc = isAircraftDocument(analysis?.detectedType || 'other');
 
-    // Try to match or create pilot
-    if (pilotTypes && analysis?.pilotName) {
+    if (isPilotDoc && analysis?.pilotName) {
       const pilots = await Pilot.find({ userId }).select('_id name email').lean();
       const normalizedSearch = analysis.pilotName.toLowerCase().trim();
 
-      let matchedPilot = pilots.find((p: any) =>
+      const matchedPilot = pilots.find((p: any) =>
         (p.name || '').toLowerCase().includes(normalizedSearch) ||
         normalizedSearch.includes((p.name || '').toLowerCase())
       );
@@ -184,27 +155,17 @@ export async function POST(request: NextRequest) {
       if (matchedPilot) {
         pilotId = matchedPilot._id.toString();
       } else {
-        // Create new pilot with unique email
         try {
           const uniqueEmail = `${analysis.pilotName.toLowerCase().replace(/\s+/g, '.')}.${Date.now()}@placeholder.com`;
           const newPilot = await Pilot.create({
             userId,
             name: analysis.pilotName,
             email: uniqueEmail,
-            certificates: {
-              type: 'PPL',
-              instrumentRated: false,
-              multiEngineRated: false,
-            },
+            certificates: { type: 'PPL', instrumentRated: false, multiEngineRated: false },
             endorsements: [],
             experience: {
-              totalHours: 0,
-              picHours: 0,
-              nightHours: 0,
-              ifrHours: 0,
-              crossCountryHours: 0,
-              last90DaysHours: 0,
-              last30DaysHours: 0,
+              totalHours: 0, picHours: 0, nightHours: 0, ifrHours: 0,
+              crossCountryHours: 0, last90DaysHours: 0, last30DaysHours: 0,
             },
             medicalExpiration: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
             flightReviewExpiration: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
@@ -213,11 +174,10 @@ export async function POST(request: NextRequest) {
           created.pilot = true;
           invalidateAllCaches();
         } catch (pilotError: any) {
-          // If duplicate key error, try to find existing pilot by email pattern
           if (pilotError.code === 11000) {
             const existingPilot = await Pilot.findOne({
               userId,
-              name: { $regex: new RegExp(analysis.pilotName, 'i') }
+              name: { $regex: new RegExp(analysis.pilotName, 'i') },
             });
             if (existingPilot) {
               pilotId = existingPilot._id.toString();
@@ -229,13 +189,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Try to match or create aircraft
+    // Aircraft matching
     let tailNumbers = analysis?.aircraftTailNumbers || [];
     if (tailNumbers.length === 0 && tailFromFilename) {
       tailNumbers = [tailFromFilename];
     }
 
-    const shouldMatchAircraft = aircraftTypes || documentType === 'maintenance';
+    const shouldMatchAircraft = isAircraftDoc || documentType === 'maintenance';
     if (shouldMatchAircraft && tailNumbers.length > 0) {
       const allAircraft = await Aircraft.find({ userId }).select('_id tailNumber').lean();
 
@@ -252,9 +212,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Create new aircraft if not found
       if (!aircraftId && tailNumbers[0]) {
-        // Try to fetch enriched data from FAA registry
         let aircraftData: any = {
           userId,
           tailNumber: tailNumbers[0].toUpperCase(),
@@ -262,23 +220,14 @@ export async function POST(request: NextRequest) {
           serial: 'Unknown',
           manufacturer: 'Unknown',
           year: new Date().getFullYear(),
-          maintenanceDates: {
-            annual: new Date(),
-            transponder: new Date(),
-            staticSystem: new Date(),
-          },
-          currentHours: {
-            hobbs: 0,
-            tach: 0,
-          },
+          maintenanceDates: { annual: new Date(), transponder: new Date(), staticSystem: new Date() },
+          currentHours: { hobbs: 0, tach: 0 },
           logs: [],
         };
 
         try {
           const details = await fetchAircraftDetails(tailNumbers[0]);
-
           if (details.success && details.data) {
-            // Merge enriched data
             aircraftData = {
               ...aircraftData,
               manufacturer: details.data.manufacturer || aircraftData.manufacturer,
@@ -289,9 +238,8 @@ export async function POST(request: NextRequest) {
               operatingLimits: details.data.operatingLimits,
             };
           }
-        } catch (error) {
-          console.error('Failed to fetch aircraft details:', error);
-          // Continue with basic data
+        } catch (err) {
+          console.error('Failed to fetch aircraft details:', err);
         }
 
         try {
@@ -300,7 +248,6 @@ export async function POST(request: NextRequest) {
           created.aircraft = true;
           invalidateAllCaches();
 
-          // Auto-fetch aircraft image in background (don't await to avoid blocking)
           if (!aircraftData.imageUrl) {
             fetchAircraftDetails(tailNumbers[0])
               .then((details) => {
@@ -311,12 +258,8 @@ export async function POST(request: NextRequest) {
               .catch((err) => console.error('Failed to auto-fetch aircraft image:', err));
           }
         } catch (aircraftError: any) {
-          // If duplicate key error, find existing aircraft by tail number
           if (aircraftError.code === 11000) {
-            const existingAircraft = await Aircraft.findOne({
-              userId,
-              tailNumber: tailNumbers[0].toUpperCase()
-            });
+            const existingAircraft = await Aircraft.findOne({ userId, tailNumber: tailNumbers[0].toUpperCase() });
             if (existingAircraft) {
               aircraftId = existingAircraft._id.toString();
             }
@@ -327,7 +270,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Create document with queued status
+    // ---- Create document with queued status ----
     const doc = await ParsedDocument.create({
       userId,
       filename: filename || `document_${Date.now()}.${fileType === 'pdf' ? 'pdf' : 'png'}`,
@@ -347,14 +290,12 @@ export async function POST(request: NextRequest) {
     });
 
     // Link document to pilot/aircraft
-    if (pilotId) {
-      await Pilot.findByIdAndUpdate(pilotId, { $addToSet: { linkedDocuments: doc._id } });
-    }
-    if (aircraftId) {
-      await Aircraft.findByIdAndUpdate(aircraftId, { $addToSet: { linkedDocuments: doc._id } });
-    }
+    const linkPromises: Promise<any>[] = [];
+    if (pilotId) linkPromises.push(Pilot.findByIdAndUpdate(pilotId, { $addToSet: { linkedDocuments: doc._id } }));
+    if (aircraftId) linkPromises.push(Aircraft.findByIdAndUpdate(aircraftId, { $addToSet: { linkedDocuments: doc._id } }));
+    if (linkPromises.length > 0) await Promise.all(linkPromises);
 
-    // Enqueue background job for processing
+    // Enqueue background job
     enqueueUploadJob({
       documentId: doc._id.toString(),
       fileBase64,
@@ -369,7 +310,6 @@ export async function POST(request: NextRequest) {
 
     console.log(`[Background-Upload] Queued document ${doc._id} for processing`);
 
-    // Return immediately with document ID
     return NextResponse.json({
       success: true,
       documentId: doc._id.toString(),
@@ -379,7 +319,6 @@ export async function POST(request: NextRequest) {
       linkedAircraft: aircraftId,
       message: 'Upload queued for background processing',
     });
-
   } catch (error) {
     console.error('Background upload error:', error);
     return NextResponse.json(

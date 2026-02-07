@@ -1,13 +1,12 @@
 /**
  * Document processing utilities.
  *
- * Pure domain logic for working with parsed document entries:
+ * All document-related domain logic in one place:
+ *   - Flight status display config (GO / CAUTION / NO-GO)
  *   - Summary calculation (hours, date ranges)
  *   - Logbook entry category detection (engine, propeller, avionics, airframe)
  *   - Pilot experience aggregation from logbook entries
  *   - Aircraft maintenance / hours updates from parsed entries
- *
- * Flight-status display config has been moved to flightStatusConfig.ts.
  */
 
 import Aircraft, { LogbookCategory } from '@/lib/models/Aircraft';
@@ -15,8 +14,49 @@ import Pilot from '@/lib/models/Pilot';
 import { generateSafetyAnalysis } from '@/lib/services/safetyAnalysisService';
 import { invalidateAllCaches } from '@/lib/services/autoAttachService';
 
-// Re-export flight status from its new home so existing imports keep working.
-export { getStatusConfig, type FlightStatusType } from './flightStatusConfig';
+// ============ FLIGHT STATUS CONFIG ============
+
+export type FlightStatusType = 'go' | 'caution' | 'no-go';
+
+export interface StatusConfig {
+  emoji: string;
+  text: string;
+  shortLabel: string;
+  color: string;
+  bgColor: string;
+  isDangerous: boolean;
+}
+
+const STATUS_CONFIG: Record<FlightStatusType, StatusConfig> = {
+  'go': {
+    emoji: '✅',
+    text: 'GO - Flight Approved',
+    shortLabel: 'GO',
+    color: '#10b981',
+    bgColor: '#ecfdf5',
+    isDangerous: false,
+  },
+  'caution': {
+    emoji: '⚠️',
+    text: 'CAUTION - Review Required',
+    shortLabel: 'CAUTION',
+    color: '#f59e0b',
+    bgColor: '#fffbeb',
+    isDangerous: true,
+  },
+  'no-go': {
+    emoji: '❌',
+    text: 'NO-GO - Flight Not Recommended',
+    shortLabel: 'NO-GO',
+    color: '#ef4444',
+    bgColor: '#fef2f2',
+    isDangerous: true,
+  },
+};
+
+export function getStatusConfig(status: FlightStatusType | string): StatusConfig {
+  return STATUS_CONFIG[status as FlightStatusType] || STATUS_CONFIG['no-go'];
+}
 
 // ============ TIME CONSTANTS ============
 

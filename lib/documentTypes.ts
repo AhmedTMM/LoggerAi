@@ -48,6 +48,31 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, {
     other: { label: 'Other', category: 'general', color: 'gray', description: 'Other documents' }
 };
 
+// ============ DOCUMENT TYPE GROUPINGS ============
+// Centralized arrays used across upload routes, parsing, and linked record updates.
+// Add new types here instead of duplicating inline arrays.
+
+/** Document types that belong to a pilot (linked to pilot records) */
+export const PILOT_DOC_TYPES: DocumentType[] = [
+    'pilot_logbook', 'medical', 'certificate', 'endorsement', 'checkout',
+];
+
+/** Document types that contain pilot flight entries for experience calculation */
+export const PILOT_LOGBOOK_TYPES: DocumentType[] = ['pilot_logbook', 'logbook'];
+
+/** Document types that belong to an aircraft (linked to aircraft records) */
+export const AIRCRAFT_DOC_TYPES: DocumentType[] = [
+    'aircraft_logbook', 'maintenance', 'inspection', 'poh', 'weight_balance',
+    'insurance', 'registration', 'ad_compliance', 'service_bulletin',
+];
+
+/** Aircraft document types whose entries update maintenance/hours data */
+export const AIRCRAFT_MAINTENANCE_TYPES: DocumentType[] = [
+    'aircraft_logbook', 'maintenance', 'inspection',
+];
+
+// ============ DERIVED TYPES ============
+
 // Detected type from AI (more specific than storage type)
 export type DetectedDocumentType = DocumentType | 'unknown';
 

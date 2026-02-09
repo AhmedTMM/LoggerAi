@@ -60,6 +60,8 @@
 
 .leaflet-container {
   font-family: inherit;
+  z-index: 0 !important;
+  isolation: isolate;
 }
 
 /* Custom scrollbar for files page */

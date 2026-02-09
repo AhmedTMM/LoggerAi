@@ -384,7 +384,7 @@ export default function FlightMap({ flights, aircraft, pilots }: FlightMapProps)
   }
 
   return (
-    <div className="relative w-full h-[300px] sm:h-[400px] lg:h-[500px] rounded-xl overflow-hidden border border-zinc-200 bg-zinc-100">
+    <div className="relative z-0 w-full h-[300px] sm:h-[400px] lg:h-[500px] rounded-xl overflow-hidden border border-zinc-200 bg-zinc-100">
       {/* Stats Overlay - Responsive */}
       <div className="absolute top-2 sm:top-4 left-2 sm:left-4 right-2 sm:right-auto z-[1000] flex flex-wrap gap-1 sm:gap-2">
         <div

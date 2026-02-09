@@ -189,8 +189,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Aircraft matching
-    let tailNumbers = analysis?.aircraftTailNumbers || [];
+    // Aircraft matching (prefer AI-matched tails, then classification tails, then filename)
+    let tailNumbers = analysis?.matchedAircraftTails || analysis?.aircraftTailNumbers || [];
     if (tailNumbers.length === 0 && tailFromFilename) {
       tailNumbers = [tailFromFilename];
     }

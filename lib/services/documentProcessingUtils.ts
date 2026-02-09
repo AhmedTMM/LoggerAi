@@ -238,7 +238,8 @@ export async function updateAircraftFromEntries(
 
   for (const entry of entries) {
     const entryDate = entry.date ? new Date(entry.date) : null;
-    const desc = (entry.description || '').toLowerCase();
+    // Support both maintenance-style (description) and logbook-style (remarks) entries
+    const desc = (entry.description || entry.remarks || '').toLowerCase();
 
     if (entryDate && !isNaN(entryDate.getTime())) {
       // Check structured inspection types
@@ -261,7 +262,7 @@ export async function updateAircraftFromEntries(
         }
       }
 
-      // Fallback: match keywords in description text
+      // Fallback: match keywords in description/remarks text
       if (desc.includes('annual') && !desc.includes('100')) {
         if (!latestAnnual || entryDate > latestAnnual) latestAnnual = entryDate;
       }
@@ -279,8 +280,24 @@ export async function updateAircraftFromEntries(
       }
     }
 
+    // Structured hobbs/tach fields
     if (entry.hobbsTime && entry.hobbsTime > maxHobbs) maxHobbs = entry.hobbsTime;
     if (entry.tachTime && entry.tachTime > maxTach) maxTach = entry.tachTime;
+
+    // Parse tach/hobbs from remarks text (e.g. "Tach: 2464.0", "Hobbs Time: 2465.5")
+    if (!entry.hobbsTime || !entry.tachTime) {
+      const text = entry.description || entry.remarks || '';
+      const tachMatch = text.match(/[Tt]ach[:\s]*(\d+\.?\d*)/);
+      const hobbsMatch = text.match(/[Hh]obbs[^:]*[:\s]*(\d+\.?\d*)/);
+      if (tachMatch) {
+        const val = parseFloat(tachMatch[1]);
+        if (val > maxTach) maxTach = val;
+      }
+      if (hobbsMatch) {
+        const val = parseFloat(hobbsMatch[1]);
+        if (val > maxHobbs) maxHobbs = val;
+      }
+    }
   }
 
   // ---- Apply inspection dates ----
@@ -304,7 +321,7 @@ export async function updateAircraftFromEntries(
 
   // ---- Append log entries ----
   const newLogs = entries.map((entry: any) => {
-    const description = entry.description || entry.workPerformed || 'Maintenance entry';
+    const description = entry.description || entry.remarks || entry.workPerformed || 'Maintenance entry';
     const category = filenameCategory || detectEntryCategory(description);
 
     return {

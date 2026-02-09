@@ -424,6 +424,9 @@ const AircraftSchema = new Schema<IAircraft>(
   }
 );
 
+// Compound unique: each user has their own aircraft records, keyed by tail number
+AircraftSchema.index({ userId: 1, tailNumber: 1 }, { unique: true });
+
 // Prevent model recompilation in Next.js dev mode
 // FORCE RECOMPILE in dev to ensure schema updates (like operatingLimits) are picked up
 if (process.env.NODE_ENV === 'development' && mongoose.models.Aircraft) {

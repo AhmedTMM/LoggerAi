@@ -32,8 +32,8 @@ const STORAGE_KEY = 'aviation-bg-uploads';
 
 export default function FilesPage() {
   const { data: documents = [], isLoading, refetch } = useParsedDocuments();
-  const { data: aircraft = [] } = useAircraft();
-  const { data: pilots = [] } = usePilots();
+  const { data: aircraft = [], refetch: refetchAircraft } = useAircraft();
+  const { data: pilots = [], refetch: refetchPilots } = usePilots();
   const deleteDocument = useDeleteParsedDocument();
 
   const [isDragging, setIsDragging] = useState(false);
@@ -290,6 +290,36 @@ export default function FilesPage() {
     return () => clearInterval(interval);
   }, [documents, refetch]);
 
+  // Auto-reconcile unlinked documents (runs once when documents load)
+  // Only triggers if there are completed docs missing links that could be resolved
+  const reconcileRanRef = useRef(false);
+  useEffect(() => {
+    if (reconcileRanRef.current || !documents || documents.length === 0) return;
+    const PILOT_TYPES = ['pilot_logbook', 'medical', 'certificate', 'endorsement', 'checkout'];
+    const AIRCRAFT_TYPES = ['aircraft_logbook', 'maintenance', 'inspection', 'poh', 'weight_balance', 'insurance', 'registration', 'ad_compliance', 'service_bulletin'];
+    const hasUnlinked = documents.some((doc: any) => {
+      if (doc.status !== 'completed') return false;
+      const dt = doc.documentType || 'other';
+      // Pilot doc missing pilot link
+      if (!doc.pilot && PILOT_TYPES.includes(dt)) return true;
+      // Aircraft doc missing aircraft link
+      if (!doc.aircraft && AIRCRAFT_TYPES.includes(dt)) return true;
+      return false;
+    });
+    if (!hasUnlinked) return;
+    reconcileRanRef.current = true;
+    fetch('/api/documents/reconcile-links', { method: 'POST' })
+      .then(res => res.json())
+      .then(data => {
+        if (data.reconciled > 0) {
+          refetch();
+          // If aircraft were created during reconciliation, refresh aircraft list too
+          if (data.created?.aircraft > 0) refetchAircraft();
+        }
+      })
+      .catch(err => console.error('Reconcile error:', err));
+  }, [documents, refetch, refetchAircraft]);
+
   // Handle file upload (supports multiple files)
   const handleUpload = useCallback(async (files: FileList | File[]) => {
     const fileArray = Array.from(files).filter(f =>
@@ -351,9 +381,61 @@ export default function FilesPage() {
   };
 
   // Find linked pilot/aircraft for display
+  // Falls back to analysis/filename matching when formal DB link is missing
+  // Document-type-aware: pilot docs only link to pilots, aircraft docs only link to aircraft
   const getLinkedInfo = (doc: any) => {
-    const linkedAircraft = aircraft.find((a: any) => a._id === doc.aircraft);
-    const linkedPilot = pilots.find((p: any) => p._id === doc.pilot);
+    const docType = doc.documentType || 'other';
+    const PILOT_TYPES = ['pilot_logbook', 'medical', 'certificate', 'endorsement', 'checkout'];
+    const AIRCRAFT_TYPES = ['aircraft_logbook', 'maintenance', 'inspection', 'poh', 'weight_balance', 'insurance', 'registration', 'ad_compliance', 'service_bulletin'];
+    const isPilotDoc = PILOT_TYPES.includes(docType);
+    const isAircraftDoc = AIRCRAFT_TYPES.includes(docType);
+
+    // Formal DB links — but ONLY show cross-type-appropriate links.
+    // Pilot logbooks may have doc.aircraft set from upload (the aircraft the pilot flew),
+    // but that's NOT an ownership link and shouldn't display as one.
+    let linkedAircraft = (doc.aircraft && !isPilotDoc)
+      ? aircraft.find((a: any) => String(a._id) === String(doc.aircraft))
+      : undefined;
+    let linkedPilot = (doc.pilot && !isAircraftDoc)
+      ? pilots.find((p: any) => String(p._id) === String(doc.pilot))
+      : undefined;
+
+    // Fallback aircraft matching — ONLY for aircraft-type documents
+    // (Pilot logbooks mention many aircraft in their entries; those are NOT ownership links)
+    if (!linkedAircraft && isAircraftDoc && aircraft.length > 0) {
+      // 1. Try tail numbers from AI analysis
+      const analysisTails: string[] = doc.analysis?.matchedAircraftTails || doc.analysis?.aircraftTailNumbers || [];
+      // 2. Try extracting N-number from filename
+      const filenameTails: string[] = [];
+      if (doc.filename) {
+        const m = doc.filename.match(/\b(N[0-9A-Z]{1,5})\b/i);
+        if (m) filenameTails.push(m[1].toUpperCase());
+      }
+      // Combine, deduplicate, filename first (more reliable for aircraft docs)
+      const allTails = Array.from(new Set(filenameTails.concat(analysisTails)));
+
+      for (const tail of allTails) {
+        const norm = tail.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const match = aircraft.find((a: any) => {
+          const at = (a.tailNumber || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+          return at === norm || at.includes(norm) || norm.includes(at);
+        });
+        if (match) { linkedAircraft = match; break; }
+      }
+    }
+
+    // Fallback pilot matching — ONLY for pilot-type documents
+    if (!linkedPilot && isPilotDoc && pilots.length > 0) {
+      const name = doc.analysis?.matchedPilotName || doc.analysis?.pilotName;
+      if (name && name.length >= 2) {
+        const norm = name.toLowerCase();
+        linkedPilot = pilots.find((p: any) => {
+          const pn = (p.name || '').toLowerCase();
+          return pn.includes(norm) || norm.includes(pn);
+        });
+      }
+    }
+
     return { linkedAircraft, linkedPilot };
   };
 

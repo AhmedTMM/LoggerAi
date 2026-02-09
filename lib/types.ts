@@ -160,6 +160,15 @@ export interface Pilot {
   linkedDocuments?: string[];
   medicalExpiration: Date | string;
   flightReviewExpiration: Date | string;
+  weatherExperience?: {
+    totalFlights: number;
+    flightsWithWeather: number;
+    vfr: number;
+    mvfr: number;
+    ifr: number;
+    lifr: number;
+    lastUpdated: Date | string;
+  };
   safetyAnalysis?: {
     lastAnalyzed: Date | string;
     score: number;

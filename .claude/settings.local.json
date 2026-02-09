@@ -24,7 +24,8 @@
       "Bash(find:*)",
       "Bash(git -C /Users/ahmed/Documents/GitHub/LogHacker status app/api/documents/[id]/parse/ app/api/documents/smart-upload/ app/api/documents/upload/)",
       "Bash(git -C /Users/ahmed/Documents/GitHub/LogHacker diff --stat HEAD)",
-      "Bash(npx vitest run:*)"
+      "Bash(npx vitest run:*)",
+      "Bash(file:*)"
     ]
   }
 }

@@ -21,15 +21,28 @@ interface UploadJob {
   pilotId?: string;
   aircraftId?: string;
   categoryFromFilename?: LogbookCategory;
+  retryCount?: number;
 }
+
+const MAX_RETRIES = 2;
+const STUCK_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
 
 const jobQueue: UploadJob[] = [];
 let isProcessing = false;
 
 // Add a job to the queue
 export function enqueueUploadJob(job: UploadJob) {
-  jobQueue.push(job);
+  jobQueue.push({ ...job, retryCount: job.retryCount ?? 0 });
   processQueue(); // Start processing if not already running
+}
+
+// Expose queue state for testing/monitoring
+export function getQueueLength(): number {
+  return jobQueue.length;
+}
+
+export function isQueueProcessing(): boolean {
+  return isProcessing;
 }
 
 // Process jobs in the queue
@@ -44,7 +57,27 @@ async function processQueue() {
       try {
         await processUploadJob(job);
       } catch (error) {
-        console.error('Background job failed:', error);
+        console.error(`[BackgroundProcessor] Job failed for ${job.documentId}:`, error);
+
+        // Retry logic: re-enqueue with incremented count
+        const retryCount = (job.retryCount ?? 0) + 1;
+        if (retryCount <= MAX_RETRIES) {
+          console.log(`[BackgroundProcessor] Retrying ${job.documentId} (attempt ${retryCount}/${MAX_RETRIES})`);
+          jobQueue.push({ ...job, retryCount });
+        } else {
+          console.error(`[BackgroundProcessor] Max retries reached for ${job.documentId}`);
+          try {
+            await dbConnect();
+            await ParsedDocument.findByIdAndUpdate(job.documentId, {
+              status: 'failed',
+              progressStep: 'failed',
+              error: `Processing failed after ${MAX_RETRIES} retries: ${(error as Error).message}`,
+              retryCount,
+            });
+          } catch (dbError) {
+            console.error('[BackgroundProcessor] Failed to mark document as failed:', dbError);
+          }
+        }
       }
     }
   }
@@ -66,10 +99,10 @@ async function processUploadJob(job: UploadJob) {
       progressStep: 'processing',
     });
 
-    // Parse the document using Reducto OCR + Gemini (high quality)
+    // Parse using ultra-fast Gemini Vision (5-15s), auto-falls back to OCR pipeline on failure
     const parseType = documentType === 'poh' ? 'logbook' : documentType;
-    const { parseDocumentFast } = await import('@/lib/services/reductoService');
-    const result = await parseDocumentFast(
+    const { parseDocumentUltraFast } = await import('@/lib/services/reductoService');
+    const result = await parseDocumentUltraFast(
       fileBase64,
       fileType as 'pdf' | 'image',
       parseType,
@@ -125,20 +158,18 @@ async function processUploadJob(job: UploadJob) {
     }
 
     // Run audit if we have both pilot and aircraft
-    let auditStatus: string | undefined;
     if (pilotId && aircraftId) {
       try {
         const pilot = await Pilot.findById(pilotId);
         const aircraft = await Aircraft.findById(aircraftId);
         if (pilot && aircraft) {
           const auditResult = await runBasicLegalityAudit(aircraft, pilot, new Date(), 'KJFK');
-          auditStatus = auditResult.overallStatus;
 
           // Store audit results on pilot
           await Pilot.findByIdAndUpdate(pilotId, {
             safetyAnalysis: {
               lastAnalyzed: new Date(),
-              score: auditStatus === 'go' ? 100 : auditStatus === 'caution' ? 70 : 30,
+              score: auditResult.overallStatus === 'go' ? 100 : auditResult.overallStatus === 'caution' ? 70 : 30,
               findings: auditResult.checks.map(c => ({
                 category: c.category,
                 riskLevel: c.status === 'fail' ? 'high' : c.status === 'warning' ? 'medium' : 'low',
@@ -160,11 +191,62 @@ async function processUploadJob(job: UploadJob) {
     });
   } catch (error) {
     console.error(`[BackgroundProcessor] Error processing document ${documentId}:`, error);
-    await ParsedDocument.findByIdAndUpdate(documentId, {
-      status: 'failed',
-      progressStep: 'failed',
-      error: (error as Error).message,
-    });
+    // Re-throw so the queue can handle retries
+    throw error;
+  }
+}
+
+
+/**
+ * Recover documents stuck in queued/parsing status.
+ * Called on server startup or periodically via cron.
+ * Re-enqueues documents that have been stuck longer than STUCK_THRESHOLD_MS.
+ */
+export async function recoverStuckDocuments(): Promise<number> {
+  try {
+    await dbConnect();
+
+    const cutoff = new Date(Date.now() - STUCK_THRESHOLD_MS);
+    const stuckDocs = await ParsedDocument.find({
+      status: { $in: ['queued', 'parsing'] },
+      updatedAt: { $lt: cutoff },
+      retryCount: { $lt: MAX_RETRIES },
+    }).select('_id fileBase64 filePath fileType filename userId documentType aircraft pilot retryCount').lean();
+
+    if (stuckDocs.length === 0) return 0;
+
+    console.log(`[BackgroundProcessor] Found ${stuckDocs.length} stuck document(s), recovering...`);
+
+    let recovered = 0;
+    for (const doc of stuckDocs) {
+      // Only re-enqueue if we have file data stored in DB
+      if ((doc as any).fileBase64) {
+        enqueueUploadJob({
+          documentId: doc._id.toString(),
+          fileBase64: (doc as any).fileBase64,
+          fileType: doc.fileType || 'pdf',
+          filename: doc.filename || 'recovered_document',
+          userId: (doc as any).userId?.toString() || '',
+          documentType: doc.documentType || 'other',
+          pilotId: (doc as any).pilot?.toString(),
+          aircraftId: (doc as any).aircraft?.toString(),
+          retryCount: ((doc as any).retryCount || 0) + 1,
+        });
+        recovered++;
+      } else {
+        // No file data available — mark as failed
+        await ParsedDocument.findByIdAndUpdate(doc._id, {
+          status: 'failed',
+          progressStep: 'failed',
+          error: 'Recovery failed: no file data available (server may have restarted)',
+        });
+      }
+    }
+
+    return recovered;
+  } catch (error) {
+    console.error('[BackgroundProcessor] Recovery error:', error);
+    return 0;
   }
 }
 

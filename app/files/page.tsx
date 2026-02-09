@@ -15,6 +15,17 @@ interface UploadingFile {
   progress: number;
   message: string;
   result?: any;
+  startTime: number;    // Date.now() when upload began
+  endTime?: number;     // Date.now() when completed/failed
+}
+
+/** Format elapsed ms as "Xs" or "M:SS" */
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
 const STORAGE_KEY = 'aviation-bg-uploads';
@@ -29,9 +40,18 @@ export default function FilesPage() {
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isRestoringUploads, setIsRestoringUploads] = useState(true);
+  const [now, setNow] = useState(Date.now());
 
   // Store active polling intervals
   const pollingIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+
+  // Tick every second while uploads are active (for live timer)
+  useEffect(() => {
+    const hasActive = uploadingFiles.some(f => f.status !== 'completed' && f.status !== 'failed');
+    if (!hasActive) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [uploadingFiles]);
 
   // Poll status for a document
   const pollDocumentStatus = useCallback(async (fileId: string, documentId: string) => {
@@ -44,6 +64,7 @@ export default function FilesPage() {
       }
 
       // Update the file status
+      const isDone = data.status === 'completed' || data.status === 'failed';
       setUploadingFiles(prev => prev.map(f =>
         f.id === fileId ? {
           ...f,
@@ -54,7 +75,8 @@ export default function FilesPage() {
             ...data,
             entryCount: data.summary?.totalEntries,
             totalHours: data.summary?.totalHours,
-          } : undefined
+          } : undefined,
+          ...(isDone && !f.endTime ? { endTime: Date.now() } : {}),
         } : f
       ));
 
@@ -142,7 +164,8 @@ export default function FilesPage() {
           ...f,
           status: 'failed',
           progress: 0,
-          message: (error as Error).message
+          message: (error as Error).message,
+          endTime: Date.now(),
         } : f
       ));
     }
@@ -156,6 +179,7 @@ export default function FilesPage() {
         id: f.id,
         documentId: f.documentId,
         name: f.name,
+        startTime: f.startTime,
       }));
 
     if (activeUploads.length > 0) {
@@ -175,7 +199,7 @@ export default function FilesPage() {
       }
 
       try {
-        const savedUploads = JSON.parse(stored) as { id: string; documentId: string; name: string }[];
+        const savedUploads = JSON.parse(stored) as { id: string; documentId: string; name: string; startTime?: number }[];
 
         if (savedUploads.length === 0) {
           setIsRestoringUploads(false);
@@ -211,6 +235,7 @@ export default function FilesPage() {
                 status: status.status,
                 progress: status.progress,
                 message: status.progressStep || status.status,
+                startTime: upload.startTime || Date.now(),
               };
             })
             .filter(Boolean) as UploadingFile[];
@@ -274,12 +299,14 @@ export default function FilesPage() {
     if (fileArray.length === 0) return;
 
     // Add all files to uploading state
+    const now = Date.now();
     const newFiles: UploadingFile[] = fileArray.map(file => ({
-      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: `${now}-${Math.random().toString(36).substr(2, 9)}`,
       name: file.name,
       status: 'uploading' as const,
       progress: 0,
-      message: 'Queued...'
+      message: 'Queued...',
+      startTime: now,
     }));
 
     setUploadingFiles(prev => [...prev, ...newFiles]);
@@ -407,7 +434,15 @@ export default function FilesPage() {
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium text-slate-800 truncate">{file.name}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium text-slate-800 truncate">{file.name}</p>
+                    <span className={cn(
+                      "text-xs font-mono tabular-nums flex-shrink-0",
+                      file.endTime ? "text-slate-400" : "text-blue-600"
+                    )}>
+                      {formatElapsed((file.endTime || now) - file.startTime)}
+                    </span>
+                  </div>
                   <p className="text-sm text-slate-500">{file.message}</p>
                   {file.result?.created && (
                     <div className="flex gap-2 mt-1">

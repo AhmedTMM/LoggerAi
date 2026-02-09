@@ -4,6 +4,7 @@ import Flight, { IWeatherData } from '@/lib/models/Flight';
 import { IPilot } from '@/lib/models/Pilot';
 import { fetchWeatherData } from '@/lib/services/weatherService';
 import { sendThreatAlert } from '@/lib/services/emailService';
+import { recoverStuckDocuments } from '@/lib/services/backgroundProcessor';
 
 interface ThreatAnalysisResult {
     hasThreats: boolean;
@@ -113,6 +114,14 @@ export async function GET(request: Request) {
             status: { $in: ['planned', 'go', 'caution'] }
         }).select('_id');
 
+        // 2b. Recover stuck document uploads
+        let recoveredDocs = 0;
+        try {
+          recoveredDocs = await recoverStuckDocuments();
+        } catch (recoverError) {
+          console.error('Document recovery error:', recoverError);
+        }
+
         // 3. Analyze Each
         const results = await Promise.all(
             activeFlights.map(async (flight) => {
@@ -129,6 +138,7 @@ export async function GET(request: Request) {
         return NextResponse.json({
             success: true,
             checked: results.length,
+            recoveredDocs,
             results
         });
 

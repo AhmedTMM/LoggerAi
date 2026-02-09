@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/db';
 import ParsedDocument from '@/lib/models/ParsedDocument';
-import { parseDocument } from '@/lib/services/reductoService';
+import { parseDocumentUltraFast } from '@/lib/services/reductoService';
 import { classifyDocumentFast, FastDocumentClassification } from '@/lib/services/aiService';
 import { saveFile } from '@/lib/services/fileStorage';
 import { reconcileDocumentLinks } from '@/lib/services/autoAttachService';
 import { requireAuth } from '@/lib/auth-helpers';
 import { rateLimit } from '@/lib/rate-limit';
 import {
-  MONGODB_SAFE_SIZE,
   validateUploadPayload,
   base64ToByteSize,
   extractEntriesFromResult,
@@ -53,7 +52,6 @@ export async function POST(request: NextRequest) {
     await dbConnect();
 
     const originalFilename = filename || `document_${Date.now()}.${fileType === 'pdf' ? 'pdf' : 'png'}`;
-    const isLargeFile = fileBase64.length > MONGODB_SAFE_SIZE;
 
     // ---- Parallel: classify + save file to disk ----
     let analysis: FastDocumentClassification | null = null;
@@ -110,9 +108,9 @@ export async function POST(request: NextRequest) {
       originalFilename,
       documentType,
       fileType,
-      status: isLargeFile ? 'parsing' : 'pending',
-      progress: isLargeFile ? 10 : 0,
-      progressStep: isLargeFile ? 'queued' : 'pending',
+      status: 'parsing',
+      progress: 10,
+      progressStep: 'queued',
       retryCount: 0,
       aircraft: aircraftId || undefined,
       pilot: pilotId || undefined,
@@ -130,75 +128,56 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ---- Large files: parse immediately ----
-    if (isLargeFile) {
-      try {
-        await updateDocumentProgress(doc._id.toString(), 30, 'uploading', 'parsing');
-        await updateDocumentProgress(doc._id.toString(), 50, 'processing');
+    // ---- Parse all files inline using ultra-fast Gemini Vision ----
+    try {
+      await updateDocumentProgress(doc._id.toString(), 30, 'uploading', 'parsing');
+      await updateDocumentProgress(doc._id.toString(), 50, 'processing');
 
-        const result = await parseDocument(fileBase64, fileType, resolveParseType(documentType));
+      const result = await parseDocumentUltraFast(fileBase64, fileType, resolveParseType(documentType));
 
-        await updateDocumentProgress(doc._id.toString(), 80, 'extracting');
+      await updateDocumentProgress(doc._id.toString(), 80, 'extracting');
 
-        if (!result.success) {
-          await markDocumentFailed(doc._id.toString(), result.error || 'Parse failed');
-          return NextResponse.json(
-            { success: false, error: result.error, documentId: doc._id },
-            { status: 500 }
-          );
-        }
-
-        const entries = extractEntriesFromResult(result);
-        const { summary } = await markDocumentComplete(doc._id.toString(), {
-          entries,
-          rawOutput: result.data?.extractedData,
-          documentType,
-        });
-
-        await updateLinkedRecords({ pilotId, aircraftId, documentType, entries });
-
-        return NextResponse.json({
-          success: true,
-          data: {
-            documentId: doc._id,
-            filename: doc.filename,
-            originalFilename: doc.originalFilename,
-            documentType,
-            status: 'completed',
-            progress: 100,
-            progressStep: 'complete',
-            message: 'Document parsed successfully.',
-            summary,
-            analysis: analysis || undefined,
-            filePath: storedFile?.relativePath,
-          },
-        });
-      } catch (parseError) {
-        console.error('Large file parse error:', parseError);
-        await markDocumentFailed(doc._id.toString(), (parseError as Error).message);
+      if (!result.success) {
+        await markDocumentFailed(doc._id.toString(), result.error || 'Parse failed');
         return NextResponse.json(
-          { success: false, error: (parseError as Error).message, documentId: doc._id },
+          { success: false, error: result.error, documentId: doc._id },
           { status: 500 }
         );
       }
-    }
 
-    // ---- Small files: store and return (client triggers parsing separately) ----
-    return NextResponse.json({
-      success: true,
-      data: {
-        documentId: doc._id,
-        filename: doc.filename,
-        originalFilename: doc.originalFilename,
+      const entries = extractEntriesFromResult(result);
+      const { summary } = await markDocumentComplete(doc._id.toString(), {
+        entries,
+        rawOutput: result.data?.extractedData,
         documentType,
-        status: 'pending',
-        progress: 0,
-        progressStep: 'pending',
-        message: 'File uploaded successfully. Ready for parsing.',
-        analysis: analysis || undefined,
-        filePath: storedFile?.relativePath,
-      },
-    });
+      });
+
+      await updateLinkedRecords({ pilotId, aircraftId, documentType, entries });
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          documentId: doc._id,
+          filename: doc.filename,
+          originalFilename: doc.originalFilename,
+          documentType,
+          status: 'completed',
+          progress: 100,
+          progressStep: 'complete',
+          message: 'Document parsed successfully.',
+          summary,
+          analysis: analysis || undefined,
+          filePath: storedFile?.relativePath,
+        },
+      });
+    } catch (parseError) {
+      console.error('Document parse error:', parseError);
+      await markDocumentFailed(doc._id.toString(), (parseError as Error).message);
+      return NextResponse.json(
+        { success: false, error: (parseError as Error).message, documentId: doc._id },
+        { status: 500 }
+      );
+    }
   } catch (error) {
     console.error('Document upload error:', error);
     return NextResponse.json(

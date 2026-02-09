@@ -103,14 +103,41 @@ export default function PilotsPage() {
     return { color: 'text-emerald-500', badge: 'success', text: 'Current' };
   };
 
-  // Update weather experience cache
+  // Update weather experience cache and persist to DB
   const updateWeatherCache = useCallback((pilotId: string, experience: WeatherExperience) => {
     setWeatherExperienceCache(prev => {
       const newMap = new Map(prev);
       newMap.set(pilotId, experience);
       return newMap;
     });
+
+    // Persist to pilot record (fire-and-forget)
+    fetch(`/api/pilots/${pilotId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ weatherExperience: experience }),
+    }).catch((err) => console.error('Failed to persist weather experience:', err));
   }, []);
+
+  // Load saved weather experience from pilot data when selecting a pilot
+  useEffect(() => {
+    if (selectedPilot?.weatherExperience && !weatherExperienceCache.has(selectedPilot._id)) {
+      const saved = selectedPilot.weatherExperience;
+      setWeatherExperienceCache(prev => {
+        const newMap = new Map(prev);
+        newMap.set(selectedPilot._id, {
+          totalFlights: saved.totalFlights,
+          flightsWithWeather: saved.flightsWithWeather,
+          vfr: saved.vfr,
+          mvfr: saved.mvfr,
+          ifr: saved.ifr,
+          lifr: saved.lifr,
+          lastUpdated: new Date(saved.lastUpdated),
+        });
+        return newMap;
+      });
+    }
+  }, [selectedPilot]);
 
   if (isLoading) return <LoadingSpinner className="h-96" />;
   if (error) return (
@@ -727,34 +754,59 @@ function FlightsTab({
   const [loadingWeather, setLoadingWeather] = useState(false);
   const [playbackFlight, setPlaybackFlight] = useState<any>(null);
 
-  // Extract all logbook entries from linked documents
+  // Extract all logbook entries from linked documents, tracking doc ID and entry index
   const logbookEntries = useMemo(() => {
     if (!documents) return [];
     const completedDocs = documents.filter((doc: any) => doc.status === 'completed');
     return completedDocs.flatMap((doc: any) =>
-      (doc.entries || []).map((entry: any) => ({ ...entry, _source: 'logbook', _docId: doc._id }))
+      (doc.entries || []).map((entry: any, entryIdx: number) => ({
+        ...entry,
+        _source: 'logbook',
+        _docId: doc._id,
+        _entryIdx: entryIdx,
+      }))
     );
   }, [documents]);
 
-  // Fetch historical weather for logbook entries
+  // Fetch historical weather for logbook entries (skips entries that already have weather)
   useEffect(() => {
     if (logbookEntries.length === 0) return;
 
     const fetchHistoricalWeather = async () => {
-      setLoadingWeather(true);
-      const weatherMap = new Map();
-
-      const batchSize = 5;
+      const weatherMap = new Map<string, any>();
       const entries = logbookEntries.slice(0, 50);
 
+      // Pre-populate from already-saved weather on entries
+      let needsFetch = false;
+      entries.forEach((entry: any, idx: number) => {
+        if (entry.weather) {
+          weatherMap.set(`logbook-${idx}`, entry.weather);
+        } else if (entry.date && entry.from) {
+          needsFetch = true;
+        }
+      });
+
+      // If all entries have weather, skip the expensive fetch entirely
+      if (!needsFetch) {
+        setHistoricalWeather(weatherMap);
+        return;
+      }
+
+      setLoadingWeather(true);
+
+      // Track newly fetched weather grouped by document for batch saving
+      const newWeatherByDoc = new Map<string, Record<number, any>>();
+
+      const batchSize = 5;
       for (let i = 0; i < entries.length; i += batchSize) {
         const batch = entries.slice(i, i + batchSize);
 
         await Promise.all(
           batch.map(async (entry: any, batchIdx: number) => {
-            if (!entry.date || !entry.from) return;
-
             const entryIdx = i + batchIdx;
+
+            // Skip entries that already have weather or lack required fields
+            if (entry.weather || !entry.date || !entry.from) return;
 
             try {
               const res = await fetch('/api/weather/historical', {
@@ -769,6 +821,16 @@ function FlightsTab({
               const data = await res.json();
               if (res.ok && data.success && data.weather) {
                 weatherMap.set(`logbook-${entryIdx}`, data.weather);
+
+                // Track for batch save to document
+                const docId = entry._docId;
+                const docEntryIdx = entry._entryIdx;
+                if (docId != null && docEntryIdx != null) {
+                  if (!newWeatherByDoc.has(docId)) {
+                    newWeatherByDoc.set(docId, {});
+                  }
+                  newWeatherByDoc.get(docId)![docEntryIdx] = data.weather;
+                }
               }
             } catch (error) {
               console.error(`Failed to fetch weather for ${entry.from}:`, error);
@@ -783,6 +845,15 @@ function FlightsTab({
 
       setHistoricalWeather(weatherMap);
       setLoadingWeather(false);
+
+      // Persist per-entry weather to documents (fire-and-forget)
+      Array.from(newWeatherByDoc.entries()).forEach(([docId, weatherByIndex]) => {
+        fetch(`/api/documents/${docId}/entries-weather`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ weatherByIndex }),
+        }).catch((err) => console.error('Failed to save entry weather:', err));
+      });
     };
 
     fetchHistoricalWeather();
@@ -812,9 +883,9 @@ function FlightsTab({
         _sortDate: entry.date ? new Date(entry.date) : new Date(0),
         _weatherIdx: idx,
         weather: weather ? {
-          ...weather.conditions,
+          ...(weather.conditions || {}),
           metar: weather.metar,
-          flightCategory: weather.conditions.flightCategory,
+          flightCategory: weather.conditions?.flightCategory ?? weather.flightCategory ?? 'UNKNOWN',
           station: entry.from,
         } : undefined,
       });

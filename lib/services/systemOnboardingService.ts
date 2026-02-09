@@ -2,7 +2,7 @@ import dbConnect from '@/lib/db';
 import { classifyDocumentFast } from './aiService';
 import { parseDocument } from './reductoService';
 import { saveFile } from './fileStorage';
-import { reconcileDocumentLinks } from './reconciliationService';
+import { reconcileDocumentLinks } from './autoAttachService';
 import ParsedDocument from '@/lib/models/ParsedDocument';
 import Flight from '@/lib/models/Flight';
 import Pilot from '@/lib/models/Pilot';

@@ -1,5 +1,6 @@
 import Pilot from '@/lib/models/Pilot';
 import Aircraft from '@/lib/models/Aircraft';
+import dbConnect from '@/lib/db';
 import { FastDocumentClassification } from './aiService';
 import { DocumentType, DetectedDocumentType, DOCUMENT_TYPE_META } from '@/lib/models/ParsedDocument';
 
@@ -345,4 +346,64 @@ export async function autoAttachDocument(
     attached: false,
     message: 'No attachment targets specified'
   };
+}
+
+/**
+ * Reconciles a parsed document with Pilots and Aircraft based on AI analysis.
+ * Uses cached lookups for fast matching.
+ * @param docId The ID of the ParsedDocument to reconcile
+ * @returns Object with linked entities
+ */
+export async function reconcileDocumentLinks(docId: string) {
+  await dbConnect();
+
+  const ParsedDocument = (await import('@/lib/models/ParsedDocument')).default;
+
+  const doc = await ParsedDocument.findById(docId);
+  if (!doc || !doc.analysis) {
+    return { success: false, error: 'Document or analysis not found' };
+  }
+
+  const { matchedPilotName, matchedAircraftTails } = doc.analysis as any;
+  const updates: any = {};
+  const results = {
+    pilotLinked: false,
+    aircraftLinked: false,
+    pilotId: null as string | null,
+    aircraftId: null as string | null
+  };
+
+  // 1. Reconcile Pilot using cached lookup
+  if (matchedPilotName && !doc.pilot) {
+    const pilot = await findCachedPilotByName(matchedPilotName);
+
+    if (pilot) {
+      updates.pilot = pilot._id;
+      results.pilotLinked = true;
+      results.pilotId = pilot._id.toString();
+
+      // Add to pilot's linked documents if not already there
+      await Pilot.findByIdAndUpdate(pilot._id, {
+        $addToSet: { linkedDocuments: doc._id }
+      });
+    }
+  }
+
+  // 2. Reconcile Aircraft using cached lookup
+  if (matchedAircraftTails && matchedAircraftTails.length > 0 && !doc.aircraft) {
+    const aircraft = await findCachedAircraftByTail(matchedAircraftTails);
+
+    if (aircraft) {
+      updates.aircraft = aircraft._id;
+      results.aircraftLinked = true;
+      results.aircraftId = aircraft._id.toString();
+    }
+  }
+
+  // Apply updates to the document
+  if (Object.keys(updates).length > 0) {
+    await ParsedDocument.findByIdAndUpdate(docId, { $set: updates });
+  }
+
+  return { success: true, ...results };
 }

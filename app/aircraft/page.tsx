@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Plane, Plus, AlertTriangle, CheckCircle, Wrench, Trash2, RefreshCw, Clock, Shield, History, FileText, ChevronDown, ChevronUp, Pencil, Check, X, Info } from 'lucide-react';
-import { useAircraft, useCreateAircraft, useDeleteAircraft, useUpdateAircraft, useParsedDocuments, useGenerateSafetyAnalysis, useFetchAircraftImage } from '@/lib/hooks';
+import { useAircraft, useCreateAircraft, useDeleteAircraft, useUpdateAircraft, useParsedDocuments, useFetchAircraftImage } from '@/lib/hooks';
 import type { Aircraft } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -29,39 +29,15 @@ export default function AircraftPage() {
     const createAircraft = useCreateAircraft();
     const deleteAircraft = useDeleteAircraft();
     const updateAircraft = useUpdateAircraft();
-    const generateSafetyAnalysis = useGenerateSafetyAnalysis();
     const fetchAircraftImage = useFetchAircraftImage();
 
     const [selectedAircraft, setSelectedAircraft] = useState<Aircraft | null>(null);
     const [showAddModal, setShowAddModal] = useState(false);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
-    const [isGeneratingAnalysis, setIsGeneratingAnalysis] = useState(false);
     const [isFetchingImage, setIsFetchingImage] = useState(false);
     const [editingDate, setEditingDate] = useState<string | null>(null);
     const [editDateValue, setEditDateValue] = useState('');
     const [activeTab, setActiveTab] = useState<TabType>('overview');
-
-    // Auto-generate safety analysis when aircraft is selected without one
-    useEffect(() => {
-        if (selectedAircraft && !selectedAircraft.safetyAnalysis && !isGeneratingAnalysis) {
-            // Only generate if the aircraft has logs to analyze
-            const hasLogs = (selectedAircraft.logs && selectedAircraft.logs.length > 0) ||
-                           (selectedAircraft.logbooks && Object.values(selectedAircraft.logbooks).some(arr => arr && arr.length > 0));
-
-            if (hasLogs) {
-                setIsGeneratingAnalysis(true);
-                generateSafetyAnalysis.mutate(selectedAircraft._id, {
-                    onSuccess: () => {
-                        refetch();
-                        setIsGeneratingAnalysis(false);
-                    },
-                    onError: () => {
-                        setIsGeneratingAnalysis(false);
-                    },
-                });
-            }
-        }
-    }, [selectedAircraft?._id, selectedAircraft?.safetyAnalysis]);
 
     // Auto-fetch aircraft image when aircraft is selected without one
     useEffect(() => {
@@ -303,13 +279,7 @@ export default function AircraftPage() {
                                         />
                                     )}
                                     {activeTab === 'safety' && (
-                                        <SafetyTab
-                                            aircraft={selectedAircraft}
-                                            isGeneratingAnalysis={isGeneratingAnalysis}
-                                            setIsGeneratingAnalysis={setIsGeneratingAnalysis}
-                                            generateSafetyAnalysis={generateSafetyAnalysis}
-                                            refetch={refetch}
-                                        />
+                                        <SafetyTab aircraft={selectedAircraft} />
                                     )}
                                     {activeTab === 'documents' && (
                                         <DocumentsTab aircraftId={selectedAircraft._id} />
@@ -762,57 +732,17 @@ function MaintenanceTab({
 // Safety Tab Component
 function SafetyTab({
     aircraft,
-    isGeneratingAnalysis,
-    setIsGeneratingAnalysis,
-    generateSafetyAnalysis,
-    refetch,
 }: {
     aircraft: Aircraft;
-    isGeneratingAnalysis: boolean;
-    setIsGeneratingAnalysis: (value: boolean) => void;
-    generateSafetyAnalysis: any;
-    refetch: () => void;
 }) {
-    const handleRegenerate = () => {
-        setIsGeneratingAnalysis(true);
-        generateSafetyAnalysis.mutate(aircraft._id, {
-            onSuccess: () => {
-                refetch();
-                setIsGeneratingAnalysis(false);
-            },
-            onError: () => setIsGeneratingAnalysis(false),
-        });
-    };
-
-    if (isGeneratingAnalysis) {
-        return (
-            <div className="p-8 text-center">
-                <RefreshCw className="w-10 h-10 text-blue-500 mx-auto mb-3 animate-spin" />
-                <p className="text-zinc-600 font-medium">Generating Safety Analysis...</p>
-                <p className="text-sm text-zinc-500 mt-1">Analyzing maintenance records and aircraft data</p>
-            </div>
-        );
-    }
-
     if (!aircraft.safetyAnalysis?.findings || aircraft.safetyAnalysis.findings.length === 0) {
-        const hasLogs = (aircraft.logs && aircraft.logs.length > 0) ||
-            (aircraft.logbooks && Object.values(aircraft.logbooks).some(arr => arr && arr.length > 0));
-
         return (
             <div className="p-8 text-center">
                 <Shield className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
                 <p className="text-zinc-600 font-medium">No Safety Analysis Available</p>
                 <p className="text-sm text-zinc-500 mt-1">
-                    {hasLogs
-                        ? 'Generate an analysis to assess aircraft safety'
-                        : 'Upload maintenance logs to generate analysis'}
+                    Upload maintenance logs to generate analysis
                 </p>
-                {hasLogs && (
-                    <Button onClick={handleRegenerate} className="mt-4">
-                        <Shield className="w-4 h-4 mr-2" />
-                        Generate Analysis
-                    </Button>
-                )}
             </div>
         );
     }
@@ -856,20 +786,9 @@ function SafetyTab({
                         </p>
                     </div>
                 </div>
-                <div className="flex items-center justify-between">
-                    <span className="text-sm text-zinc-500">
-                        Last analyzed: {new Date(aircraft.safetyAnalysis.lastAnalyzed).toLocaleDateString()}
-                    </span>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleRegenerate}
-                        disabled={isGeneratingAnalysis}
-                    >
-                        <RefreshCw className="w-4 h-4 mr-2" />
-                        Regenerate
-                    </Button>
-                </div>
+                <span className="text-sm text-zinc-500">
+                    Last analyzed: {new Date(aircraft.safetyAnalysis.lastAnalyzed).toLocaleDateString()}
+                </span>
             </div>
 
             {/* Findings */}

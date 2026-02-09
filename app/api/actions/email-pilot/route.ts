@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import mongoose from 'mongoose';
 import dbConnect from '@/lib/db';
 import Flight from '@/lib/models/Flight';
+import EmailAction from '@/lib/models/EmailAction';
 import { sendPilotSafetyBriefing } from '@/lib/services/emailService';
 import { rateLimit } from '@/lib/rate-limit';
 
@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const token = searchParams.get('token');
 
-    if (!token || !mongoose.Types.ObjectId.isValid(token)) {
+    if (!token) {
       return new NextResponse('Invalid Action Link', { status: 400 });
     }
 
@@ -21,7 +21,24 @@ export async function GET(request: NextRequest) {
     const rateLimited = rateLimit(`email-pilot:${token}`, { maxRequests: 3, windowSeconds: 300 });
     if (rateLimited) return rateLimited;
 
-    const flight = await Flight.findById(token)
+    // Look up the action by token
+    const action = await EmailAction.findOne({
+      token,
+      actionType: 'email_pilot',
+      status: 'pending',
+    });
+
+    if (!action) {
+      return new NextResponse('Invalid or already used action link', { status: 404 });
+    }
+
+    // Check if the token has expired
+    if (action.expiresAt < new Date()) {
+      await EmailAction.updateOne({ _id: action._id }, { status: 'expired' });
+      return new NextResponse('This action link has expired', { status: 410 });
+    }
+
+    const flight = await Flight.findById(action.flight)
       .populate('pilot')
       .populate({
         path: 'aircraft',
@@ -29,7 +46,7 @@ export async function GET(request: NextRequest) {
       });
 
     if (!flight) {
-      return new NextResponse('Flight not found or link expired', { status: 404 });
+      return new NextResponse('Flight not found', { status: 404 });
     }
 
     const aircraft = flight.aircraft as any;
@@ -41,6 +58,12 @@ export async function GET(request: NextRequest) {
     if (!result.success) {
       return new NextResponse(`Failed to send briefing: ${result.message}`, { status: 500 });
     }
+
+    // Mark the action as executed
+    await EmailAction.updateOne(
+      { _id: action._id },
+      { status: 'executed', executedAt: new Date() }
+    );
 
     // Return nice success HTML
     return new NextResponse(`

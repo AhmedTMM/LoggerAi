@@ -59,12 +59,10 @@ export interface StepLog {
 export type StepCallback = (log: StepLog) => void | Promise<void>;
 
 import { Reducto, toFile } from 'reductoai';
-import { ExtractRunResponse } from 'reductoai/resources/extract';
 import {
   isOpenRouterConfigured,
   generateCompletion,
   generateVisionCompletion,
-  parseJsonResponse,
   OPENROUTER_MODELS,
 } from './openRouterClient';
 import { repairAndParseJSON } from '@/lib/utils/jsonRepair';
@@ -115,6 +113,96 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operationName: s
   });
 }
 
+// ============ SHARED HELPERS ============
+
+type StepLogger = (step: ProcessingStep, message: string, progress: number, details?: Record<string, any>) => Promise<void>;
+
+/**
+ * Creates a step logging closure bound to a start time and callback.
+ */
+function createStepLogger(startTime: number, onStep?: StepCallback): StepLogger {
+  return async (step: ProcessingStep, message: string, progress: number, details?: Record<string, any>) => {
+    if (onStep) {
+      await onStep({
+        step,
+        message,
+        timestamp: new Date(),
+        progress,
+        details,
+        duration: Date.now() - startTime
+      });
+    }
+  };
+}
+
+/**
+ * Checks if a document type is a logbook variant.
+ */
+function isLogbookDocumentType(documentType: string): boolean {
+  return documentType === 'logbook' || documentType.includes('logbook');
+}
+
+/**
+ * Parses AI text response using JSON repair, extracts entries and remaining data.
+ * Returns null if parsing fails.
+ */
+function repairAndExtractEntries(
+  aiText: string
+): { items: any[]; rawData: any } | null {
+  const repairResult = repairAndParseJSON(aiText);
+
+  if (!repairResult.success) {
+    return null;
+  }
+
+  const items = repairResult.data.entries || [];
+  const { entries: _, ...rawData } = repairResult.data;
+
+  return { items, rawData };
+}
+
+/**
+ * Calculates total hours for logbook entries and logs completion,
+ * then builds and returns the standard ReductoResponse.
+ */
+async function buildParseResult(
+  items: any[],
+  rawData: any,
+  documentType: string,
+  rawText: string,
+  startTime: number,
+  mode: string,
+  log: StepLogger
+): Promise<ReductoResponse> {
+  const isLogbook = isLogbookDocumentType(documentType);
+
+  let totalHours = 0;
+  if (isLogbook) {
+    totalHours = items.reduce((sum: number, entry: any) => {
+      return sum + (parseFloat(entry.totalTime) || parseFloat(entry.duration) || 0);
+    }, 0);
+  }
+
+  const totalDuration = Date.now() - startTime;
+  await log('complete', 'Document processing complete!', 100, {
+    entryCount: items.length,
+    totalHours: isLogbook ? Math.round(totalHours * 10) / 10 : undefined,
+    processingTimeMs: totalDuration,
+    success: true,
+    mode
+  });
+
+  return {
+    success: true,
+    data: {
+      documentType,
+      extractedData: { entries: items, ...rawData },
+      confidence: 1.0,
+      rawText,
+    },
+  };
+}
+
 /**
  * ULTRA-FAST: Direct Gemini Vision extraction (no OCR step)
  * Uses Gemini's native PDF/image understanding to extract data directly.
@@ -131,19 +219,7 @@ export async function parseDocumentUltraFast(
   onStep?: StepCallback
 ): Promise<ReductoResponse> {
   const startTime = Date.now();
-
-  const log = async (step: ProcessingStep, message: string, progress: number, details?: Record<string, any>) => {
-    if (onStep) {
-      await onStep({
-        step,
-        message,
-        timestamp: new Date(),
-        progress,
-        details,
-        duration: Date.now() - startTime
-      });
-    }
-  };
+  const log = createStepLogger(startTime, onStep);
 
   if (!isOpenRouterConfigured()) {
     console.warn('[UltraFast] OpenRouter API key not configured, falling back to OCR pipeline');
@@ -171,10 +247,7 @@ export async function parseDocumentUltraFast(
       format: fileType
     });
 
-    // Choose the appropriate extraction prompt
-    // Handle all logbook types (pilot_logbook, aircraft_logbook, logbook)
-    const isLogbookType = documentType === 'logbook' || documentType.includes('logbook');
-    const prompt = isLogbookType
+    const prompt = isLogbookDocumentType(documentType)
       ? ULTRA_FAST_LOGBOOK_PROMPT
       : ULTRA_FAST_MAINTENANCE_PROMPT;
 
@@ -202,55 +275,17 @@ export async function parseDocumentUltraFast(
 
     await log('structuring', 'Parsing extracted data...', 80);
 
-    // Parse the AI response using the robust JSON repair utility
-    const repairResult = repairAndParseJSON(aiText);
-
-    let items: any[] = [];
-    let rawData: any = {};
-
-    if (repairResult.success) {
-      items = repairResult.data.entries || [];
-      const { entries: _, ...rest } = repairResult.data;
-      rawData = rest;
-
-      if (repairResult.wasRepaired) {
-        await log('structuring', `Recovered ${items.length} entries (${repairResult.repairMethod})`, 85);
-      }
-    } else {
+    const extracted = repairAndExtractEntries(aiText);
+    if (!extracted) {
       await log('error', 'Could not parse AI response, falling back to OCR pipeline', 80);
       return parseDocumentFast(fileBase64, fileType, documentType, onStep);
     }
 
     await log('validating_output', 'Validating extracted entries...', 90, {
-      entryCount: items.length
+      entryCount: extracted.items.length
     });
 
-    // Calculate stats
-    let totalHours = 0;
-    if (isLogbookType) {
-      totalHours = items.reduce((sum: number, entry: any) => {
-        return sum + (parseFloat(entry.totalTime) || parseFloat(entry.duration) || 0);
-      }, 0);
-    }
-
-    const totalDuration = Date.now() - startTime;
-    await log('complete', 'Document processing complete!', 100, {
-      entryCount: items.length,
-      totalHours: isLogbookType ? Math.round(totalHours * 10) / 10 : undefined,
-      processingTimeMs: totalDuration,
-      success: true,
-      mode: 'ultra-fast-vision'
-    });
-
-    return {
-      success: true,
-      data: {
-        documentType: documentType,
-        extractedData: { entries: items, ...rawData },
-        confidence: 1.0,
-        rawText: '',
-      },
-    };
+    return buildParseResult(extracted.items, extracted.rawData, documentType, '', startTime, 'ultra-fast-vision', log);
 
   } catch (error) {
     const errorMessage = (error as Error).message;
@@ -353,19 +388,7 @@ export async function parseDocumentFast(
 ): Promise<ReductoResponse> {
   const apiKey = process.env.REDUCTO_API_KEY;
   const startTime = Date.now();
-
-  const log = async (step: ProcessingStep, message: string, progress: number, details?: Record<string, any>) => {
-    if (onStep) {
-      await onStep({
-        step,
-        message,
-        timestamp: new Date(),
-        progress,
-        details,
-        duration: Date.now() - startTime
-      });
-    }
-  };
+  const log = createStepLogger(startTime, onStep);
 
   if (!apiKey) {
     console.warn('Reducto API key not configured');
@@ -375,7 +398,6 @@ export async function parseDocumentFast(
 
   if (!isOpenRouterConfigured()) {
     console.warn('OpenRouter API key not configured, falling back to slow extraction');
-    // Fall back to original slow method
     return parseDocument(fileBase64, fileType, documentType, onStep);
   }
 
@@ -398,7 +420,6 @@ export async function parseDocumentFast(
       sizeBytes: fileBuffer.length
     });
 
-    // Calculate dynamic timeouts based on file size
     const uploadTimeout = getScaledTimeout(REDUCTO_UPLOAD_TIMEOUT_BASE, fileBuffer.length);
     const parseTimeout = getScaledTimeout(REDUCTO_PARSE_TIMEOUT_BASE, fileBuffer.length);
 
@@ -421,16 +442,15 @@ export async function parseDocumentFast(
       timeout: `${parseTimeout / 1000}s`
     });
 
-    const parseStart = Date.now();
     const parseResult = await withTimeout(
       client.parse.run({
         input: upload,
         enhance: {
-          summarize_figures: false,    // Disable figure summaries (adds latency)
+          summarize_figures: false,
         },
         retrieval: {
           chunking: {
-            chunk_mode: 'disabled',    // Get all content in one chunk
+            chunk_mode: 'disabled',
           }
         }
       }),
@@ -444,7 +464,6 @@ export async function parseDocumentFast(
     });
 
     // 3. Extract text content from parse result
-    // Handle async job_id response (shouldn't happen with sync call but be safe)
     if ('job_id' in parseResult && !('result' in parseResult)) {
       await log('error', 'Received async job id but expected sync result', 50);
       return parseDocument(fileBase64, fileType, documentType, onStep);
@@ -453,11 +472,9 @@ export async function parseDocumentFast(
     let extractedText = '';
     const parseData = (parseResult as any).result;
 
-    // Handle FullResult type (has chunks array)
     if (parseData?.type === 'full' && parseData?.chunks) {
       extractedText = parseData.chunks
         .map((chunk: any) => {
-          // Each chunk has blocks and content
           if (chunk.blocks && chunk.blocks.length > 0) {
             return chunk.blocks
               .map((block: any) => {
@@ -474,7 +491,6 @@ export async function parseDocumentFast(
         .filter(Boolean)
         .join('\n\n');
     } else if (parseData?.type === 'url' && parseData?.url) {
-      // URL result - need to fetch the content
       await log('extracting', 'Fetching OCR result from URL...', 45);
       try {
         const urlResponse = await fetch(parseData.url);
@@ -492,7 +508,6 @@ export async function parseDocumentFast(
 
     if (!extractedText || extractedText.trim().length < 50) {
       await log('error', 'OCR produced insufficient text, falling back to extract method', 50);
-      // Fall back to the slower extract method
       return parseDocument(fileBase64, fileType, documentType, onStep);
     }
 
@@ -502,9 +517,7 @@ export async function parseDocumentFast(
     });
 
     // 4. Use AI to extract structured data from OCR text
-    // Handle all logbook types (pilot_logbook, aircraft_logbook, logbook)
-    const isLogbookType = documentType === 'logbook' || documentType.includes('logbook');
-    const prompt = isLogbookType
+    const prompt = isLogbookDocumentType(documentType)
       ? LOGBOOK_GEMINI_EXTRACTION_PROMPT
       : MAINTENANCE_GEMINI_EXTRACTION_PROMPT;
 
@@ -517,7 +530,6 @@ export async function parseDocumentFast(
         temperature: 0.1,
       });
     } catch (aiError: any) {
-      // Check if it's a quota/rate limit error
       if (aiError.message?.includes('quota') || aiError.message?.includes('429') || aiError.message?.includes('rate')) {
         await log('error', 'AI quota exceeded, using standard extraction', 60);
         return parseDocument(fileBase64, fileType, documentType, onStep);
@@ -527,59 +539,23 @@ export async function parseDocumentFast(
 
     await log('structuring', 'AI extraction complete', 80);
 
-    // 5. Parse the AI response using the robust JSON repair utility
+    // 5. Parse the AI response
+    const extracted = repairAndExtractEntries(aiText);
 
-    const repairResult = repairAndParseJSON(aiText);
-
-    let items: any[] = [];
-    let rawData: any = {};
-
-    if (repairResult.success) {
-      items = repairResult.data.entries || [];
-      const { entries: _, ...rest } = repairResult.data;
-      rawData = rest;
-
-      if (repairResult.wasRepaired) {
-        await log('structuring', `Recovered ${items.length} entries (${repairResult.repairMethod})`, 85);
-      }
-    } else {
+    if (!extracted) {
       await log('error', 'Failed to parse AI extraction response', 80);
+      // Return empty result rather than failing entirely
+      return buildParseResult([], {}, documentType, extractedText, startTime, 'hybrid-fast', log);
     }
 
     await log('validating_output', 'Validating extracted data...', 90, {
-      entryCount: items.length
+      entryCount: extracted.items.length
     });
 
-    // Calculate stats
-    let totalHours = 0;
-    if (isLogbookType) {
-      totalHours = items.reduce((sum: number, entry: any) => {
-        return sum + (parseFloat(entry.totalTime) || parseFloat(entry.duration) || 0);
-      }, 0);
-    }
-
-    const totalDuration = Date.now() - startTime;
-    await log('complete', 'Document processing complete!', 100, {
-      entryCount: items.length,
-      totalHours: isLogbookType ? Math.round(totalHours * 10) / 10 : undefined,
-      processingTimeMs: totalDuration,
-      success: true,
-      mode: 'hybrid-fast'
-    });
-
-    return {
-      success: true,
-      data: {
-        documentType: documentType,
-        extractedData: { entries: items, ...rawData },
-        confidence: 1.0,
-        rawText: extractedText,
-      },
-    };
+    return buildParseResult(extracted.items, extracted.rawData, documentType, extractedText, startTime, 'hybrid-fast', log);
 
   } catch (error) {
     await log('error', `Fast processing failed: ${(error as Error).message}`, 0);
-    // Fall back to the slower but more reliable extract method
     return parseDocument(fileBase64, fileType, documentType, onStep);
   }
 }
@@ -641,27 +617,12 @@ export async function parseDocument(
 ): Promise<ReductoResponse> {
   const apiKey = process.env.REDUCTO_API_KEY;
   const startTime = Date.now();
-
-  const log = async (step: ProcessingStep, message: string, progress: number, details?: Record<string, any>) => {
-    if (onStep) {
-      await onStep({
-        step,
-        message,
-        timestamp: new Date(),
-        progress,
-        details,
-        duration: Date.now() - startTime
-      });
-    }
-  };
+  const log = createStepLogger(startTime, onStep);
 
   if (!apiKey) {
     console.warn('Reducto API key not configured');
     await log('error', 'Reducto API key not configured', 0);
-    return {
-      success: false,
-      error: 'Reducto API key not configured',
-    };
+    return { success: false, error: 'Reducto API key not configured' };
   }
 
   try {
@@ -674,11 +635,10 @@ export async function parseDocument(
       format: fileType
     });
 
-    // 1. Upload File using helper
+    // 1. Upload File
     const fileBuffer = Buffer.from(fileBase64, 'base64');
     const filename = fileType === 'image' ? 'document.png' : 'document.pdf';
 
-    // Calculate dynamic timeouts based on file size
     const uploadTimeout = getScaledTimeout(REDUCTO_UPLOAD_TIMEOUT_BASE, fileBuffer.length);
     const extractTimeout = getScaledTimeout(REDUCTO_EXTRACT_TIMEOUT_BASE, fileBuffer.length);
 
@@ -702,15 +662,14 @@ export async function parseDocument(
     });
 
     // 2. Prepare Prompt
-    // Handle all logbook types (pilot_logbook, aircraft_logbook, logbook)
-    const isLogbookType = documentType === 'logbook' || documentType.includes('logbook');
+    const isLogbook = isLogbookDocumentType(documentType);
 
     await log('preparing', 'Selecting optimal extraction prompt...', 40, {
       documentType,
-      promptType: isLogbookType ? 'LOGBOOK_EXTRACTION_PROMPT' : 'MAINTENANCE_EXTRACTION_PROMPT'
+      promptType: isLogbook ? 'LOGBOOK_EXTRACTION_PROMPT' : 'MAINTENANCE_EXTRACTION_PROMPT'
     });
 
-    const prompt = isLogbookType
+    const prompt = isLogbook
       ? LOGBOOK_EXTRACTION_PROMPT
       : MAINTENANCE_EXTRACTION_PROMPT;
 
@@ -748,55 +707,21 @@ export async function parseDocument(
     await log('structuring', 'Structuring extracted data...', 80);
 
     const items = (extraction as any).result || [];
-    let extractedData: Record<string, any> = {};
-
-    extractedData = { entries: items };
-    await log('structuring', `Extracted ${items.length} ${isLogbookType ? 'logbook' : 'maintenance'} entries`, 85, {
+    await log('structuring', `Extracted ${items.length} ${isLogbook ? 'logbook' : 'maintenance'} entries`, 85, {
       entryCount: items.length,
       sampleFields: items[0] ? Object.keys(items[0]).slice(0, 5) : []
     });
 
     await log('validating_output', 'Validating extracted data...', 90);
 
-    // Calculate some stats for logging
-    const entryCount = items.length;
-    let totalHours = 0;
-    if (isLogbookType) {
-      totalHours = items.reduce((sum: number, entry: any) => {
-        return sum + (parseFloat(entry.totalTime) || parseFloat(entry.duration) || 0);
-      }, 0);
-    }
+    return buildParseResult(items, {}, documentType, '', startTime, 'reducto-extract', log);
 
-    await log('validating_output', 'Data validation complete', 95, {
-      entryCount,
-      totalHours: isLogbookType ? Math.round(totalHours * 10) / 10 : undefined,
-      confidence: 1.0
-    });
-
-    await log('complete', 'Document processing complete!', 100, {
-      entryCount,
-      processingTimeMs: Date.now() - startTime,
-      success: true
-    });
-
-    return {
-      success: true,
-      data: {
-        documentType: documentType,
-        extractedData,
-        confidence: 1.0,
-        rawText: '',
-      },
-    };
   } catch (error) {
     await log('error', `Processing failed: ${(error as Error).message}`, 0, {
       errorType: (error as Error).name,
       errorMessage: (error as Error).message
     });
-    return {
-      success: false,
-      error: (error as Error).message,
-    };
+    return { success: false, error: (error as Error).message };
   }
 }
 
@@ -981,19 +906,7 @@ Return as a JSON object with keys: vSpeeds (object with keys above camelCase), w
 // Parse POH from URL
 export async function parsePOHFromUrl(pohUrl: string, onStep?: StepCallback): Promise<ReductoResponse> {
   const startTime = Date.now();
-
-  const log = async (step: ProcessingStep, message: string, progress: number, details?: Record<string, any>) => {
-    if (onStep) {
-      await onStep({
-        step,
-        message,
-        timestamp: new Date(),
-        progress,
-        details,
-        duration: Date.now() - startTime
-      });
-    }
-  };
+  const log = createStepLogger(startTime, onStep);
 
   try {
     const apiKey = process.env.REDUCTO_API_KEY;

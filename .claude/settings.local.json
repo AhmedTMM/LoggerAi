@@ -15,7 +15,16 @@
       "Bash(ls:*)",
       "Bash(node scripts/fix-invalid-docs.js:*)",
       "Bash(node -e:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(wc:*)",
+      "Bash(for f in /Users/ahmed/Documents/GitHub/LogHacker/lib/models/*.ts)",
+      "Bash(do wc -l \"$f\")",
+      "Read(//Users/ahmed/Documents/GitHub/LogHacker/**)",
+      "Bash(for f in /Users/ahmed/Documents/GitHub/LogHacker/lib/*.ts)",
+      "Bash(find:*)",
+      "Bash(git -C /Users/ahmed/Documents/GitHub/LogHacker status app/api/documents/[id]/parse/ app/api/documents/smart-upload/ app/api/documents/upload/)",
+      "Bash(git -C /Users/ahmed/Documents/GitHub/LogHacker diff --stat HEAD)",
+      "Bash(npx vitest run:*)"
     ]
   }
 }

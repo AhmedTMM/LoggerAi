@@ -145,13 +145,6 @@ export const auditApi = {
     return data.data;
   },
 
-  sendAuditEmail: async (flightId: string): Promise<{ success: boolean; message: string }> => {
-    const data = await fetchAPI<{ success: boolean; message: string }>(
-      `/audit/email/${flightId}`,
-      { method: 'POST' }
-    );
-    return data;
-  },
 };
 
 // Weather API
@@ -187,106 +180,6 @@ export const documentApi = {
     return data.data || {};
   },
 
-  // Upload file without parsing - returns immediately
-  uploadOnly: async (params: {
-    fileBase64: string;
-    fileType: 'pdf' | 'image';
-    documentType: 'logbook' | 'maintenance' | 'poh' | 'other';
-    aircraftId?: string;
-    pilotId?: string;
-    filename?: string;
-  }): Promise<any> => {
-    const data = await fetchAPI<ApiResponse<any>>('/documents/upload', {
-      method: 'POST',
-      body: JSON.stringify(params),
-    });
-    return data.data;
-  },
-
-  // Trigger parsing for an uploaded document
-  startParsing: async (documentId: string): Promise<any> => {
-    const data = await fetchAPI<ApiResponse<any>>(`/documents/${documentId}/parse`, {
-      method: 'POST',
-    });
-    return data.data;
-  },
-
-  // Get parsing progress/status for a document
-  getParsingStatus: async (documentId: string): Promise<any> => {
-    const data = await fetchAPI<ApiResponse<any>>(`/documents/${documentId}/parse`);
-    return data.data;
-  },
-
-  // Stream upload with real-time progress via SSE
-  // Returns an async generator that yields progress events
-  uploadStream: async function* (params: {
-    fileBase64: string;
-    fileType: 'pdf' | 'image';
-    documentType: 'logbook' | 'maintenance' | 'poh' | 'other';
-    aircraftId?: string;
-    pilotId?: string;
-    filename?: string;
-  }): AsyncGenerator<{
-    type: 'log' | 'complete' | 'error';
-    data: any;
-  }> {
-    const response = await fetch(`${API_BASE}/documents/upload-stream`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
-    });
-
-    if (!response.ok) {
-      yield { type: 'error', data: { message: 'Upload failed' } };
-      return;
-    }
-
-    const reader = response.body?.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (reader) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      let currentEvent = '';
-
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          currentEvent = line.slice(7);
-        } else if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6));
-            yield { type: currentEvent as 'log' | 'complete' | 'error', data };
-          } catch (e) {
-            // Ignore parse errors
-          }
-        }
-      }
-    }
-  },
-};
-
-// Pilot Profile Generation API
-export const profileApi = {
-  generateFromLogbook: async (params: {
-    fileBase64: string;
-    fileType: 'pdf' | 'image';
-    name?: string;
-    email?: string;
-    filename?: string;
-    createPilot?: boolean;
-  }): Promise<any> => {
-    const data = await fetchAPI<any>('/pilots/generate-profile', {
-      method: 'POST',
-      body: JSON.stringify(params),
-    });
-    return data;
-  },
 };
 
 // Parsed Document Management API

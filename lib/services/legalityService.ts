@@ -1024,3 +1024,63 @@ function calculateRiskScenarios(aircraft: IAircraft, pilot: IPilot, weather: IWe
         return severityOrder[a.severity] - severityOrder[b.severity];
     });
 }
+
+// ============================================
+// STANDALONE BASIC AUDIT (for use without a Flight document)
+// Used by backgroundProcessor and smart-upload when pilot/aircraft
+// objects are available but no Flight record exists yet.
+// ============================================
+
+export interface BasicAuditResult {
+    checks: ILegalityCheck[];
+    overallStatus: 'go' | 'caution' | 'no-go';
+    weather?: IWeatherData;
+}
+
+export async function runBasicLegalityAudit(
+    aircraft: IAircraft,
+    pilot: IPilot,
+    flightDate: Date,
+    departureAirport: string
+): Promise<BasicAuditResult> {
+    const checks: ILegalityCheck[] = [];
+    const now = new Date(flightDate);
+
+    // Aircraft checks
+    checks.push(checkAnnualInspection(aircraft, now));
+    checks.push(checkTransponder(aircraft, now));
+    checks.push(checkStaticSystem(aircraft, now, !!pilot.certificates?.instrumentRated));
+    checks.push(checkHundredHour(aircraft, now, false));
+    checks.push(checkELT(aircraft, now));
+
+    // Pilot checks
+    checks.push(checkMedical(pilot, now));
+    checks.push(checkFlightReview(pilot, now));
+    checks.push(checkDayLandingCurrency(pilot));
+
+    // Weather/safety checks
+    let weather: IWeatherData | undefined;
+    try {
+        const weatherResult = await fetchWeatherData(departureAirport);
+        weather = weatherResult || undefined;
+
+        if (weather) {
+            const weatherChecks = checkWeatherVsPilot(
+                weather.flightCategory,
+                weather.wind,
+                pilot
+            );
+            checks.push(...weatherChecks);
+        }
+    } catch {
+        checks.push({
+            category: 'safety',
+            item: 'Weather Data',
+            status: 'warning',
+            message: 'Unable to fetch current weather - manual check required',
+        });
+    }
+
+    const overallStatus = calculateOverallStatus(checks);
+    return { checks, overallStatus, weather };
+}

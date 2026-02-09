@@ -1,9 +1,9 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { aircraftApi, pilotApi, flightApi, auditApi, weatherApi, documentApi, parsedDocumentApi, profileApi } from './api';
+import { aircraftApi, pilotApi, flightApi, auditApi, weatherApi, documentApi, parsedDocumentApi } from './api';
 import { useAnonymous } from './anonymous-context';
-import type { Aircraft, Pilot, Flight, WeatherData } from './types';
+import type { Aircraft, Pilot, Flight } from './types';
 
 // Aircraft Hooks
 export function useAircraft() {
@@ -179,27 +179,6 @@ export function useDeletePilot() {
   });
 }
 
-export function useApplyLogbook() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({ pilotId, documentId, action }: { pilotId: string; documentId: string; action?: 'add' | 'remove' }) => {
-      const res = await fetch(`/api/pilots/${pilotId}/apply-logbook`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ documentId, action }),
-      });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error);
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['pilots'] });
-      queryClient.invalidateQueries({ queryKey: ['parsedDocuments'] });
-    },
-  });
-}
-
 // Flight Hooks
 export function useFlights(params?: { status?: string; upcoming?: boolean; pilotId?: string }) {
   const { isAnonymous, data } = useAnonymous();
@@ -329,17 +308,6 @@ export function useRunFlightAudit() {
   });
 }
 
-export function useSendAuditEmail() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (flightId: string) => auditApi.sendAuditEmail(flightId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['flights'] });
-    },
-  });
-}
-
 // Weather Hooks
 export function useWeather(airport: string) {
   return useQuery({
@@ -389,25 +357,6 @@ export function useFetchAircraftImage() {
   });
 }
 
-// Generate/Regenerate Safety Analysis Hook (Aircraft)
-export function useGenerateSafetyAnalysis() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (aircraftId: string) => {
-      const res = await fetch(`/api/aircraft/${aircraftId}/analyze`, {
-        method: 'POST',
-      });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error);
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['aircraft'] });
-    },
-  });
-}
-
 // Generate/Regenerate Safety Analysis Hook (Pilot)
 export function useGeneratePilotSafetyAnalysis() {
   const queryClient = useQueryClient();
@@ -422,39 +371,6 @@ export function useGeneratePilotSafetyAnalysis() {
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['pilots'] });
-    },
-  });
-}
-
-// Upload document without parsing - for large files
-export function useUploadDocument() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (params: {
-      fileBase64: string;
-      fileType: 'pdf' | 'image';
-      documentType: 'logbook' | 'maintenance' | 'poh' | 'other';
-      aircraftId?: string;
-      pilotId?: string;
-      filename?: string;
-    }) => documentApi.uploadOnly(params),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['parsedDocuments'] });
-    },
-  });
-}
-
-// Trigger parsing for an uploaded document
-export function useStartParsing() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (documentId: string) => documentApi.startParsing(documentId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['parsedDocuments'] });
-      queryClient.invalidateQueries({ queryKey: ['aircraft'] });
       queryClient.invalidateQueries({ queryKey: ['pilots'] });
     },
   });
@@ -513,30 +429,7 @@ export function useDeleteParsedDocument() {
   });
 }
 
-// Pilot Profile Generation Hook
-export function useGeneratePilotProfile() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (params: {
-      fileBase64: string;
-      fileType: 'pdf' | 'image';
-      name?: string;
-      email?: string;
-      filename?: string;
-      createPilot?: boolean;
-    }) => profileApi.generateFromLogbook(params),
-    onSuccess: (data, variables) => {
-      if (variables.createPilot && data.pilot) {
-        queryClient.invalidateQueries({ queryKey: ['pilots'] });
-        queryClient.invalidateQueries({ queryKey: ['parsedDocuments'] });
-      }
-    },
-  });
-}
-
-// Weather Experience Cache Hook
-// Stores weather experience data on the client for use in safety analysis
+// Weather experience type used by pilot safety analysis
 export interface WeatherExperienceData {
   pilotId: string;
   totalFlights: number;
@@ -548,73 +441,3 @@ export interface WeatherExperienceData {
   lastUpdated: Date;
 }
 
-export function usePilotWeatherExperience(pilotId: string | undefined) {
-  return useQuery({
-    queryKey: ['pilotWeatherExperience', pilotId],
-    queryFn: async () => {
-      if (!pilotId) return null;
-
-      // Fetch from the new weather experience endpoint
-      const res = await fetch(`/api/pilots/${pilotId}/weather-experience`);
-      const data = await res.json();
-
-      if (!data.success) {
-        throw new Error(data.error || 'Failed to fetch weather experience');
-      }
-
-      return data.weatherExperience as WeatherExperienceData;
-    },
-    enabled: !!pilotId,
-    staleTime: 10 * 60 * 1000, // 10 minutes - weather experience doesn't change often
-    gcTime: 60 * 60 * 1000, // 1 hour cache
-  });
-}
-
-// Update pilot weather experience cache
-export function useUpdatePilotWeatherExperience() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (params: {
-      pilotId: string;
-      weatherExperience: Omit<WeatherExperienceData, 'pilotId'>;
-    }) => {
-      const res = await fetch(`/api/pilots/${params.pilotId}/weather-experience`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params.weatherExperience),
-      });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error);
-      return data;
-    },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['pilotWeatherExperience', variables.pilotId] });
-      queryClient.invalidateQueries({ queryKey: ['pilots'] });
-    },
-  });
-}
-
-// Generate pilot safety analysis with weather data
-export function useGeneratePilotSafetyAnalysisWithWeather() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (params: {
-      pilotId: string;
-      weatherExperience?: WeatherExperienceData;
-    }) => {
-      const res = await fetch(`/api/pilots/${params.pilotId}/analyze`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ weatherExperience: params.weatherExperience }),
-      });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error);
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['pilots'] });
-    },
-  });
-}

@@ -2,7 +2,7 @@ import dbConnect from '@/lib/db';
 import ParsedDocument from '@/lib/models/ParsedDocument';
 import Aircraft, { LogbookCategory } from '@/lib/models/Aircraft';
 import Pilot from '@/lib/models/Pilot';
-import { runBasicLegalityAudit } from '@/lib/services/auditEngine';
+import { runBasicLegalityAudit } from '@/lib/services/legalityService';
 import { invalidateAllCaches } from '@/lib/services/autoAttachService';
 import {
   calculateSummary,

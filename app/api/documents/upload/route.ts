@@ -4,7 +4,7 @@ import ParsedDocument from '@/lib/models/ParsedDocument';
 import { parseDocument } from '@/lib/services/reductoService';
 import { classifyDocumentFast, FastDocumentClassification } from '@/lib/services/aiService';
 import { saveFile } from '@/lib/services/fileStorage';
-import { reconcileDocumentLinks } from '@/lib/services/reconciliationService';
+import { reconcileDocumentLinks } from '@/lib/services/autoAttachService';
 import { requireAuth } from '@/lib/auth-helpers';
 import { rateLimit } from '@/lib/rate-limit';
 import {

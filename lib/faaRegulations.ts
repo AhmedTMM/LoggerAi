@@ -549,20 +549,6 @@ export const FAR_PART_43 = {
 } as const;
 
 // ============================================
-// 14 CFR PART 107 - SMALL UNMANNED AIRCRAFT SYSTEMS (drones)
-// ============================================
-
-export const FAR_PART_107 = {
-  section: '14 CFR Part 107',
-  title: 'Small Unmanned Aircraft Systems',
-  REMOTE_PILOT_CERTIFICATE: {
-    section: '14 CFR 107.12',
-    title: 'Requirement for a remote pilot certificate with a small UAS rating',
-    recurrency: 24, // months - knowledge test or training every 24 months
-  },
-} as const;
-
-// ============================================
 // NTSB Part 830 - Accident/Incident Reporting
 // ============================================
 

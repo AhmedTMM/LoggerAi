@@ -122,48 +122,6 @@ export async function readFile(relativePath: string): Promise<Buffer> {
   return fs.readFile(filePath);
 }
 
-// Read a file and return as base64 using streaming for memory efficiency
-export async function readFileAsBase64(relativePath: string): Promise<string> {
-  const filePath = path.join(UPLOADS_DIR, relativePath);
-  const stats = await fs.stat(filePath);
-
-  // For files under 10MB, direct read is faster
-  if (stats.size < 10 * 1024 * 1024) {
-    const buffer = await fs.readFile(filePath);
-    return buffer.toString('base64');
-  }
-
-  // For larger files, stream in chunks to avoid peak memory spikes
-  const { createReadStream } = await import('fs');
-  return new Promise<string>((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    const stream = createReadStream(filePath, { highWaterMark: 1024 * 1024 }); // 1MB chunks
-
-    stream.on('data', (chunk: string | Buffer) => {
-      if (typeof chunk === 'string') chunk = Buffer.from(chunk);
-      chunks.push(chunk);
-    });
-    stream.on('end', () => {
-      resolve(Buffer.concat(chunks).toString('base64'));
-    });
-    stream.on('error', reject);
-  });
-}
-
-// Delete a file from the uploads directory
-export async function deleteFile(relativePath: string): Promise<void> {
-  const filePath = path.join(UPLOADS_DIR, relativePath);
-  assertSafePath(filePath);
-  try {
-    await fs.unlink(filePath);
-  } catch (error: any) {
-    // Ignore if file doesn't exist
-    if (error.code !== 'ENOENT') {
-      throw error;
-    }
-  }
-}
-
 // Check if a file exists
 export async function fileExists(relativePath: string): Promise<boolean> {
   const filePath = path.join(UPLOADS_DIR, relativePath);
@@ -176,44 +134,3 @@ export async function fileExists(relativePath: string): Promise<boolean> {
   }
 }
 
-// Get file stats
-export async function getFileStats(relativePath: string): Promise<{ size: number; created: Date; modified: Date } | null> {
-  const filePath = path.join(UPLOADS_DIR, relativePath);
-  assertSafePath(filePath);
-  try {
-    const stats = await fs.stat(filePath);
-    return {
-      size: stats.size,
-      created: stats.birthtime,
-      modified: stats.mtime
-    };
-  } catch {
-    return null;
-  }
-}
-
-// Clean up old files (optional utility)
-export async function cleanupOldFiles(daysOld: number = 30): Promise<number> {
-  let deletedCount = 0;
-  const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - daysOld);
-
-  for (const subdir of Object.values(SUBDIRS)) {
-    const dirPath = path.join(UPLOADS_DIR, subdir);
-    try {
-      const files = await fs.readdir(dirPath);
-      for (const file of files) {
-        const filePath = path.join(dirPath, file);
-        const stats = await fs.stat(filePath);
-        if (stats.mtime < cutoffDate) {
-          await fs.unlink(filePath);
-          deletedCount++;
-        }
-      }
-    } catch {
-      // Directory doesn't exist, skip
-    }
-  }
-
-  return deletedCount;
-}
